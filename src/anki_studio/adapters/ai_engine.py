@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any, Dict, List
 import urllib.error
 import urllib.request
@@ -41,9 +42,20 @@ class AICardSynthesizer:
         max_cards: int = 10,
     ) -> Dict[str, Any]:
         """Synthesize cards using configured LLM endpoint, or fall back to deterministic NLP engine."""
+        t0 = time.perf_counter()
         text = (raw_text or "").strip()
         if not text:
-            return {"engine": "none", "cards": []}
+            return {
+                "engine": "none",
+                "provider": "none",
+                "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                "fallback_reason": "empty_input",
+                "error_code": None,
+                "cards": [],
+            }
+
+        fallback_reason = "endpoint_unconfigured"
+        error_code: str | None = None
 
         if self.endpoint_url:
             try:
@@ -69,21 +81,33 @@ class AICardSynthesizer:
                         .get("content", "")
                     )
                     specs = parse_ai_generated_cards(
+                        text,
                         content,
-                        fallback_source_text=text,
                         domain_mode=domain_mode,
+                        max_cards=max_cards,
                     )
                     if specs:
                         return {
                             "engine": f"llm:{self.model_name}",
+                            "provider": "llm",
+                            "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                            "fallback_reason": None,
+                            "error_code": None,
                             "cards": [self._spec_to_dict(s) for s in specs[:max_cards]],
                         }
-            except (urllib.error.URLError, TimeoutError, ValueError, KeyError, OSError):
-                pass
+                    fallback_reason = "empty_llm_output"
+                    error_code = "EmptyLLMOutput"
+            except (urllib.error.URLError, TimeoutError, ValueError, KeyError, OSError) as exc:
+                fallback_reason = "endpoint_error"
+                error_code = type(exc).__name__
 
         specs = extract_smart_cards_deterministic(text, domain_mode=domain_mode, max_cards=max_cards)
         return {
             "engine": "deterministic-nlp-zero-quota",
+            "provider": "deterministic_nlp",
+            "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+            "fallback_reason": fallback_reason,
+            "error_code": error_code,
             "cards": [self._spec_to_dict(s) for s in specs],
         }
 

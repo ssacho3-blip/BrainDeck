@@ -131,9 +131,11 @@ class AnkiStudioService:
         back_text: str,
         deck_id: Optional[int] = None,
         auto_save: bool = False,
+        parent_card_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         specs = decompose_leech_card(front_text=front_text, back_text=back_text)
         saved_ids = []
+        parent_suspended = False
         if auto_save and deck_id is not None:
             for s in specs:
                 nid = self.store.add_note(
@@ -144,6 +146,8 @@ class AnkiStudioService:
                     tags=list(s.tags),
                 )
                 saved_ids.append(nid)
+            if parent_card_id is not None and saved_ids:
+                parent_suspended = self.store.suspend_card(int(parent_card_id))
         return {
             "ok": True,
             "cards": [
@@ -157,6 +161,8 @@ class AnkiStudioService:
                 for s in specs
             ],
             "saved_note_ids": saved_ids,
+            "parent_card_id": int(parent_card_id) if parent_card_id is not None else None,
+            "parent_suspended": parent_suspended,
         }
 
     def generate_ai_cards(
@@ -183,6 +189,10 @@ class AnkiStudioService:
         return {
             "ok": True,
             "engine": res["engine"],
+            "provider": res.get("provider", "deterministic_nlp"),
+            "latency_ms": res.get("latency_ms", 0.0),
+            "fallback_reason": res.get("fallback_reason"),
+            "error_code": res.get("error_code"),
             "generated_count": len(res["cards"]),
             "saved_note_ids": saved_ids,
             "cards": res["cards"],
@@ -321,11 +331,13 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
 
                 if path == "/api/ai/decompose-leech":
                     deck_id = int(body["deck_id"]) if body.get("deck_id") is not None else None
+                    parent_card_id = int(body["parent_card_id"]) if body.get("parent_card_id") is not None else None
                     res = svc.decompose_leech(
                         front_text=str(body.get("front_text") or ""),
                         back_text=str(body.get("back_text") or ""),
                         deck_id=deck_id,
                         auto_save=bool(body.get("auto_save", False)),
+                        parent_card_id=parent_card_id,
                     )
                     self._send_json(res)
                     return

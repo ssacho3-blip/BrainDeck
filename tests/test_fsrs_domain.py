@@ -338,6 +338,9 @@ def test_http_server_endpoints_and_fail_closed_validation(tmp_path: Path) -> Non
     gen_data = json.loads(raw.decode("utf-8"))
     assert gen_data["ok"] is True
     assert gen_data["generated_count"] == 1
+    assert gen_data["provider"] == "deterministic_nlp"
+    assert gen_data["fallback_reason"] == "endpoint_unconfigured"
+    assert isinstance(gen_data["latency_ms"], float)
 
     # 3) POST /api/ai/evaluate & /api/ai/hint
     eval_body = json.dumps(
@@ -369,6 +372,46 @@ def test_http_server_endpoints_and_fail_closed_validation(tmp_path: Path) -> Non
     assert json.loads(raw.decode("utf-8"))["error"] == "invalid_json"
 
 
+def test_leech_decomposition_suspends_parent_and_preserves_revlog(tmp_path: Path) -> None:
+    svc = AnkiStudioService(db_path=tmp_path / "leech_handoff.sqlite", seed_defaults=False)
+    deck_id = svc.store.ensure_deck("Leech Handoff Deck")
+    svc.store.add_note(
+        deck_id=deck_id,
+        note_type="basic",
+        front_text="FinFET과 GAA의 구조적 차이와 장점은?",
+        back_text="FinFET은 3면 게이트 제어 구조이고; GAA는 Nanosheet 4면을 모두 감싸 단채널 효과를 억제한다.",
+    )
+    due_before = svc.store.get_due_cards(deck_id=deck_id)
+    assert len(due_before) == 1
+    parent_card_id = due_before[0]["card_id"]
+
+    # Record two Again lapses on the parent card so it becomes a Leech with revlog history
+    svc.submit_review(card_id=parent_card_id, rating=1)
+    svc.submit_review(card_id=parent_card_id, rating=1)
+    stats_before = svc.store.get_dashboard_stats()
+    assert stats_before["total_reviews"] == 2
+
+    res = svc.decompose_leech(
+        front_text=due_before[0]["front_text"],
+        back_text=due_before[0]["back_text"],
+        deck_id=deck_id,
+        auto_save=True,
+        parent_card_id=parent_card_id,
+    )
+    assert res["ok"] is True
+    assert res["parent_suspended"] is True
+    assert res["parent_card_id"] == parent_card_id
+    assert len(res["saved_note_ids"]) >= 2
+
+    # Parent card is suspended and excluded from active due queue, while revlog is preserved
+    due_after = svc.store.get_due_cards(deck_id=deck_id)
+    assert all(c["card_id"] != parent_card_id for c in due_after)
+    assert all(c["state"] == "new" for c in due_after)
+    stats_after = svc.store.get_dashboard_stats()
+    assert stats_after["suspended_cards"] == 1
+    assert stats_after["total_reviews"] == 2
+
+
 # 7. ViewModel Pure JS Unit Test via Node
 def test_viewmodel_js_pure_functions() -> None:
     vm_path = Path(__file__).resolve().parents[1] / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
@@ -387,3 +430,4 @@ def test_viewmodel_js_pure_functions() -> None:
     """
     proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, f"Node ViewModel test failed: {proc.stderr}"
+

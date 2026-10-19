@@ -172,11 +172,13 @@
       front_text: card.front_text,
       back_text: card.back_text,
       deck_id: card.deck_id,
+      parent_card_id: card.card_id,
       auto_save: true,
     });
     if (res && res.ok) {
       const box = el("hint-box");
-      box.textContent = `🧬 [AI Leech 원자 분할 완료] 복합 카드를 ${res.cards.length}개의 단일 개념 마이크로 카드로 쪼개어 현재 덱에 추가했습니다!`;
+      const suspendedLabel = res.parent_suspended ? " (원본 복합 카드 자동 정지)" : "";
+      box.textContent = `🧬 [AI Leech 원자 분할 완료] 복합 카드를 ${res.cards.length}개의 단일 개념 마이크로 카드로 쪼개어 현재 덱에 추가했습니다!${suspendedLabel}`;
       box.style.display = "block";
       await refreshDashboardAndQueue();
     }
@@ -231,7 +233,8 @@
         auto_save: true,
       });
       if (res && res.ok) {
-        el("ai-gen-status").textContent = `✅ ${res.generated_count}장의 스마트 카드 생성 및 저장 완료! (${res.engine})`;
+        const providerBadge = res.provider === "llm" ? `🤖 LLM 생성 (${res.engine})` : `⚡ 결정론적 NLP 추출 (${res.fallback_reason || "zero-quota"})`;
+        el("ai-gen-status").textContent = `✅ ${res.generated_count}장 생성 및 저장 완료! [${providerBadge} · ${res.latency_ms}ms]`;
         el("ai-raw-text").value = "";
         await refreshDashboardAndQueue();
       }

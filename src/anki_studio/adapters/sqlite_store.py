@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -157,11 +158,11 @@ class AnkiStudioStore:
                     d.name,
                     d.description,
                     d.desired_retention,
-                    COUNT(c.card_id) AS total_cards,
-                    SUM(CASE WHEN c.due_at <= ? THEN 1 ELSE 0 END) AS due_cards,
+                    COUNT(CASE WHEN c.state != 'suspended' THEN c.card_id END) AS total_cards,
+                    SUM(CASE WHEN c.state != 'suspended' AND c.due_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                     SUM(CASE WHEN c.state = 'new' THEN 1 ELSE 0 END) AS new_cards,
-                    SUM(CASE WHEN c.lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
-                     COALESCE(AVG(CASE WHEN c.stability > 0 THEN c.stability END), 0.0) AS avg_stability
+                    SUM(CASE WHEN c.state != 'suspended' AND c.lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
+                     COALESCE(AVG(CASE WHEN c.state != 'suspended' AND c.stability > 0 THEN c.stability END), 0.0) AS avg_stability
                 FROM decks d
                 LEFT JOIN cards c ON c.deck_id = d.deck_id
                 GROUP BY d.deck_id
@@ -239,6 +240,15 @@ class AnkiStudioStore:
                 )
             return note_id
 
+    def suspend_card(self, card_id: int) -> bool:
+        """Atomically suspend a card (e.g. parent Leech card after atomic decomposition) while preserving revlog."""
+        with self._write_tx() as conn:
+            cur = conn.execute(
+                "UPDATE cards SET state = 'suspended' WHERE card_id = ?",
+                (int(card_id),),
+            )
+            return cur.rowcount > 0
+
     def get_due_cards(
         self,
         deck_id: Optional[int] = None,
@@ -255,7 +265,7 @@ class AnkiStudioStore:
                 FROM cards c
                 JOIN notes n ON n.note_id = c.note_id
                 JOIN decks d ON d.deck_id = c.deck_id
-                WHERE c.due_at <= ?
+                WHERE c.state != 'suspended' AND c.due_at <= ?
             """
             params: List[Any] = [now_str]
             if deck_id is not None:
@@ -424,7 +434,7 @@ class AnkiStudioStore:
         now_iso = now_dt.isoformat()
 
         with self._write_tx() as conn:
-            query = "SELECT card_id, stability, difficulty, lapses, last_review_at FROM cards WHERE due_at <= ?"
+            query = "SELECT card_id, stability, difficulty, lapses, last_review_at FROM cards WHERE state != 'suspended' AND due_at <= ?"
             params: List[Any] = [now_iso]
             if deck_id is not None:
                 query += " AND deck_id = ?"
@@ -476,11 +486,12 @@ class AnkiStudioStore:
             totals = conn.execute(
                 """
                 SELECT
-                    COUNT(*) AS total_cards,
-                    SUM(CASE WHEN due_at <= ? THEN 1 ELSE 0 END) AS due_now,
-                    SUM(CASE WHEN lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
-                    COALESCE(AVG(CASE WHEN stability > 0 THEN stability END), 0.0) AS avg_stability,
-                    COALESCE(AVG(CASE WHEN difficulty > 0 THEN difficulty END), 0.0) AS avg_difficulty
+                    COUNT(CASE WHEN state != 'suspended' THEN 1 END) AS total_cards,
+                    SUM(CASE WHEN state != 'suspended' AND due_at <= ? THEN 1 ELSE 0 END) AS due_now,
+                    SUM(CASE WHEN state != 'suspended' AND lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
+                    SUM(CASE WHEN state = 'suspended' THEN 1 ELSE 0 END) AS suspended_cards,
+                    COALESCE(AVG(CASE WHEN state != 'suspended' AND stability > 0 THEN stability END), 0.0) AS avg_stability,
+                    COALESCE(AVG(CASE WHEN state != 'suspended' AND difficulty > 0 THEN difficulty END), 0.0) AS avg_difficulty
                 FROM cards
                 """,
                 (now,),
@@ -506,6 +517,7 @@ class AnkiStudioStore:
                 "total_cards": int(totals["total_cards"] or 0),
                 "due_now": int(totals["due_now"] or 0),
                 "leech_cards": int(totals["leech_cards"] or 0),
+                "suspended_cards": int(totals["suspended_cards"] or 0),
                 "avg_stability_days": avg_stab,
                 "avg_difficulty": round(float(totals["avg_difficulty"] or 0.0), 2),
                 "reviews_today": int(rev_stats["reviews_today"] or 0),
@@ -564,9 +576,10 @@ class AnkiStudioStore:
         return imported_count
 
     def export_apkg(self, output_path: str | Path, deck_id: Optional[int] = None) -> Path:
-        """Export notes into a standard Anki-compatible `.apkg` archive (`collection.anki2` + `media`)."""
+        """Atomically export notes into a standard Anki-compatible `.apkg` archive (`collection.anki2` + `media`)."""
         out_file = Path(output_path)
         out_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_out = out_file.with_name(f".{out_file.name}.tmp.{os.getpid()}")
 
         conn = self._connect()
         try:
@@ -582,26 +595,33 @@ class AnkiStudioStore:
         finally:
             conn.close()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            anki2_file = Path(tmpdir) / "collection.anki2"
-            exp_conn = sqlite3.connect(str(anki2_file))
-            try:
-                exp_conn.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, flds TEXT, tags TEXT)")
-                for n in notes:
-                    tags_list = json.loads(n["tags_json"] or "[]")
-                    tags_str = " ".join(str(t) for t in tags_list)
-                    flds_str = f"{n['front_text']}\x1f{n['back_text']}"
-                    exp_conn.execute(
-                        "INSERT INTO notes (id, flds, tags) VALUES (?, ?, ?)",
-                        (int(n["note_id"]), flds_str, tags_str),
-                    )
-                exp_conn.commit()
-            finally:
-                exp_conn.close()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                anki2_file = Path(tmpdir) / "collection.anki2"
+                exp_conn = sqlite3.connect(str(anki2_file))
+                try:
+                    exp_conn.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, flds TEXT, tags TEXT)")
+                    for n in notes:
+                        tags_list = json.loads(n["tags_json"] or "[]")
+                        tags_str = " ".join(str(t) for t in tags_list)
+                        flds_str = f"{n['front_text']}\x1f{n['back_text']}"
+                        exp_conn.execute(
+                            "INSERT INTO notes (id, flds, tags) VALUES (?, ?, ?)",
+                            (int(n["note_id"]), flds_str, tags_str),
+                        )
+                    exp_conn.commit()
+                finally:
+                    exp_conn.close()
 
-            with zipfile.ZipFile(out_file, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                zf.write(anki2_file, arcname="collection.anki2")
-                zf.writestr("media", "{}")
+                with zipfile.ZipFile(tmp_out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    zf.write(anki2_file, arcname="collection.anki2")
+                    zf.writestr("media", "{}")
+
+            os.replace(tmp_out, out_file)
+        except Exception:
+            if tmp_out.exists():
+                tmp_out.unlink(missing_ok=True)
+            raise
 
         return out_file
 
