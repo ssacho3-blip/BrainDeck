@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Anki Studio 2.0 — FSRS-5 & AI Active Recall Studio</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: rgba(17, 24, 39, 0.86);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --indigo: #818cf8;
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 15% 10%, #1e1b4b 0%, #090d16 55%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 22px 26px 48px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .brand-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .badge-pill {
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: rgba(30, 41, 59, 0.85);
+      color: var(--text);
+      padding: 9px 14px;
+      border-radius: 10px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    button:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      border-color: rgba(129, 140, 248, 0.5);
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .metric-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .metric-label {
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .metric-val {
+      font-size: 1.45rem;
+      font-weight: 800;
+    }
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 980px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(12px);
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+    .panel-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    select, textarea, input[type="text"] {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.92rem;
+    }
+    .card-arena {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(129, 140, 248, 0.28);
+      border-radius: 14px;
+      padding: 22px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .card-question {
+      font-size: 1.22rem;
+      line-height: 1.6;
+      font-weight: 600;
+      white-space: pre-wrap;
+    }
+    .card-answer {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px dashed var(--border);
+      font-size: 1.08rem;
+      line-height: 1.6;
+      color: var(--emerald);
+      white-space: pre-wrap;
+      display: none;
+    }
+    .ai-box {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: rgba(56, 189, 248, 0.09);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-size: 0.88rem;
+      line-height: 1.5;
+      display: none;
+      white-space: pre-wrap;
+    }
+    .rating-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .rate-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 8px;
+      border-radius: 12px;
+      font-weight: 700;
+    }
+    .rate-sub {
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .rate-again { border-color: rgba(251, 113, 133, 0.45); color: var(--rose); }
+    .rate-hard { border-color: rgba(251, 191, 36, 0.45); color: var(--amber); }
+    .rate-good { border-color: rgba(52, 211, 153, 0.45); color: var(--emerald); }
+    .rate-easy { border-color: rgba(56, 189, 248, 0.45); color: var(--accent); }
+    .recommended-glow {
+      box-shadow: 0 0 0 2px var(--accent), 0 0 16px rgba(56, 189, 248, 0.45);
+    }
+    .curve-svg {
+      width: 100%;
+      height: 125px;
+      background: rgba(15, 23, 42, 0.65);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="brand-title">
+        🧠 Anki Studio 2.0
+        <span class="badge-pill">FSRS-5 DSR Engine + AI Active Recall</span>
+      </div>
+      <div style="font-size:0.82rem;color:var(--muted);margin-top:4px;">
+        기존 Anki 단점 전면 극복: Ease Hell 방지 · 휴가 복습폭탄 평탄화 · AI 주관식 채점 & 소크라테스 힌트 · 원문 원클릭 카드 생성
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btn-decompress" title="밀린 복습 폭탄을 기억 인출확률(R) 우선순위로 7일간 평탄화합니다">
+        🏖️ 복습 폭탄 평탄화 (Vacation Shift)
+      </button>
+      <a href="/api/export.apkg" style="text-decoration:none;">
+        <button type="button">📦 Anki .apkg 내보내기</button>
+      </a>
+    </div>
+  </header>
+
+  <section class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">오늘 복습 대기 (Due Now)</div>
+      <div class="metric-val" id="stat-due">0장</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">전체 카드 / 오늘 완료</div>
+      <div class="metric-val" id="stat-total">0장 / 0회</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">FSRS-5 실제 기억 유지율 (True Retention)</div>
+      <div class="metric-val" id="stat-retention" style="color:var(--emerald);">90.0%</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">평균 기억 안정성 (Stability S) / Leech</div>
+      <div class="metric-val" id="stat-stability">0.0일 · 0건</div>
+    </div>
+  </section>
+
+  <div class="main-grid">
+    <!-- Left Column: Active Recall Review Arena -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">🎯 액티브 리콜 학습 아레나 (Zen Review Mode)</div>
+        <select id="deck-select" style="width:auto;min-width:260px;"></select>
+      </div>
+
+      <div id="leech-banner" class="ai-box" style="border-color:var(--rose);color:var(--rose);margin-bottom:10px;"></div>
+
+      <div class="card-arena">
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--muted);margin-bottom:10px;">
+            <span id="card-meta">덱 로딩 중...</span>
+            <span id="card-fsrs-meta">S: 0.0d · D: 0.0 · R: 100%</span>
+          </div>
+          <div class="card-question" id="card-question">오늘 예정된 모든 카드를 학습 완료했습니다! 🎉</div>
+          <div class="card-answer" id="card-answer"></div>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
+          <button id="btn-tts" type="button">🔊 원어민 발음 듣기 (T)</button>
+          <button id="btn-hint" type="button">💡 AI 소크라테스 힌트 (H)</button>
+          <button id="btn-decompose" type="button">🧬 AI Leech 원자 분할</button>
+          <button id="btn-reveal" class="btn-primary" type="button" style="margin-left:auto;">
+            정답 확인 (Space)
+          </button>
+        </div>
+      </div>
+
+      <div id="hint-box" class="ai-box"></div>
+
+      <!-- AI Objective Recall Grader -->
+      <div style="margin-top:14px;">
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:6px;">
+          ✍️ <strong>AI 객관식 자기채점 편향 방지기 (Free-Recall Grader)</strong> — 정답을 보기 전에 기억나는 내용을 입력하면 AI가 0~100% 채점 후 최적 FSRS 버튼을 추천합니다:
+        </div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="recall-input" placeholder="기억나는 핵심 키워드, 수치(예: 0.55, Nanosheet) 또는 영어 문장을 입력 후 Enter..." />
+          <button id="btn-eval" class="btn-primary" type="button" style="white-space:nowrap;">AI 채점</button>
+        </div>
+        <div id="eval-box" class="ai-box"></div>
+      </div>
+
+      <div class="rating-grid">
+        <button class="rate-btn rate-again" id="rate-1" data-rating="1">
+          <span>1 · Again (망각)</span>
+          <span class="rate-sub" id="preview-1">10m</span>
+        </button>
+        <button class="rate-btn rate-hard" id="rate-2" data-rating="2">
+          <span>2 · Hard (어려움)</span>
+          <span class="rate-sub" id="preview-2">1d</span>
+        </button>
+        <button class="rate-btn rate-good" id="rate-3" data-rating="3">
+          <span>3 · Good (적정)</span>
+          <span class="rate-sub" id="preview-3">3d</span>
+        </button>
+        <button class="rate-btn rate-easy" id="rate-4" data-rating="4">
+          <span>4 · Easy (완벽)</span>
+          <span class="rate-sub" id="preview-4">16d</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Right Column: AI Zero-Effort Card Factory & Forgetting Curve -->
+    <section style="display:flex;flex-direction:column;gap:20px;">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">✨ AI Zero-Effort 카드 팩토리 (수동 타이핑 해방)</div>
+          <select id="ai-domain-mode" style="width:auto;">
+            <option value="auto">자동 감지 (Auto)</option>
+            <option value="semiconductor_ai">반도체·AI 공학</option>
+            <option value="english">영어회화·표현 교정</option>
+          </select>
+        </div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">
+          노션 영어회화 노트, 반도체/딥테크 아티클, `용어: 정의` 또는 `한국어 -> 영어` 문장을 붙여넣으면 Cloze 빈칸 및 스피킹 카드로 즉시 변환됩니다.
+        </div>
+        <textarea id="ai-raw-text" rows="5" placeholder="예시:
+• CFET (Complementary FET): NMOS와 PMOS 나노시트를 수직으로 적층하여 셀 면적을 50% 축소하는 차세대 트랜지스터
+• 수율 문제를 다음 주까지 해결하겠습니다 -> We will resolve the yield issue by next week."></textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+          <span id="ai-gen-status" style="font-size:0.8rem;color:var(--emerald);"></span>
+          <button id="btn-generate-cards" class="btn-primary" type="button">
+            ⚡ AI 플래시카드 자동 생성 & 저장
+          </button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">📈 FSRS-5 30일 기억 망각곡선 시뮬레이션 R(t, S)</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-top:4px;">
+          멱함수 망각 방정식 $R(t,S) = (1 + \frac{19}{81}\frac{t}{S})^{-0.5}$ 기반 · 점선(90%) 도달 시점에 최적 복습 스케줄링
+        </div>
+        <svg class="curve-svg" viewBox="0 0 480 120" preserveAspectRatio="none">
+          <line x1="0" y1="30" x2="480" y2="30" stroke="rgba(52,211,153,0.35)" stroke-dasharray="4 4" stroke-width="1" />
+          <polyline id="curve-polyline" fill="none" stroke="#38bdf8" stroke-width="2.5" points="" />
+        </svg>
+      </div>
+    </section>
+  </div>
+
+  <script src="/viewmodel.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

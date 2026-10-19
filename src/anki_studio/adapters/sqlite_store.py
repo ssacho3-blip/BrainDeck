@@ -18,7 +18,12 @@ import zipfile
 from anki_studio.domain.fsrs_math import (
     CardMemoryState,
     Rating,
+    compute_retrievability,
+    detect_leech_severity,
     extract_cloze_ordinals,
+    forecast_forgetting_curve,
+    plan_backlog_decompression,
+    preview_all_ratings,
     render_cloze_card,
     step_fsrs,
 )
@@ -141,6 +146,46 @@ class AnkiStudioStore:
             ).fetchone()
             return int(row["deck_id"])
 
+    def list_decks(self, as_of_iso: Optional[str] = None) -> List[Dict[str, Any]]:
+        now = as_of_iso or _utc_now_iso()
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    d.deck_id,
+                    d.name,
+                    d.description,
+                    d.desired_retention,
+                    COUNT(c.card_id) AS total_cards,
+                    SUM(CASE WHEN c.due_at <= ? THEN 1 ELSE 0 END) AS due_cards,
+                    SUM(CASE WHEN c.state = 'new' THEN 1 ELSE 0 END) AS new_cards,
+                    SUM(CASE WHEN c.lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
+                     COALESCE(AVG(CASE WHEN c.stability > 0 THEN c.stability END), 0.0) AS avg_stability
+                FROM decks d
+                LEFT JOIN cards c ON c.deck_id = d.deck_id
+                GROUP BY d.deck_id
+                ORDER BY d.deck_id ASC
+                """,
+                (now,),
+            ).fetchall()
+            return [
+                {
+                    "deck_id": int(r["deck_id"]),
+                    "name": str(r["name"]),
+                    "description": str(r["description"]),
+                    "desired_retention": float(r["desired_retention"]),
+                    "total_cards": int(r["total_cards"] or 0),
+                    "due_cards": int(r["due_cards"] or 0),
+                    "new_cards": int(r["new_cards"] or 0),
+                    "leech_cards": int(r["leech_cards"] or 0),
+                    "avg_stability": round(float(r["avg_stability"] or 0.0), 2),
+                }
+                for r in rows
+            ]
+        finally:
+            conn.close()
+
     def add_note(
         self,
         deck_id: int,
@@ -151,13 +196,23 @@ class AnkiStudioStore:
         source_ref: Optional[str] = None,
         now_iso: Optional[str] = None,
     ) -> int:
-        """Insert a note and automatically generate its associated cards (Basic or Cloze)."""
+        """Insert a note and automatically generate its associated cards (Basic, Speaking, or Cloze)."""
         now = now_iso or _utc_now_iso()
-        ordinals = extract_cloze_ordinals(front_text) if note_type == "cloze" else [1]
-        if not ordinals:
+        if note_type == "cloze" or extract_cloze_ordinals(front_text):
+            note_type = "cloze"
+            ordinals = extract_cloze_ordinals(front_text) or [1]
+        else:
             ordinals = [1]
 
         with self._write_tx() as conn:
+            if source_ref:
+                existing = conn.execute(
+                    "SELECT note_id FROM notes WHERE source_ref = ?",
+                    (source_ref,),
+                ).fetchone()
+                if existing is not None:
+                    return int(existing["note_id"])
+
             cur = conn.execute(
                 """
                 INSERT INTO notes (deck_id, note_type, front_text, back_text, tags_json, source_ref, created_at)
@@ -184,18 +239,25 @@ class AnkiStudioStore:
                 )
             return note_id
 
-    def get_due_cards(self, deck_id: Optional[int] = None, as_of_iso: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        now = as_of_iso or _utc_now_iso()
+    def get_due_cards(
+        self,
+        deck_id: Optional[int] = None,
+        as_of_iso: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        now_str = as_of_iso or _utc_now_iso()
+        now_dt = datetime.fromisoformat(now_str)
         conn = self._connect()
         try:
             query = """
-                SELECT c.*, n.note_type, n.front_text, n.back_text, n.tags_json, d.name AS deck_name, d.desired_retention
+                SELECT c.*, n.note_type, n.front_text, n.back_text, n.tags_json,
+                       d.name AS deck_name, d.desired_retention
                 FROM cards c
                 JOIN notes n ON n.note_id = c.note_id
                 JOIN decks d ON d.deck_id = c.deck_id
                 WHERE c.due_at <= ?
             """
-            params: List[Any] = [now]
+            params: List[Any] = [now_str]
             if deck_id is not None:
                 query += " AND c.deck_id = ?"
                 params.append(int(deck_id))
@@ -208,9 +270,44 @@ class AnkiStudioStore:
                 if item["note_type"] == "cloze":
                     item["rendered_question"] = render_cloze_card(item["front_text"], item["ordinal"], reveal=False)
                     item["rendered_answer"] = render_cloze_card(item["front_text"], item["ordinal"], reveal=True)
+                    if item["back_text"]:
+                        item["rendered_answer"] += f"\n\n💡 해설: {item['back_text']}"
                 else:
                     item["rendered_question"] = item["front_text"]
                     item["rendered_answer"] = item["back_text"]
+
+                elapsed_days = 0.0
+                if item["last_review_at"]:
+                    prev_dt = datetime.fromisoformat(str(item["last_review_at"]))
+                    elapsed_days = max(0.0, (now_dt - prev_dt).total_seconds() / 86400.0)
+
+                mem = CardMemoryState(
+                    difficulty=float(item["difficulty"]),
+                    stability=float(item["stability"]),
+                    reps=int(item["reps"]),
+                    lapses=int(item["lapses"]),
+                    state=str(item["state"]),
+                )
+                previews = preview_all_ratings(
+                    mem,
+                    elapsed_days=elapsed_days,
+                    desired_retention=float(item["desired_retention"]),
+                )
+                item["button_previews"] = {
+                    k: {
+                        "scheduled_days": v.scheduled_days,
+                        "label": v.scheduled_label,
+                        "next_stability": v.memory.stability,
+                        "next_difficulty": v.memory.difficulty,
+                    }
+                    for k, v in previews.items()
+                }
+                item["leech_status"] = detect_leech_severity(mem.reps, mem.lapses, mem.difficulty)
+                item["retrievability"] = (
+                    round(compute_retrievability(elapsed_days, mem.stability), 4)
+                    if mem.stability > 0
+                    else 1.0
+                )
                 result.append(item)
             return result
         finally:
@@ -315,6 +412,110 @@ class AnkiStudioStore:
                 "due_at": due_dt.isoformat(),
             }
 
+    def decompress_backlog(
+        self,
+        deck_id: Optional[int] = None,
+        daily_cap: int = 25,
+        horizon_days: int = 7,
+        as_of: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Smoothly redistribute overdue review bombs across `horizon_days` using FSRS-5 retrievability priority."""
+        now_dt = as_of or datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
+
+        with self._write_tx() as conn:
+            query = "SELECT card_id, stability, difficulty, lapses, last_review_at FROM cards WHERE due_at <= ?"
+            params: List[Any] = [now_iso]
+            if deck_id is not None:
+                query += " AND deck_id = ?"
+                params.append(int(deck_id))
+            rows = conn.execute(query, params).fetchall()
+
+            snapshots: List[Dict[str, float | int]] = []
+            for r in rows:
+                elapsed = 1.0
+                if r["last_review_at"]:
+                    prev_dt = datetime.fromisoformat(str(r["last_review_at"]))
+                    elapsed = max(0.0, (now_dt - prev_dt).total_seconds() / 86400.0)
+                snapshots.append(
+                    {
+                        "card_id": int(r["card_id"]),
+                        "elapsed_days": elapsed,
+                        "stability": float(r["stability"]) if float(r["stability"]) > 0 else 1.0,
+                        "difficulty": float(r["difficulty"]),
+                        "lapses": int(r["lapses"]),
+                    }
+                )
+
+            plan = plan_backlog_decompression(snapshots, daily_cap=daily_cap, horizon_days=horizon_days)
+            rescheduled_count = 0
+            for entry in plan:
+                offset = int(entry["day_offset"])
+                if offset > 0:
+                    new_due = (now_dt + timedelta(days=offset)).isoformat()
+                    conn.execute(
+                        "UPDATE cards SET due_at = ? WHERE card_id = ?",
+                        (new_due, int(entry["card_id"])),
+                    )
+                    rescheduled_count += 1
+
+            return {
+                "total_due_evaluated": len(plan),
+                "kept_today": len(plan) - rescheduled_count,
+                "deferred_across_days": rescheduled_count,
+                "daily_cap": int(daily_cap),
+                "horizon_days": int(horizon_days),
+            }
+
+    def get_dashboard_stats(self, as_of_iso: Optional[str] = None) -> Dict[str, Any]:
+        """Compute real-time telemetry, retention rate, leech count, and forgetting curve."""
+        now = as_of_iso or _utc_now_iso()
+        today_prefix = now[:10]
+        conn = self._connect()
+        try:
+            totals = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_cards,
+                    SUM(CASE WHEN due_at <= ? THEN 1 ELSE 0 END) AS due_now,
+                    SUM(CASE WHEN lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
+                    COALESCE(AVG(CASE WHEN stability > 0 THEN stability END), 0.0) AS avg_stability,
+                    COALESCE(AVG(CASE WHEN difficulty > 0 THEN difficulty END), 0.0) AS avg_difficulty
+                FROM cards
+                """,
+                (now,),
+            ).fetchone()
+
+            rev_stats = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_reviews,
+                    SUM(CASE WHEN reviewed_at LIKE ? THEN 1 ELSE 0 END) AS reviews_today,
+                    SUM(CASE WHEN rating >= 2 THEN 1 ELSE 0 END) AS passed_reviews
+                FROM revlog
+                """,
+                (f"{today_prefix}%",),
+            ).fetchall()[0]
+
+            total_rev = int(rev_stats["total_reviews"] or 0)
+            passed_rev = int(rev_stats["passed_reviews"] or 0)
+            true_retention = round((passed_rev / total_rev) * 100.0, 1) if total_rev > 0 else 90.0
+            avg_stab = round(float(totals["avg_stability"] or 0.0), 2)
+
+            return {
+                "total_cards": int(totals["total_cards"] or 0),
+                "due_now": int(totals["due_now"] or 0),
+                "leech_cards": int(totals["leech_cards"] or 0),
+                "avg_stability_days": avg_stab,
+                "avg_difficulty": round(float(totals["avg_difficulty"] or 0.0), 2),
+                "reviews_today": int(rev_stats["reviews_today"] or 0),
+                "total_reviews": total_rev,
+                "true_retention_pct": true_retention,
+                "forgetting_curve": forecast_forgetting_curve(avg_stab if avg_stab > 0 else 5.0, horizon_days=30),
+            }
+        finally:
+            conn.close()
+
     def import_apkg(self, apkg_path: str | Path, target_deck_name: Optional[str] = None) -> int:
         """Import notes from a standard Anki .apkg ZIP package (`collection.anki2`)."""
         apkg_file = Path(apkg_path)
@@ -361,3 +562,95 @@ class AnkiStudioStore:
                 imported_count += 1
 
         return imported_count
+
+    def export_apkg(self, output_path: str | Path, deck_id: Optional[int] = None) -> Path:
+        """Export notes into a standard Anki-compatible `.apkg` archive (`collection.anki2` + `media`)."""
+        out_file = Path(output_path)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+
+        conn = self._connect()
+        try:
+            if deck_id is not None:
+                notes = conn.execute(
+                    "SELECT note_id, front_text, back_text, tags_json FROM notes WHERE deck_id = ? ORDER BY note_id ASC",
+                    (int(deck_id),),
+                ).fetchall()
+            else:
+                notes = conn.execute(
+                    "SELECT note_id, front_text, back_text, tags_json FROM notes ORDER BY note_id ASC"
+                ).fetchall()
+        finally:
+            conn.close()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            anki2_file = Path(tmpdir) / "collection.anki2"
+            exp_conn = sqlite3.connect(str(anki2_file))
+            try:
+                exp_conn.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, flds TEXT, tags TEXT)")
+                for n in notes:
+                    tags_list = json.loads(n["tags_json"] or "[]")
+                    tags_str = " ".join(str(t) for t in tags_list)
+                    flds_str = f"{n['front_text']}\x1f{n['back_text']}"
+                    exp_conn.execute(
+                        "INSERT INTO notes (id, flds, tags) VALUES (?, ?, ?)",
+                        (int(n["note_id"]), flds_str, tags_str),
+                    )
+                exp_conn.commit()
+            finally:
+                exp_conn.close()
+
+            with zipfile.ZipFile(out_file, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.write(anki2_file, arcname="collection.anki2")
+                zf.writestr("media", "{}")
+
+        return out_file
+
+    def seed_default_decks_if_empty(self) -> None:
+        """Populate starter decks for English Conversation and Semiconductor/AI Engineering if DB is empty."""
+        decks = self.list_decks()
+        if any(d["total_cards"] > 0 for d in decks):
+            return
+
+        eng_id = self.ensure_deck(
+            "🗣️ 비즈니스 & 실전 영어회화 (English Speaking)",
+            description="노션 영어회화 DB 연동 · 내 실수 패턴 교정 및 원어민 핵심 표현 액티브 리콜",
+            desired_retention=0.90,
+        )
+        self.add_note(
+            deck_id=eng_id,
+            note_type="speaking",
+            front_text="🗣️ [영어 표현 인출] 지난번 회의 안건에 대해 후속 논의를 이어가고 싶습니다.",
+            back_text="I'd like to follow up on the action items from our last meeting.",
+            tags=["english", "business-meeting", "speaking"],
+            source_ref="seed:eng:1",
+        )
+        self.add_note(
+            deck_id=eng_id,
+            note_type="cloze",
+            front_text="양산 일정을 앞당기려면 수율 병목부터 해결해야 합니다: To pull in the mass production schedule, we need to {{c1::resolve the yield bottleneck::핵심 동사구}} first.",
+            back_text="pull in the schedule (일정을 앞당기다) / resolve the yield bottleneck (수율 병목을 해결하다)",
+            tags=["english", "semiconductor-biz", "cloze"],
+            source_ref="seed:eng:2",
+        )
+
+        semi_id = self.ensure_deck(
+            "🔬 반도체 소자·공정 & AI 아키텍처 (DeepTech)",
+            description="FinFET/GAA Nanosheet · High-NA EUV · LLM 추론 최적화 핵심 수식 및 개념",
+            desired_retention=0.92,
+        )
+        self.add_note(
+            deck_id=semi_id,
+            note_type="cloze",
+            front_text="차세대 {{c1::High-NA EUV::노광 장비}}는 개구수(NA)를 기존 0.33에서 {{c2::0.55::수치}}로 높여 단일 노광 해상도를 8nm급으로 개선한다.",
+            back_text="Anamorphic 렌즈(가로 4x, 세로 8x 배율 축소)를 사용하여 0.55 NA를 달성함.",
+            tags=["semiconductor", "lithography", "euv"],
+            source_ref="seed:semi:1",
+        )
+        self.add_note(
+            deck_id=semi_id,
+            note_type="cloze",
+            front_text="2nm 이하 공정에서 FinFET을 대체하는 {{c1::GAA (Gate-All-Around)::트랜지스터 구조}}는 채널인 {{c2::Nanosheet}}의 4면을 게이트가 완전히 감싸 누설전류와 단채널 효과(SCE)를 극소화한다.",
+            back_text="유효 채널 폭(Weff)을 나노시트 적층 수로 유연하게 조절 가능.",
+            tags=["semiconductor", "device", "gaa"],
+            source_ref="seed:semi:2",
+        )

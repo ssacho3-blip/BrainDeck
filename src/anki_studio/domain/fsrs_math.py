@@ -301,3 +301,62 @@ def render_cloze_card(text: str, active_ordinal: int, reveal: bool = False) -> s
         return answer
 
     return _CLOZE_PATTERN.sub(_replacer, text or "")
+
+
+def detect_leech_severity(reps: int, lapses: int, difficulty: float) -> str:
+    """Classify card leech status based on lapses and difficulty.
+
+    Returns 'healthy', 'warning', or 'critical_leech'.
+    """
+    if lapses < 0 or reps < 0 or not math.isfinite(difficulty):
+        raise ValueError("Invalid parameters for leech detection")
+    if lapses >= 4 or (lapses >= 2 and difficulty >= 8.5):
+        return "critical_leech"
+    if lapses >= 2:
+        return "warning"
+    return "healthy"
+
+
+def plan_backlog_decompression(
+    overdue_cards: Sequence[Dict[str, float | int]],
+    daily_cap: int = 30,
+    horizon_days: int = 7,
+) -> List[Dict[str, int | float]]:
+    """Redistribute a review backlog smoothly across `horizon_days` without exceeding `daily_cap`.
+
+    Solves legacy Anki's 'post-vacation review bomb' by prioritizing cards with the
+    lowest current retrievability R(t, S) (highest forgetting risk) on Day 0, while
+    deferring higher-stability cards across subsequent days.
+    """
+    if daily_cap <= 0:
+        raise ValueError(f"daily_cap must be >= 1, got {daily_cap}")
+    if horizon_days <= 0:
+        raise ValueError(f"horizon_days must be >= 1, got {horizon_days}")
+
+    scored: List[Tuple[float, int, Dict[str, float | int]]] = []
+    for item in overdue_cards:
+        cid = int(item["card_id"])
+        elapsed = max(0.0, float(item.get("elapsed_days", 0.0)))
+        stability = max(0.1, float(item.get("stability", 1.0)))
+        lapses = max(0, int(item.get("lapses", 0)))
+        r_now = compute_retrievability(elapsed, stability)
+        # Lower retrievability + higher lapses = more urgent (smaller sort key)
+        urgency_key = r_now - min(0.15, lapses * 0.03)
+        scored.append((urgency_key, cid, item))
+
+    scored.sort(key=lambda x: (x[0], x[1]))
+
+    plan: List[Dict[str, int | float]] = []
+    for idx, (_, cid, item) in enumerate(scored):
+        day_offset = min(horizon_days - 1, idx // daily_cap)
+        elapsed = max(0.0, float(item.get("elapsed_days", 0.0)))
+        stability = max(0.1, float(item.get("stability", 1.0)))
+        plan.append(
+            {
+                "card_id": cid,
+                "day_offset": int(day_offset),
+                "retrievability": round(compute_retrievability(elapsed, stability), 4),
+            }
+        )
+    return plan
+

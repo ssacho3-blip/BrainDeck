@@ -1,5 +1,6 @@
-"""Adapters layer for Anki Studio (SQLite WAL Store & .apkg Importer/Exporter)."""
+"""Adapters layer for Anki Studio (SQLite WAL Store, .apkg Codec, and AI Synthesizer)."""
 
+from .ai_engine import AICardSynthesizer
 from .sqlite_store import AnkiStudioStore
 
-__all__ = ["AnkiStudioStore"]
+__all__ = ["AICardSynthesizer", "AnkiStudioStore"]
