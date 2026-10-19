@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS notes (
     back_text TEXT NOT NULL DEFAULT '',
     tags_json TEXT NOT NULL DEFAULT '[]',
     source_ref TEXT UNIQUE,
+    source_page INTEGER,
+    source_excerpt TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 
@@ -122,6 +124,14 @@ class AnkiStudioStore:
             for stmt in SCHEMA_SQL.strip().split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
+            cols = {
+                str(r["name"])
+                for r in conn.execute("PRAGMA table_info(notes)").fetchall()
+            }
+            if "source_page" not in cols:
+                conn.execute("ALTER TABLE notes ADD COLUMN source_page INTEGER;")
+            if "source_excerpt" not in cols:
+                conn.execute("ALTER TABLE notes ADD COLUMN source_excerpt TEXT NOT NULL DEFAULT '';")
 
     def ensure_deck(
         self,
@@ -240,6 +250,94 @@ class AnkiStudioStore:
                 )
             return note_id
 
+    def create_deck_with_notes(
+        self,
+        deck_name: str,
+        notes: List[Dict[str, Any]],
+        description: str = "",
+        desired_retention: float = 0.90,
+        now_iso: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Atomically create or resolve a deck and insert N notes in a single BEGIN IMMEDIATE transaction (AC-4)."""
+        clean_deck = (deck_name or "").strip()
+        if not clean_deck:
+            raise ValueError("deck_name must not be empty")
+        if not notes:
+            raise ValueError("notes list must not be empty")
+
+        now = now_iso or _utc_now_iso()
+        with self._write_tx() as conn:
+            conn.execute(
+                """
+                INSERT INTO decks (name, description, desired_retention, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    description = CASE WHEN excluded.description != '' THEN excluded.description ELSE decks.description END
+                """,
+                (clean_deck, description.strip(), float(desired_retention), now),
+            )
+            row = conn.execute(
+                "SELECT deck_id FROM decks WHERE name = ?",
+                (clean_deck,),
+            ).fetchone()
+            deck_id = int(row["deck_id"])
+
+            saved_note_ids: List[int] = []
+            for item in notes:
+                front = str(item.get("front_text") or "").strip()
+                if not front:
+                    raise ValueError("Every note in create_deck_with_notes must have non-empty front_text")
+                back = str(item.get("back_text") or "").strip()
+                note_type = str(item.get("note_type") or "basic").strip()
+                tags = list(item.get("tags") or [])
+                source_ref = item.get("source_ref")
+                raw_page = item.get("source_page")
+                source_page = int(raw_page) if raw_page is not None else None
+                source_excerpt = str(item.get("source_excerpt") or "")
+
+                if note_type == "cloze" or extract_cloze_ordinals(front):
+                    note_type = "cloze"
+                    ordinals = extract_cloze_ordinals(front) or [1]
+                else:
+                    ordinals = [1]
+
+                cur = conn.execute(
+                    """
+                    INSERT INTO notes (
+                        deck_id, note_type, front_text, back_text,
+                        tags_json, source_ref, source_page, source_excerpt, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        deck_id,
+                        note_type,
+                        front,
+                        back,
+                        json.dumps(tags, ensure_ascii=False),
+                        source_ref,
+                        source_page,
+                        source_excerpt,
+                        now,
+                    ),
+                )
+                note_id = int(cur.lastrowid)
+                saved_note_ids.append(note_id)
+                for ordinal in ordinals:
+                    conn.execute(
+                        """
+                        INSERT INTO cards (note_id, deck_id, ordinal, state, difficulty, stability, reps, lapses, due_at)
+                        VALUES (?, ?, ?, 'new', 0.0, 0.0, 0, 0, ?)
+                        """,
+                        (note_id, deck_id, int(ordinal), now),
+                    )
+
+            return {
+                "deck_id": deck_id,
+                "deck_name": clean_deck,
+                "saved_note_ids": saved_note_ids,
+            }
+
     def suspend_card(self, card_id: int) -> bool:
         """Atomically suspend a card (e.g. parent Leech card after atomic decomposition) while preserving revlog."""
         with self._write_tx() as conn:
@@ -261,6 +359,7 @@ class AnkiStudioStore:
         try:
             query = """
                 SELECT c.*, n.note_type, n.front_text, n.back_text, n.tags_json,
+                       n.source_ref, n.source_page, n.source_excerpt,
                        d.name AS deck_name, d.desired_retention
                 FROM cards c
                 JOIN notes n ON n.note_id = c.note_id

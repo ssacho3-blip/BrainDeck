@@ -240,6 +240,183 @@
       }
     });
 
+    // Photo & PDF Auto-Deck Builder events
+    const dropzone = el("doc-dropzone");
+    const fileInput = el("doc-file-input");
+
+    async function handleDocumentFile(file) {
+      if (!file) return;
+      const banner = el("doc-ingest-banner");
+      const previewContainer = el("doc-preview-container");
+      banner.style.display = "block";
+      banner.style.borderColor = "var(--accent)";
+      banner.style.color = "var(--text)";
+      banner.textContent = `⏳ '${file.name}' (${(file.size / 1024).toFixed(1)}KB) OCR 및 구조 분석 중...`;
+      previewContainer.style.display = "none";
+
+      const deckName = el("doc-deck-name").value.trim();
+      const autoSave = el("doc-auto-save").checked ? "1" : "0";
+      const params = new URLSearchParams({ auto_save: autoSave, max_cards: "30" });
+      if (deckName) params.set("deck_name", deckName);
+
+      const mime = file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/png");
+      const buf = await file.arrayBuffer();
+      const resp = await fetch(`/api/ai/ingest-document?${params.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": mime },
+        body: buf,
+      });
+      const res = await resp.json();
+      const formatted = vm.formatIngestStatusBanner(res);
+      banner.style.borderColor = formatted.tone === "rose" ? "var(--rose)" : "var(--emerald)";
+      banner.style.color = formatted.tone === "rose" ? "var(--rose)" : "var(--text)";
+      banner.textContent = `${formatted.title}\n${formatted.summary}`;
+
+      if (res && res.status === "OK") {
+        state.pendingDeckPlan = {
+          deck_name: res.deck_name,
+          category: res.category,
+          cards: (res.cards || []).map((c) => ({ ...c })),
+        };
+        const isAlreadySaved = Boolean(res.deck_id);
+        const listEl = el("doc-preview-list");
+
+        function renderPreviewCards() {
+          listEl.textContent = "";
+          const activeCards = (state.pendingDeckPlan && state.pendingDeckPlan.cards) || [];
+          activeCards.forEach((c, idx) => {
+            const itemDiv = document.createElement("div");
+            itemDiv.style.cssText =
+              "background:rgba(15,23,42,0.85);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:0.8rem;display:flex;flex-direction:column;gap:5px;";
+
+            const headerRow = document.createElement("div");
+            headerRow.style.cssText =
+              "display:flex;justify-content:space-between;align-items:center;color:var(--accent);font-weight:700;";
+
+            const patLabel = vm.formatPatternBadge(c.pattern);
+            const leftSpan = document.createElement("span");
+            leftSpan.textContent = `#${idx + 1} [${patLabel} · ${String(c.note_type || "basic").toUpperCase()}]`;
+
+            const rightBox = document.createElement("div");
+            rightBox.style.cssText = "display:flex;align-items:center;gap:8px;";
+            const pageSpan = document.createElement("span");
+            pageSpan.textContent = `📄 p.${c.source_page} 출처 검증됨`;
+            rightBox.appendChild(pageSpan);
+
+            if (!isAlreadySaved) {
+              const removeBtn = document.createElement("button");
+              removeBtn.type = "button";
+              removeBtn.textContent = "제외";
+              removeBtn.style.cssText =
+                "background:rgba(244,63,94,0.18);color:var(--rose);border:1px solid var(--rose);border-radius:5px;padding:1px 7px;font-size:0.72rem;cursor:pointer;";
+              removeBtn.addEventListener("click", () => {
+                state.pendingDeckPlan.cards.splice(idx, 1);
+                renderPreviewCards();
+              });
+              rightBox.appendChild(removeBtn);
+            }
+
+            headerRow.appendChild(leftSpan);
+            headerRow.appendChild(rightBox);
+            itemDiv.appendChild(headerRow);
+
+            if (isAlreadySaved) {
+              const qDiv = document.createElement("div");
+              qDiv.style.cssText = "font-weight:600;margin-bottom:2px;";
+              qDiv.textContent = `Q: ${c.front_text}`;
+              const aDiv = document.createElement("div");
+              aDiv.style.cssText = "color:var(--emerald);";
+              aDiv.textContent = `A: ${c.back_text}`;
+              itemDiv.appendChild(qDiv);
+              itemDiv.appendChild(aDiv);
+            } else {
+              const qInput = document.createElement("input");
+              qInput.type = "text";
+              qInput.value = c.front_text;
+              qInput.setAttribute("aria-label", `카드 ${idx + 1} 질문 편집`);
+              qInput.style.cssText =
+                "width:100%;background:rgba(9,13,22,0.8);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:0.78rem;font-weight:600;";
+              qInput.addEventListener("input", () => {
+                c.front_text = qInput.value;
+              });
+
+              const aInput = document.createElement("input");
+              aInput.type = "text";
+              aInput.value = c.back_text;
+              aInput.setAttribute("aria-label", `카드 ${idx + 1} 정답 편집`);
+              aInput.style.cssText =
+                "width:100%;background:rgba(9,13,22,0.8);color:var(--emerald);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:0.78rem;";
+              aInput.addEventListener("input", () => {
+                c.back_text = aInput.value;
+              });
+
+              itemDiv.appendChild(qInput);
+              itemDiv.appendChild(aInput);
+            }
+
+            listEl.appendChild(itemDiv);
+          });
+
+          el("doc-preview-title").textContent = isAlreadySaved
+            ? `🎉 '${res.deck_name}' 덱에 ${activeCards.length}장이 즉시 저장되었습니다!`
+            : `🔍 미리보기 (${activeCards.length}장) — 앞/뒷면 수정 또는 불필요 카드 제외 후 일괄 생성하세요`;
+          el("btn-save-doc-deck").style.display =
+            formatted.canSave && activeCards.length > 0 ? "inline-block" : "none";
+        }
+
+        renderPreviewCards();
+        previewContainer.style.display = "block";
+        if (res.deck_id) {
+          state.selectedDeckId = String(res.deck_id);
+          await refreshDashboardAndQueue();
+        }
+      }
+    }
+
+    if (dropzone && fileInput) {
+      dropzone.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleDocumentFile(e.target.files[0]);
+          e.target.value = "";
+        }
+      });
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = "var(--emerald)";
+      });
+      dropzone.addEventListener("dragleave", () => {
+        dropzone.style.borderColor = "rgba(56,189,248,0.45)";
+      });
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = "rgba(56,189,248,0.45)";
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleDocumentFile(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    const btnSaveDocDeck = el("btn-save-doc-deck");
+    if (btnSaveDocDeck) {
+      btnSaveDocDeck.addEventListener("click", async () => {
+        const plan = state.pendingDeckPlan;
+        if (!plan || !plan.cards || !plan.cards.length) return;
+        const customName = el("doc-deck-name").value.trim() || plan.deck_name;
+        const res = await apiPost("/api/decks/batch-save", {
+          deck_name: customName,
+          category: plan.category,
+          cards: plan.cards,
+        });
+        if (res && res.ok) {
+          el("doc-preview-title").textContent = `🎉 '${res.deck_name}' 덱 (${res.saved_count}장) 일괄 생성 완료!`;
+          btnSaveDocDeck.style.display = "none";
+          state.selectedDeckId = String(res.deck_id);
+          await refreshDashboardAndQueue();
+        }
+      });
+    }
+
     el("btn-decompress").addEventListener("click", async () => {
       const targetDeck = state.selectedDeckId ? Number(state.selectedDeckId) : null;
       const res = await apiPost("/api/backlog/decompress", {

@@ -79,10 +79,63 @@
       .join(" ");
   }
 
+  const CATEGORY_META = {
+    law: { label: "⚖️ 법학·행정·조문", tone: "indigo" },
+    medical: { label: "🩺 의학·간호·생명", tone: "emerald" },
+    engineering: { label: "🔬 공학·IT·아키텍처", tone: "cyan" },
+    language: { label: "🗣️ 어학·외국어 회화", tone: "amber" },
+    exam: { label: "📝 자격증·수험 기출", tone: "violet" },
+    general: { label: "📚 전공·교양 일반", tone: "slate" },
+  };
+
+  const PATTERN_META = {
+    definition: "개념 정의",
+    numbered_list: "번호 열거",
+    causal_compare: "인과·비교",
+    statute_numeric: "조문·수치",
+    language_pair: "어학 표현",
+  };
+
+  function formatCategoryBadge(category) {
+    return CATEGORY_META[String(category || "general")] || CATEGORY_META.general;
+  }
+
+  function formatPatternBadge(pattern) {
+    return PATTERN_META[String(pattern || "definition")] || "개념 정의";
+  }
+
+  function formatIngestStatusBanner(res) {
+    if (!res || res.status !== "OK") {
+      const code = (res && res.error_code) || "unknown_error";
+      return {
+        status: "BLOCKED",
+        tone: "rose",
+        title: `⛔ 자동 덱 생성 차단 (${code})`,
+        summary: "문서/사진에서 신뢰할 수 있는 텍스트나 카드를 추출하지 못해 빈 덱 생성을 차단했습니다.",
+        canSave: false,
+      };
+    }
+    const cards = Array.isArray(res.cards) ? res.cards : [];
+    const st = res.stats || {};
+    const cat = formatCategoryBadge(res.category);
+    const savedMsg = res.deck_id ? ` · 덱 즉시 저장 완료(#${res.deck_id})` : " · 미리보기 검수 대기";
+    return {
+      status: "OK",
+      tone: "emerald",
+      title: `✅ [${cat.label}] '${res.deck_name}' — ${cards.length}장 추출${savedMsg}`,
+      summary: `총 ${st.pages || 1}쪽 (OCR ${st.ocr_pages || 0}쪽) · 저신뢰 제외 ${st.low_confidence_lines || 0}줄 · 근거미달 폐기 ${st.dropped_ungrounded || 0}장 · 중복제거 ${st.duplicates || 0}장 · 엔진: ${res.provider || "local"} (${res.latency_ms || 0}ms)`,
+      canSave: !res.deck_id && cards.length > 0,
+    };
+  }
+
   return {
     formatRetentionBadge,
     formatLeechBadge,
     mapKeyboardShortcut,
     buildForgettingCurveSvgPoints,
+    formatCategoryBadge,
+    formatPatternBadge,
+    formatIngestStatusBanner,
   };
 });
+

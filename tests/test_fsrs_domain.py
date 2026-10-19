@@ -427,7 +427,16 @@ def test_viewmodel_js_pure_functions() -> None:
     if (!k2 || k2.action !== 'rate' || k2.rating !== 3) process.exit(4);
     const pts = vm.buildForgettingCurveSvgPoints([{{day:0, retrievability:1.0}}, {{day:10, retrievability:0.9}}], 480, 120);
     if (!pts.includes(',')) process.exit(5);
+    const cat = vm.formatCategoryBadge('law');
+    if (cat.tone !== 'indigo') process.exit(6);
+    const pat = vm.formatPatternBadge('statute_numeric');
+    if (pat !== '조문·수치') process.exit(7);
+    const blk = vm.formatIngestStatusBanner({{status: 'BLOCKED', error_code: 'encrypted_pdf'}});
+    if (blk.canSave !== false || blk.tone !== 'rose') process.exit(8);
+    const okB = vm.formatIngestStatusBanner({{status: 'OK', deck_name: '민법', category: 'law', cards: [{{}}], stats: {{pages: 2}}}});
+    if (okB.canSave !== true || okB.tone !== 'emerald') process.exit(9);
     """
     proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, f"Node ViewModel test failed: {proc.stderr}"
+
 

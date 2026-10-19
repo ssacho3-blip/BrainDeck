@@ -1,0 +1,104 @@
+[
+  {
+    "case_id": "law_statute_and_definitions",
+    "title_hint": "민법 총칙 및 소멸시효 핵심 정리",
+    "source_kind": "pdf",
+    "page_count": 2,
+    "blocks": [
+      {
+        "kind": "heading",
+        "text": "제1장 소멸시효와 제척기간",
+        "page": 1,
+        "confidence": 1.0
+      },
+      {
+        "kind": "paragraph",
+        "text": "소멸시효: 권리자가 권리를 행사할 수 있음에도 일정 기간 행사하지 않는 경우 그 권리가 소멸하는 제도이다.",
+        "page": 1,
+        "confidence": 0.98
+      },
+      {
+        "kind": "paragraph",
+        "text": "민법 제162조 제1항에 의하면 일반 채권의 소멸시효는 10년 이하가 아니라 10년간 행사하지 아니하면 소멸한다.",
+        "page": 1,
+        "confidence": 0.95
+      },
+      {
+        "kind": "list_item",
+        "text": "소멸시효 중단 사유 1) 청구 2) 압류 또는 가압류 3) 승인",
+        "page": 2,
+        "confidence": 0.92
+      },
+      {
+        "kind": "paragraph",
+        "text": "소멸시효는 당사자의 원용이 필요하기 때문에 법원이 직권으로 판단할 수 없는 반면 제척기간은 법원이 직권으로 조사해야 한다.",
+        "page": 2,
+        "confidence": 0.94
+      }
+    ],
+    "expected_category": "law",
+    "expected_deck_name": "민법 총칙 및 소멸시효 핵심 정리",
+    "expected_card_count": 4,
+    "expected_patterns": ["definition", "numbered_list", "causal_compare", "statute_numeric"]
+  },
+  {
+    "case_id": "medical_cardiology_notes",
+    "title_hint": null,
+    "source_kind": "image",
+    "page_count": 1,
+    "blocks": [
+      {
+        "kind": "heading",
+        "text": "순환기학 고혈압 진단 및 약리 요약",
+        "page": 1,
+        "confidence": 0.91
+      },
+      {
+        "kind": "paragraph",
+        "text": "고혈압(Hypertension): 성인 기준 수축기 혈압이 140mmHg 이상이거나 이완기 혈압이 90mmHg 이상인 상태를 말한다.",
+        "page": 1,
+        "confidence": 0.89
+      },
+      {
+        "kind": "paragraph",
+        "text": "ACE 억제제: 안지오텐신 전환효소를 억제하여 혈관을 확장시키고 혈압을 강하시키는 1차 치료 약물이다.",
+        "page": 1,
+        "confidence": 0.88
+      },
+      {
+        "kind": "paragraph",
+        "text": "교감신경 항진은 심박출량 증가 때문에 초기 수축기 혈압 상승을 유발한다.",
+        "page": 1,
+        "confidence": 0.55
+      }
+    ],
+    "expected_category": "medical",
+    "expected_deck_name": "순환기학 고혈압 진단 및 약리 요약",
+    "expected_card_count": 2,
+    "expected_low_confidence_lines": 1
+  },
+  {
+    "case_id": "language_speaking_and_vocab",
+    "title_hint": "비즈니스 영어 회화 핵심 표현 노트",
+    "source_kind": "image",
+    "page_count": 1,
+    "blocks": [
+      {
+        "kind": "paragraph",
+        "text": "이번 일정은 다음 기회로 미루시죠 -> Let's take a rain check on this schedule.",
+        "page": 1,
+        "confidence": null
+      },
+      {
+        "kind": "paragraph",
+        "text": "지난 회의 안건을 후속 점검하겠습니다 -> I will follow up on the action items from our last meeting.",
+        "page": 1,
+        "confidence": null
+      }
+    ],
+    "expected_category": "language",
+    "expected_deck_name": "비즈니스 영어 회화 핵심 표현 노트",
+    "expected_card_count": 2,
+    "expected_unmeasured_confidence_lines": 2
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "Anki Studio 2.0 — AI 사진·PDF 자동 덱 & FSRS-5",
+  "short_name": "AnkiStudio",
+  "description": "사진(카메라 촬영/교재 스캔) 및 PDF를 넣으면 출처 검증된 암기 덱을 자동 생성하는 FSRS-5 액티브 리콜 앱",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary"
+}

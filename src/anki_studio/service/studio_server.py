@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from anki_studio.adapters.ai_engine import AICardSynthesizer
+from anki_studio.adapters.document_ingestor import DocumentIngestor, MAX_DOCUMENT_BYTES
 from anki_studio.adapters.sqlite_store import AnkiStudioStore
 from anki_studio.domain.ai_learning import (
     decompose_leech_card,
     evaluate_free_recall,
     generate_socratic_hint,
 )
+from anki_studio.domain.document_deck_builder import build_deck_plan
 from anki_studio.domain.fsrs_math import Rating
 
 
@@ -34,16 +37,18 @@ def _finite_float(val_str: str) -> float:
 
 
 class AnkiStudioService:
-    """Application facade coordinating FSRS-5 domain, SQLite WAL store, and AI card synthesizer."""
+    """Application facade coordinating FSRS-5 domain, SQLite WAL store, AI synthesizer, and Document Ingestor."""
 
     def __init__(
         self,
         db_path: str | Path = DEFAULT_DB_PATH,
         ai_synthesizer: Optional[AICardSynthesizer] = None,
+        document_ingestor: Optional[DocumentIngestor] = None,
         seed_defaults: bool = True,
     ) -> None:
         self.store = AnkiStudioStore(db_path)
         self.ai = ai_synthesizer or AICardSynthesizer()
+        self.ingestor = document_ingestor or DocumentIngestor()
         if seed_defaults:
             self.store.seed_default_decks_if_empty()
 
@@ -211,6 +216,155 @@ class AnkiStudioService:
         )
         return {"ok": True, **summary}
 
+    def ingest_document(
+        self,
+        data: bytes,
+        mime: str,
+        deck_name: Optional[str] = None,
+        max_cards: int = 30,
+        auto_save: bool = False,
+        allow_cloud_vision: bool = False,
+        now_date_str: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Extract text/OCR from PDF or photo, build a grounded DeckPlan, and optionally batch-save (AC-1..AC-10)."""
+        ext = self.ingestor.extract_document(
+            data=data,
+            mime=mime,
+            allow_cloud_vision=allow_cloud_vision,
+        )
+        if ext.status != "OK" or ext.document is None:
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": ext.error_code or "corrupt_file",
+                "detail": ext.detail,
+                "deck_id": None,
+                "deck_name": deck_name or "",
+                "category": "general",
+                "cards": [],
+                "stats": {
+                    "pages": 0,
+                    "ocr_pages": ext.ocr_pages,
+                    "low_confidence_lines": 0,
+                    "unmeasured_confidence_lines": 0,
+                    "dropped_ungrounded": 0,
+                    "duplicates": 0,
+                    "total_chars": 0,
+                },
+                "provider": ext.provider,
+                "latency_ms": ext.latency_ms,
+                "fallback_reason": ext.fallback_reason,
+            }
+
+        date_str = now_date_str or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        plan = build_deck_plan(
+            doc=ext.document,
+            user_deck_name=deck_name,
+            max_cards=max_cards,
+            now_date_str=date_str,
+            ocr_pages=ext.ocr_pages,
+        )
+        stats_dict = {
+            "pages": plan.stats.pages,
+            "ocr_pages": plan.stats.ocr_pages,
+            "low_confidence_lines": plan.stats.low_confidence_lines,
+            "unmeasured_confidence_lines": plan.stats.unmeasured_confidence_lines,
+            "dropped_ungrounded": plan.stats.dropped_ungrounded,
+            "duplicates": plan.stats.duplicates,
+            "total_chars": plan.stats.total_chars,
+        }
+
+        if plan.status != "OK":
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": plan.error_code or "no_cards",
+                "deck_id": None,
+                "deck_name": plan.deck_name,
+                "category": plan.category,
+                "cards": [],
+                "stats": stats_dict,
+                "provider": ext.provider,
+                "latency_ms": ext.latency_ms,
+                "fallback_reason": ext.fallback_reason,
+            }
+
+        cards_out = [
+            {
+                "front_text": sc.spec.front_text,
+                "back_text": sc.spec.back_text,
+                "note_type": sc.spec.note_type,
+                "tags": list(sc.spec.tags),
+                "rationale": sc.spec.rationale,
+                "pattern": sc.pattern,
+                "source_page": sc.source_page,
+                "source_excerpt": sc.source_excerpt,
+            }
+            for sc in plan.cards
+        ]
+
+        saved_deck_id: Optional[int] = None
+        saved_note_ids: List[int] = []
+        if auto_save:
+            try:
+                batch_res = self.store.create_deck_with_notes(
+                    deck_name=plan.deck_name,
+                    notes=cards_out,
+                    description=f"📄 사진·PDF 자동 생성 덱 ({plan.category})",
+                )
+                saved_deck_id = int(batch_res["deck_id"])
+                saved_note_ids = list(batch_res["saved_note_ids"])
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "status": "BLOCKED",
+                    "error_code": "db_write_failed",
+                    "detail": str(exc),
+                    "deck_id": None,
+                    "deck_name": plan.deck_name,
+                    "category": plan.category,
+                    "cards": [],
+                    "stats": stats_dict,
+                    "provider": ext.provider,
+                    "latency_ms": ext.latency_ms,
+                    "fallback_reason": ext.fallback_reason,
+                }
+
+        return {
+            "ok": True,
+            "status": "OK",
+            "error_code": None,
+            "deck_id": saved_deck_id,
+            "deck_name": plan.deck_name,
+            "category": plan.category,
+            "saved_note_ids": saved_note_ids,
+            "cards": cards_out,
+            "stats": stats_dict,
+            "provider": ext.provider,
+            "latency_ms": ext.latency_ms,
+            "fallback_reason": ext.fallback_reason,
+        }
+
+    def save_deck_batch(
+        self,
+        deck_name: str,
+        cards: List[Dict[str, Any]],
+        category: str = "general",
+    ) -> Dict[str, Any]:
+        """Atomically save previewed document/photo cards into a single deck (AC-4)."""
+        res = self.store.create_deck_with_notes(
+            deck_name=deck_name,
+            notes=cards,
+            description=f"📄 사진·PDF 자동 생성 덱 ({category})",
+        )
+        return {
+            "ok": True,
+            "deck_id": res["deck_id"],
+            "deck_name": res["deck_name"],
+            "saved_count": len(res["saved_note_ids"]),
+            "saved_note_ids": res["saved_note_ids"],
+        }
+
 
 def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[BaseHTTPRequestHandler]:
     """Create the BaseHTTPRequestHandler class bound to AnkiStudioService."""
@@ -281,6 +435,8 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 mime = "application/javascript; charset=utf-8"
             elif target.suffix == ".css":
                 mime = "text/css; charset=utf-8"
+            elif target.suffix == ".json":
+                mime = "application/manifest+json; charset=utf-8"
 
             raw_bytes = target.read_bytes()
             self.send_response(HTTPStatus.OK)
@@ -292,6 +448,41 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            qs = parse_qs(parsed.query)
+
+            if path == "/api/ai/ingest-document":
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > MAX_DOCUMENT_BYTES:
+                    self._send_json(
+                        {
+                            "ok": False,
+                            "status": "BLOCKED",
+                            "error_code": "too_large",
+                            "deck_id": None,
+                            "cards": [],
+                        },
+                        status=413,
+                    )
+                    return
+                raw_bytes = self.rfile.read(length) if length > 0 else b""
+                mime = self.headers.get("Content-Type") or "application/octet-stream"
+                deck_name = qs.get("deck_name", [None])[0]
+                max_cards = int(qs.get("max_cards", ["30"])[0] or 30)
+                auto_save = qs.get("auto_save", ["0"])[0] in ("1", "true", "True")
+                allow_cloud = qs.get("allow_cloud_vision", ["0"])[0] in ("1", "true", "True")
+
+                res = svc.ingest_document(
+                    data=raw_bytes,
+                    mime=mime,
+                    deck_name=deck_name,
+                    max_cards=max_cards,
+                    auto_save=auto_save,
+                    allow_cloud_vision=allow_cloud,
+                )
+                http_code = 200 if res.get("status") == "OK" else 422
+                self._send_json(res, status=http_code)
+                return
+
             try:
                 body = self._read_json_body()
             except OverflowError:
@@ -350,6 +541,15 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         deck_id=deck_id,
                         auto_save=bool(body.get("auto_save", True)),
                         max_cards=int(body.get("max_cards") or 10),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/decks/batch-save":
+                    res = svc.save_deck_batch(
+                        deck_name=str(body.get("deck_name") or ""),
+                        cards=list(body.get("cards") or []),
+                        category=str(body.get("category") or "general"),
                     )
                     self._send_json(res)
                     return

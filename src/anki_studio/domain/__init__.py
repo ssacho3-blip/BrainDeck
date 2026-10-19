@@ -11,6 +11,19 @@ from .ai_learning import (
     generate_socratic_hint,
     parse_ai_generated_cards,
 )
+from .document_deck_builder import (
+    BuildStats,
+    DeckPlan,
+    DocumentBlock,
+    ExtractedDocument,
+    SourcedCard,
+    build_deck_plan,
+    classify_block_pattern,
+    ground_cards,
+    infer_category,
+    infer_deck_name,
+    normalize_card_front_key,
+)
 from .fsrs_math import (
     DEFAULT_FSRS5_WEIGHTS,
     CardMemoryState,
@@ -29,13 +42,20 @@ from .fsrs_math import (
 
 __all__ = [
     "DEFAULT_FSRS5_WEIGHTS",
+    "BuildStats",
     "CardMemoryState",
+    "DeckPlan",
+    "DocumentBlock",
+    "ExtractedDocument",
     "GeneratedCardSpec",
     "Rating",
     "RecallEvaluation",
     "ReviewOutcome",
     "SocraticHint",
+    "SourcedCard",
     "build_ai_card_generation_prompt",
+    "build_deck_plan",
+    "classify_block_pattern",
     "compute_next_interval",
     "compute_retrievability",
     "decompose_leech_card",
@@ -45,9 +65,14 @@ __all__ = [
     "extract_smart_cards_deterministic",
     "forecast_forgetting_curve",
     "generate_socratic_hint",
+    "ground_cards",
+    "infer_category",
+    "infer_deck_name",
+    "normalize_card_front_key",
     "parse_ai_generated_cards",
     "plan_backlog_decompression",
     "preview_all_ratings",
     "render_cloze_card",
     "step_fsrs",
 ]
+

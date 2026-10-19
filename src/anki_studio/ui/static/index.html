@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="/manifest.json" />
   <title>Anki Studio 2.0 — FSRS-5 & AI Active Recall Studio</title>
   <style>
     :root {
@@ -311,11 +312,51 @@
       </div>
     </section>
 
-    <!-- Right Column: AI Zero-Effort Card Factory & Forgetting Curve -->
+    <!-- Right Column: Universal Photo/PDF Auto-Deck Builder, AI Card Factory & Forgetting Curve -->
     <section style="display:flex;flex-direction:column;gap:20px;">
+      <div class="panel" style="border-color:rgba(56,189,248,0.4);">
+        <div class="panel-header">
+          <div class="panel-title">📸 사진 & 📄 PDF 자동 덱 생성기 (범용 학습자용)</div>
+          <span class="badge-pill">OCR + PDF 출처 검증</span>
+        </div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
+          교재·칠판·기출문제 <strong>사진(카메라 촬영/갤러리)</strong>이나 <strong>강의록·전공서 PDF</strong>를 넣으면 주제(법학·의학·공학·어학·수험·일반)와 5대 학습 패턴을 분석해 출처가 검증된 암기 덱을 자동 구성합니다.
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <input type="text" id="doc-deck-name" placeholder="덱 이름 지정 (비워두면 문서 제목·핵심 키워드로 자동 생성)" style="flex:1;min-width:200px;" />
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="doc-auto-save" />
+            검수 없이 즉시 덱 저장
+          </label>
+        </div>
+
+        <div id="doc-dropzone" style="border:2px dashed rgba(56,189,248,0.45);border-radius:12px;padding:18px;text-align:center;background:rgba(15,23,42,0.55);cursor:pointer;transition:all 0.15s ease;">
+          <div style="font-size:0.95rem;font-weight:700;color:var(--accent);">
+            📥 여기에 PDF 또는 교재 사진을 드래그하거나 터치하여 촬영/선택하세요
+          </div>
+          <div style="font-size:0.76rem;color:var(--muted);margin-top:4px;">
+            지원 형식: PDF (최대 50쪽), JPG, PNG, HEIC, WEBP (최대 20MB · 원문 근거 100% 대조 검증)
+          </div>
+          <input type="file" id="doc-file-input" accept="application/pdf,image/jpeg,image/png,image/heic,image/webp" style="display:none;" />
+        </div>
+
+        <div id="doc-ingest-banner" class="ai-box" style="margin-top:10px;"></div>
+
+        <div id="doc-preview-container" style="display:none;margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span id="doc-preview-title" style="font-size:0.85rem;font-weight:700;color:var(--emerald);"></span>
+            <button id="btn-save-doc-deck" class="btn-primary" type="button">
+              💾 이 카드들로 새 덱 일괄 생성
+            </button>
+          </div>
+          <div id="doc-preview-list" style="max-height:210px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-header">
-          <div class="panel-title">✨ AI Zero-Effort 카드 팩토리 (수동 타이핑 해방)</div>
+          <div class="panel-title">✨ AI Zero-Effort 텍스트 카드 팩토리</div>
           <select id="ai-domain-mode" style="width:auto;">
             <option value="auto">자동 감지 (Auto)</option>
             <option value="semiconductor_ai">반도체·AI 공학</option>
@@ -323,11 +364,11 @@
           </select>
         </div>
         <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">
-          노션 영어회화 노트, 반도체/딥테크 아티클, `용어: 정의` 또는 `한국어 -> 영어` 문장을 붙여넣으면 Cloze 빈칸 및 스피킹 카드로 즉시 변환됩니다.
+          노션 영어회화 노트, 전공 요약문, `용어: 정의` 또는 `한국어 -> 영어` 문장을 붙여넣으면 Cloze 빈칸 및 스피킹 카드로 즉시 변환됩니다.
         </div>
-        <textarea id="ai-raw-text" rows="5" placeholder="예시:
-• CFET (Complementary FET): NMOS와 PMOS 나노시트를 수직으로 적층하여 셀 면적을 50% 축소하는 차세대 트랜지스터
-• 수율 문제를 다음 주까지 해결하겠습니다 -> We will resolve the yield issue by next week."></textarea>
+        <textarea id="ai-raw-text" rows="4" placeholder="예시:
+• 소멸시효: 권리자가 권리를 행사할 수 있음에도 일정 기간 행사하지 않는 경우 그 권리가 소멸하는 제도
+• 이번 일정은 다음 기회로 미루시죠 -> Let's take a rain check on this schedule."></textarea>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
           <span id="ai-gen-status" style="font-size:0.8rem;color:var(--emerald);"></span>
           <button id="btn-generate-cards" class="btn-primary" type="button">
