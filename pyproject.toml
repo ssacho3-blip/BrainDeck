@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anki-studio"
+version = "1.0.0"
+description = "Anki Studio 1.0 — FSRS-5 Spaced Repetition & AI Active Recall Studio (Clean-Room Implementation)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary (Clean-Room Implementation)"}
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
