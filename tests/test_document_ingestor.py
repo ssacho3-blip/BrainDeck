@@ -138,6 +138,12 @@ def test_t12_privacy_guard_disallows_cloud_vision_by_default(tmp_path: Path) -> 
     assert res["error_code"] == "ocr_unavailable"
     assert llm_calls == 0
 
+    scanned_pdf = _build_minimal_valid_pdf([], title="Scanned PDF Only", pages=1)
+    res_pdf = svc.ingest_document(scanned_pdf, mime="application/pdf", allow_cloud_vision=False)
+    assert res_pdf["status"] == "BLOCKED"
+    assert res_pdf["error_code"] == "ocr_unavailable"
+    assert llm_calls == 0
+
 
 def test_e2e_pdf_ingest_preview_and_batch_save_via_http_handler(tmp_path: Path) -> None:
     """Verify full lifecycle: PDF upload (preview mode `auto_save=0`) -> inspect grounded cards -> `POST /api/decks/batch-save`."""

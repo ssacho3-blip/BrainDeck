@@ -365,9 +365,24 @@ def test_grounding_rejects_partial_fabricated_tokens_and_wrong_source_page() -> 
         source_page=2,
         source_excerpt="Alpha beta gamma",
     )
-    plan = build_deck_plan(doc, extra_llm_cards=(partial_fabricated, wrong_page_citation))
+    nonexistent_page_citation = SourcedCard(
+        spec=GeneratedCardSpec(
+            note_type="basic",
+            front_text="Out of range page citation",
+            back_text="alpha beta gamma",
+            tags=("ai",),
+            rationale="Card cites non-existent page 99",
+        ),
+        pattern="definition",
+        source_page=99,
+        source_excerpt="Alpha beta gamma",
+    )
+    plan = build_deck_plan(
+        doc,
+        extra_llm_cards=(partial_fabricated, wrong_page_citation, nonexistent_page_citation),
+    )
     assert plan.status == "OK"
-    assert plan.stats.dropped_ungrounded == 2
+    assert plan.stats.dropped_ungrounded == 3
     assert all("fabricated" not in c.spec.back_text for c in plan.cards)
 
     # Numeric substring collision check: '30 days' must NOT pass against '130 days'
