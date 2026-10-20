@@ -12,7 +12,7 @@ def test_android_domain_module_has_zero_android_imports() -> None:
     """The :domain Kotlin module must remain 100% pure JVM Kotlin with zero android.* or androidx.* imports."""
     domain_src = ANDROID_ROOT / "domain" / "src" / "main" / "kotlin"
     kt_files = sorted(domain_src.rglob("*.kt"))
-    assert len(kt_files) >= 2, "Expected Fsrs5Engine.kt and DocumentDeckBuilder.kt in :domain"
+    assert len(kt_files) >= 3, "Expected Fsrs5Engine.kt, DocumentDeckBuilder.kt, and AdaptiveQuizEngine.kt in :domain"
 
     for kt_file in kt_files:
         source = kt_file.read_text(encoding="utf-8")
@@ -152,6 +152,45 @@ def test_android_room_database_atomic_transactions_and_fk_integrity() -> None:
     assert "val noteId: Long" in content
     assert "val sourceExcerpt: String" in content
     assert "Fsrs5Engine.extractClozeOrdinals(" in content
+    assert "version = 2" in content
+    assert "MIGRATION_1_2" in content
+    assert "val quizStage: Int" in content
+    assert "val consecutiveSuccesses: Int" in content
+    assert "val queue: Int" in content
+
+
+def test_android_adaptive_quiz_engine_and_t4_fsrs_contracts() -> None:
+    """Verify AdaptiveQuizEngine.kt implements T16, T17, T18, T22, T23 and Fsrs5Engine.kt enforces T4."""
+    quiz_kt = (
+        ANDROID_ROOT
+        / "domain"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "ankistudio"
+        / "domain"
+        / "quiz"
+        / "AdaptiveQuizEngine.kt"
+    ).read_text(encoding="utf-8")
+    fsrs_kt = (
+        ANDROID_ROOT
+        / "domain"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "ankistudio"
+        / "domain"
+        / "fsrs"
+        / "Fsrs5Engine.kt"
+    ).read_text(encoding="utf-8")
+
+    assert "fun gradeInteraction(" in quiz_kt
+    assert "fun selectDistractors(" in quiz_kt
+    assert "fun preserveCjkCompatBeforeNfc(" in quiz_kt
+    assert "fun gradeDictationJamo(" in quiz_kt
+    assert 'if (memory.state == "review")' in fsrs_kt
 
 
 def test_web_ui_preview_has_no_innerhtml_xss_and_ocr_helper_preserves_confidence() -> None:

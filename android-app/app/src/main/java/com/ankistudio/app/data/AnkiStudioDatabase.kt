@@ -14,6 +14,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ankistudio.domain.deck.DocumentDeckBuilder.SourcedCard
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 
@@ -81,6 +83,9 @@ data class CardEntity(
     val deckId: Long,
     val ord: Int = 1,
     val state: String = "new",
+    val queue: Int = 0, // 0:NEW, 1:INTRADAY, 2:REVIEW, 3:INTERDAY, -1:SUSPENDED, -2:USER_BURIED, -3:SIBLING_BURIED
+    val quizStage: Int = 0, // 0:RECOGNITION_MC, 1:TAP_BLOCK, 2:RECALL_INPUT
+    val consecutiveSuccesses: Int = 0,
     val stability: Double = 0.0,
     val difficulty: Double = 0.0,
     val dueEpochSec: Long = System.currentTimeMillis() / 1000L,
@@ -90,24 +95,25 @@ data class CardEntity(
     val scheduledDays: Double = 0.0
 )
 
+/**
+ * T2: Non-cascading RevlogEntity — deleting a card or note MUST NOT cascade-delete FSRS review history.
+ */
 @Entity(
     tableName = "revlog",
-    foreignKeys = [
-        ForeignKey(
-            entity = CardEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["cardId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [Index(value = ["cardId", "reviewedAtEpochSec"])]
 )
 data class RevlogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val cardId: Long,
+    val interactionMode: String = "button_4",
+    val evidenceClass: String = "recall",
+    val attemptCount: Int = 1,
+    val hintUsed: Int = 0,
     val rating: Int,
     val prevState: String,
     val nextState: String,
+    val prevQuizStage: Int = 0,
+    val nextQuizStage: Int = 0,
     val prevStability: Double,
     val nextStability: Double,
     val prevDifficulty: Double,
@@ -129,6 +135,9 @@ data class DueReviewCardRow(
     val sourcePage: Int,
     val sourceExcerpt: String,
     val state: String,
+    val queue: Int,
+    val quizStage: Int,
+    val consecutiveSuccesses: Int,
     val stability: Double,
     val difficulty: Double,
     val dueEpochSec: Long,
@@ -174,12 +183,15 @@ interface AnkiStudioDao {
                n.noteType AS noteType, n.front AS front, n.back AS back,
                n.extraContext AS extraContext, n.sourceFilename AS sourceFilename,
                n.sourcePage AS sourcePage, n.sourceExcerpt AS sourceExcerpt,
-               c.state AS state, c.stability AS stability, c.difficulty AS difficulty,
+               c.state AS state, c.queue AS queue, c.quizStage AS quizStage,
+               c.consecutiveSuccesses AS consecutiveSuccesses,
+               c.stability AS stability, c.difficulty AS difficulty,
                c.dueEpochSec AS dueEpochSec, c.lastReviewEpochSec AS lastReviewEpochSec,
                c.reps AS reps, c.lapses AS lapses, c.scheduledDays AS scheduledDays
         FROM cards c
         INNER JOIN notes n ON n.id = c.noteId
         WHERE c.dueEpochSec <= :nowEpochSec
+          AND c.queue >= 0
           AND (:deckId IS NULL OR c.deckId = :deckId)
         ORDER BY c.dueEpochSec ASC, c.id ASC
         LIMIT :limit
@@ -269,7 +281,7 @@ interface AnkiStudioDao {
 
 @Database(
     entities = [DeckEntity::class, NoteEntity::class, CardEntity::class, RevlogEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AnkiStudioDatabase : RoomDatabase() {
@@ -279,13 +291,73 @@ abstract class AnkiStudioDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AnkiStudioDatabase? = null
 
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cards ADD COLUMN queue INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE cards ADD COLUMN quizStage INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE cards ADD COLUMN consecutiveSuccesses INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    UPDATE cards SET queue = CASE
+                        WHEN state = 'suspended' THEN -1
+                        WHEN state IN ('learning', 'relearning') THEN 1
+                        WHEN state = 'review' THEN 2
+                        ELSE 0
+                    END
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS revlog_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        cardId INTEGER NOT NULL,
+                        interactionMode TEXT NOT NULL DEFAULT 'button_4',
+                        evidenceClass TEXT NOT NULL DEFAULT 'recall',
+                        attemptCount INTEGER NOT NULL DEFAULT 1,
+                        hintUsed INTEGER NOT NULL DEFAULT 0,
+                        rating INTEGER NOT NULL,
+                        prevState TEXT NOT NULL,
+                        nextState TEXT NOT NULL,
+                        prevQuizStage INTEGER NOT NULL DEFAULT 0,
+                        nextQuizStage INTEGER NOT NULL DEFAULT 0,
+                        prevStability REAL NOT NULL,
+                        nextStability REAL NOT NULL,
+                        prevDifficulty REAL NOT NULL,
+                        nextDifficulty REAL NOT NULL,
+                        scheduledDays REAL NOT NULL,
+                        reviewedAtEpochSec INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO revlog_new (
+                        id, cardId, interactionMode, evidenceClass, attemptCount, hintUsed,
+                        rating, prevState, nextState, prevQuizStage, nextQuizStage,
+                        prevStability, nextStability, prevDifficulty, nextDifficulty,
+                        scheduledDays, reviewedAtEpochSec
+                    )
+                    SELECT id, cardId, 'button_4', 'recall', 1, 0,
+                           rating, prevState, nextState, 0, 0,
+                           prevStability, nextStability, prevDifficulty, nextDifficulty,
+                           scheduledDays, reviewedAtEpochSec
+                    FROM revlog
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE revlog")
+                db.execSQL("ALTER TABLE revlog_new RENAME TO revlog")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_revlog_cardId_reviewedAtEpochSec ON revlog(cardId, reviewedAtEpochSec)")
+            }
+        }
+
         fun getInstance(context: Context): AnkiStudioDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AnkiStudioDatabase::class.java,
                     "anki_studio.db"
-                ).build().also { INSTANCE = it }
+                ).addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
             }
         }
     }

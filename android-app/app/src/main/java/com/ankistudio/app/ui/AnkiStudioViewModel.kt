@@ -211,6 +211,7 @@ class AnkiStudioViewModel(
             } else {
                 nowSec + outcome.scheduledDays.toLong() * 86400L
             }
+            val nextQueue = if (outcome.scheduledDays == 0) 1 else 2
             dao.recordCardReview(
                 updatedCard = CardEntity(
                     id = currentCard.cardId,
@@ -218,6 +219,9 @@ class AnkiStudioViewModel(
                     deckId = currentCard.deckId,
                     ord = currentCard.ord,
                     state = outcome.memory.state,
+                    queue = nextQueue,
+                    quizStage = currentCard.quizStage,
+                    consecutiveSuccesses = currentCard.consecutiveSuccesses,
                     stability = outcome.memory.stability,
                     difficulty = outcome.memory.difficulty,
                     dueEpochSec = nextDueEpochSec,
@@ -231,6 +235,8 @@ class AnkiStudioViewModel(
                     rating = rating.code,
                     prevState = currentCard.state,
                     nextState = outcome.memory.state,
+                    prevQuizStage = currentCard.quizStage,
+                    nextQuizStage = currentCard.quizStage,
                     prevStability = currentCard.stability,
                     nextStability = outcome.memory.stability,
                     prevDifficulty = currentCard.difficulty,

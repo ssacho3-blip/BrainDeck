@@ -138,7 +138,6 @@ object Fsrs5Engine {
             dAfter = initialDifficulty(rating, w)
             sAfter = initialStability(rating, w)
             if (rating == Rating.AGAIN) {
-                lapses += 1
                 nextState = "learning"
             } else {
                 nextState = "review"
@@ -147,7 +146,9 @@ object Fsrs5Engine {
             rBefore = computeRetrievability(elapsedDays, memory.stability)
             dAfter = nextDifficulty(memory.difficulty, rating, w)
             if (rating == Rating.AGAIN) {
-                lapses += 1
+                if (memory.state == "review") {
+                    lapses += 1
+                }
                 nextState = "relearning"
                 val sForget = w[11] *
                     dAfter.pow(-w[12]) *

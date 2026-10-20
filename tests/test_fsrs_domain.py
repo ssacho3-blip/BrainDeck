@@ -41,7 +41,7 @@ from anki_studio.service.studio_server import AnkiStudioService, create_http_ser
 
 
 # 1. Architecture Boundary Test (Zero External I/O in ALL Pure Domain Modules)
-@pytest.mark.parametrize("module_name", ["fsrs_math.py", "ai_learning.py"])
+@pytest.mark.parametrize("module_name", ["fsrs_math.py", "ai_learning.py", "adaptive_quiz.py"])
 def test_domain_modules_have_zero_io_imports(module_name: str) -> None:
     domain_file = Path(__file__).resolve().parents[1] / "src" / "anki_studio" / "domain" / module_name
     tree = ast.parse(domain_file.read_text(encoding="utf-8"))

@@ -217,10 +217,10 @@ def step_fsrs(
 
     if grade == Rating.AGAIN:
         s_next = _next_forget_stability(memory.difficulty, memory.stability, r_now, weights)
-        next_state = "relearning"
+        next_state = "relearning" if memory.state in ("review", "relearning") else "learning"
         scheduled_days = 0
         label = "10m"
-        lapses = memory.lapses + 1
+        lapses = memory.lapses + (1 if memory.state == "review" else 0)
     else:
         s_next = _next_recall_stability(memory.difficulty, memory.stability, r_now, grade, weights)
         next_state = "review"
