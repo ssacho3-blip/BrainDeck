@@ -10,3 +10,7 @@ dist/
 *.sqlite-shm
 *.apkg
 .DS_Store
+android-app/.gradle/
+android-app/build/
+android-app/*/build/
+android-app/local.properties
