@@ -203,3 +203,55 @@ def test_web_ui_preview_has_no_innerhtml_xss_and_ocr_helper_preserves_confidence
         PROJECT_ROOT / "src" / "anki_studio" / "adapters" / "macos_ocr_helper" / "ocr_helper.m"
     ).read_text(encoding="utf-8")
     assert "conf = 0.85" not in ocr_m
+
+
+def test_android_builtin_curriculum_catalog_and_ui_wiring() -> None:
+    """Verify BuiltInCurriculumCatalog.kt provides Dong-A Yoon Mid-1 8 lessons and Hanja grades 8~3 and is wired into ViewModel and MainActivity."""
+    catalog_kt = (
+        ANDROID_ROOT
+        / "domain"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "ankistudio"
+        / "domain"
+        / "catalog"
+        / "BuiltInCurriculumCatalog.kt"
+    ).read_text(encoding="utf-8")
+    vm_kt = (
+        ANDROID_ROOT
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "ankistudio"
+        / "app"
+        / "ui"
+        / "AnkiStudioViewModel.kt"
+    ).read_text(encoding="utf-8")
+    main_kt = (
+        ANDROID_ROOT
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "ankistudio"
+        / "app"
+        / "ui"
+        / "MainActivity.kt"
+    ).read_text(encoding="utf-8")
+
+    assert '"kr.mid1.eng.donga_yoon.2022"' in catalog_kt
+    assert "윤정미" in catalog_kt
+    for grade in ["8geup", "7geup", "6geup", "5geup", "4geup", "3geup"]:
+        assert f'"hanja-grade:{grade}"' in catalog_kt
+    assert "fun generateExamScopeDeck()" in vm_kt
+    assert "fun generateCollectionDeck()" in vm_kt
+    assert "BuiltInCurriculumCatalog.buildExamScopeDeckPlan" in vm_kt
+    assert "BuiltInCurriculumCatalog.buildCollectionDeckPlan" in vm_kt
+    assert "onGenerateExamScopeDeck" in main_kt
+    assert "onGenerateCollectionDeck" in main_kt
+

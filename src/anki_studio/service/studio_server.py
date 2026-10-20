@@ -8,13 +8,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 from pathlib import Path
+import sqlite3
 import tempfile
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from anki_studio.adapters.ai_engine import AICardSynthesizer
 from anki_studio.adapters.document_ingestor import DocumentIngestor, MAX_DOCUMENT_BYTES
+from anki_studio.adapters.reference_pack_store import (
+    TierULedgerStore,
+    build_starter_k12_and_exam_pack,
+    inspect_pack_catalog,
+)
 from anki_studio.adapters.sqlite_store import AnkiStudioStore
+from anki_studio.domain.adaptive_quiz import (
+    CandidateDistractor,
+    QuestionFacet,
+    build_tap_blocks,
+    select_distractors,
+)
 from anki_studio.domain.ai_learning import (
     decompose_leech_card,
     evaluate_free_recall,
@@ -46,9 +58,23 @@ class AnkiStudioService:
         document_ingestor: Optional[DocumentIngestor] = None,
         seed_defaults: bool = True,
     ) -> None:
-        self.store = AnkiStudioStore(db_path)
+        self.db_path = Path(db_path)
+        self.store = AnkiStudioStore(self.db_path)
         self.ai = ai_synthesizer or AICardSynthesizer()
         self.ingestor = document_ingestor or DocumentIngestor()
+        self.starter_pack_path = self.db_path.parent / "starter_pack.sqlite"
+        self.tier_u_path = self.db_path.parent / "tier_u_ledger.sqlite"
+        self.pack_meta = build_starter_k12_and_exam_pack(self.starter_pack_path)
+        self.ledger = TierULedgerStore(self.tier_u_path)
+        self.ledger.register_installed_pack(
+            pack_id=self.pack_meta["pack_id"],
+            pack_version=self.pack_meta["pack_version"],
+            file_sha256=self.pack_meta["file_sha256"],
+            content_sha256=self.pack_meta["content_sha256"],
+            local_path=str(self.starter_pack_path),
+            license_spdx=self.pack_meta["license_spdx"],
+            redistribution_allowed=bool(self.pack_meta["redistribution_allowed"]),
+        )
         if seed_defaults:
             self.store.seed_default_decks_if_empty()
 
@@ -365,6 +391,287 @@ class AnkiStudioService:
             "saved_note_ids": res["saved_note_ids"],
         }
 
+    def get_curriculum_catalog(self) -> Dict[str, Any]:
+        """Return built-in K-12 textbooks (e.g. Mid-1 Dong-A Yoon) and Hanja/Exam collections."""
+        cat = inspect_pack_catalog(self.starter_pack_path)
+        return {
+            "ok": True,
+            "pack_id": self.pack_meta["pack_id"],
+            "pack_version": self.pack_meta["pack_version"],
+            "textbooks": cat["textbooks"],
+            "collections": cat["collections"],
+        }
+
+    def generate_collection_deck(
+        self,
+        collection_id: str,
+        limit: int = 25,
+        deck_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Materialize cards from a built-in collection (e.g., `hanja-grade:8geup`..`3geup`, `khist:essential`)."""
+        cat = inspect_pack_catalog(self.starter_pack_path)
+        col_meta = next((c for c in cat["collections"] if c["collection_id"] == collection_id), None)
+        if col_meta is None:
+            raise ValueError(f"Unknown collection_id: {collection_id}")
+
+        resolved_title = (deck_name or "").strip() or f"📚 {col_meta['level_label']} ({collection_id})"
+        tier_u_deck_id = self.ledger.create_deck(
+            profile_id=1,
+            name=f"{resolved_title} [{datetime.now(timezone.utc).strftime('%H%M%S_%f')}]",
+            category="hanja" if "hanja" in collection_id else "general",
+        )
+        # Re-use or create activation for profile 1
+        with self.ledger._write_tx() as conn:
+            existing_act = conn.execute(
+                "SELECT activation_id FROM pack_activations WHERE profile_id = 1 AND pack_id = ? AND collection_id = ?",
+                (self.pack_meta["pack_id"], collection_id),
+            ).fetchone()
+        if existing_act is not None:
+            act_id = int(existing_act["activation_id"])
+            with self.ledger._write_tx() as conn:
+                conn.execute("UPDATE pack_activations SET next_ordinal = 1, deck_id = ? WHERE activation_id = ?", (tier_u_deck_id, act_id))
+        else:
+            act_id = self.ledger.activate_pack_collection(
+                profile_id=1,
+                deck_id=tier_u_deck_id,
+                pack_id=self.pack_meta["pack_id"],
+                collection_id=collection_id,
+            )
+
+        mat_cards = self.ledger.materialize_daily_pack_cards(
+            activation_id=act_id,
+            pack_db_path=self.starter_pack_path,
+            daily_new_limit=max(1, min(200, int(limit))),
+        )
+        notes_payload = [
+            {
+                "front_text": c["front"],
+                "back_text": c["back"],
+                "note_type": "basic",
+                "tags": [collection_id.replace(":", "_")],
+            }
+            for c in mat_cards
+        ]
+        batch = self.store.create_deck_with_notes(
+            deck_name=resolved_title,
+            notes=notes_payload,
+            description=f"내장 레퍼런스 팩 ({collection_id})",
+        )
+        return {
+            "ok": True,
+            "collection_id": collection_id,
+            "deck_id": batch["deck_id"],
+            "deck_name": batch["deck_name"],
+            "saved_count": len(batch["saved_note_ids"]),
+            "cards": notes_payload,
+        }
+
+    def generate_exam_scope_deck(
+        self,
+        textbook_id: str,
+        unit_ids: List[str],
+        page_start: Optional[int] = None,
+        page_end: Optional[int] = None,
+        max_importance_tier: int = 2,
+        deck_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Resolve a middle/high school textbook exam scope (e.g., 중1 동아 윤정미 Lesson 1~2) and create a study deck."""
+        if not unit_ids:
+            raise ValueError("unit_ids must contain at least one curriculum unit")
+        cat = inspect_pack_catalog(self.starter_pack_path)
+        tb_meta = next((t for t in cat["textbooks"] if t["textbook_id"] == textbook_id), None)
+        if tb_meta is None:
+            raise ValueError(f"Unknown textbook_id: {textbook_id}")
+
+        resolved_title = (deck_name or "").strip() or f"🏫 {tb_meta['title']} 시험범위 ({len(unit_ids)}개 단원)"
+        tier_u_deck_id = self.ledger.create_deck(
+            profile_id=1,
+            name=f"{resolved_title} [{datetime.now(timezone.utc).strftime('%H%M%S_%f')}]",
+            category=str(tb_meta.get("subject_code") or "language"),
+        )
+        rules = [
+            {
+                "unit_id": str(uid),
+                "include_subunits": True,
+                "page_start": int(page_start) if page_start is not None else None,
+                "page_end": int(page_end) if page_end is not None else None,
+            }
+            for uid in unit_ids
+        ]
+        scope_id = self.ledger.create_exam_scope(
+            profile_id=1,
+            deck_id=tier_u_deck_id,
+            title=resolved_title,
+            pack_id=self.pack_meta["pack_id"],
+            resolved_pack_version=self.pack_meta["pack_version"],
+            textbook_id=textbook_id,
+            max_importance_tier=max(1, min(3, int(max_importance_tier))),
+            rules=rules,
+        )
+        resolved_items = self.ledger.resolve_and_reconcile_exam_scope(
+            scope_id=scope_id,
+            pack_db_path=self.starter_pack_path,
+            materialize_now=True,
+        )
+        notes_payload: List[Dict[str, Any]] = []
+        with self.ledger._write_tx() as conn:
+            for item in resolved_items:
+                nid = item.get("materialized_note_id") or item.get("user_note_id")
+                if nid is not None:
+                    nrow = conn.execute(
+                        "SELECT front, back, note_type, curriculum_unit_id, textbook_page_no FROM notes WHERE id = ?",
+                        (int(nid),),
+                    ).fetchone()
+                    if nrow is not None:
+                        page_tag = f"p.{nrow['textbook_page_no']}" if nrow["textbook_page_no"] else ""
+                        notes_payload.append(
+                            {
+                                "front_text": str(nrow["front"]),
+                                "back_text": str(nrow["back"]),
+                                "note_type": str(nrow["note_type"] or "basic"),
+                                "tags": [textbook_id, str(nrow["curriculum_unit_id"] or ""), page_tag],
+                            }
+                        )
+
+        batch = self.store.create_deck_with_notes(
+            deck_name=resolved_title,
+            notes=notes_payload,
+            description=f"교과서 시험범위 맞춤 덱 ({tb_meta['title']})",
+        )
+        return {
+            "ok": True,
+            "scope_id": scope_id,
+            "textbook_id": textbook_id,
+            "deck_id": batch["deck_id"],
+            "deck_name": batch["deck_name"],
+            "saved_count": len(batch["saved_note_ids"]),
+            "cards": notes_payload,
+        }
+
+    def build_interactive_quiz(
+        self,
+        card_id: int,
+        age_tier: str = "teen",
+    ) -> Dict[str, Any]:
+        """Build a 4-choice multiple-choice or tap-block interactive quiz for a due card using AdaptiveQuizEngine."""
+        due = self.store.get_due_cards(limit=200)
+        target = next((c for c in due if int(c["card_id"]) == int(card_id)), None)
+        if target is None:
+            raise KeyError(f"Card {card_id} not found in due cards")
+
+        front_str = str(target["front_text"] or "").strip()
+        target_ans = str(target["back_text"] or "").strip()
+
+        candidates: List[CandidateDistractor] = []
+        selected_relations: List[str] = []
+
+        # 1) Query Tier R starter pack for explicit distractor relations (similar_shape, same_radical, homophone)
+        conn = sqlite3.connect(f"file:{self.starter_pack_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            headword_guess = front_str.split("]")[-1].strip() if "]" in front_str else front_str
+            entry_row = conn.execute(
+                "SELECT entry_key, entry_type, facet_json FROM ref_entries WHERE headword = ? LIMIT 1",
+                (headword_guess,),
+            ).fetchone()
+            is_hanja = (
+                (entry_row is not None and str(entry_row["entry_type"]) == "hanja_char")
+                or front_str.startswith("[한자")
+            )
+            q_facet = QuestionFacet.HANJA_CHAR if is_hanja else QuestionFacet.WORD_MEANING
+            if entry_row is not None:
+                rel_rows = conn.execute(
+                    """
+                    SELECT r.to_key AS distractor_key, r.rel_type AS relation, r.weight, e.headword, e.gloss_ko, e.facet_json
+                    FROM ref_relations r
+                    JOIN ref_entries e ON e.entry_key = r.to_key
+                    WHERE r.from_key = ?
+                    ORDER BY r.weight DESC, r.to_key ASC
+                    """,
+                    (str(entry_row["entry_key"]),),
+                ).fetchall()
+                for rrow in rel_rows:
+                    f_data = json.loads(str(rrow["facet_json"] or "{}"))
+                    if is_hanja and "hun" in f_data and "eum" in f_data:
+                        opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
+                    else:
+                        opt_txt = str(rrow["gloss_ko"])
+                    rel_name = str(rrow["relation"])
+                    selected_relations.append(rel_name)
+                    candidates.append(
+                        CandidateDistractor(
+                            key=str(rrow["distractor_key"]),
+                            option_text=opt_txt,
+                            answer_set=frozenset({opt_txt, str(rrow["gloss_ko"])}),
+                            relations=frozenset({rel_name}),
+                            source_priority=1,
+                        )
+                    )
+
+            # 2) Add other due cards in the workspace
+            for other in due:
+                if int(other["card_id"]) == int(card_id):
+                    continue
+                other_ans = str(other["back_text"] or "").strip()
+                if not other_ans:
+                    continue
+                candidates.append(
+                    CandidateDistractor(
+                        key=f"card:{other['card_id']}",
+                        option_text=other_ans,
+                        answer_set=frozenset({other_ans}),
+                        relations=frozenset({"same_radical"} if is_hanja else {"same_pos_level"}),
+                        source_priority=2,
+                    )
+                )
+
+            # 3) Supplement from Tier R entries of the same entry_type so even 1-card decks get 3 distractors
+            target_etype = str(entry_row["entry_type"]) if entry_row is not None else ("hanja_char" if is_hanja else "vocab")
+            fallback_rows = conn.execute(
+                "SELECT entry_key, gloss_ko, facet_json FROM ref_entries WHERE entry_type = ? ORDER BY difficulty_rank ASC LIMIT 12",
+                (target_etype,),
+            ).fetchall()
+            for frow in fallback_rows:
+                f_data = json.loads(str(frow["facet_json"] or "{}"))
+                if is_hanja and "hun" in f_data and "eum" in f_data:
+                    opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
+                else:
+                    opt_txt = str(frow["gloss_ko"])
+                candidates.append(
+                    CandidateDistractor(
+                        key=f"pack:{frow['entry_key']}",
+                        option_text=opt_txt,
+                        answer_set=frozenset({opt_txt, str(frow["gloss_ko"])}),
+                        relations=frozenset({"same_radical"} if is_hanja else {"same_pos_level"}),
+                        source_priority=3,
+                    )
+                )
+        finally:
+            conn.close()
+
+        sel = select_distractors(
+            question_facet=q_facet,
+            target_option_text=target_ans,
+            target_answer_set=frozenset({target_ans}),
+            candidates=candidates,
+            required_count=3,
+        )
+        tap_blocks = build_tap_blocks(target_ans)
+        mode = sel.fallback_mode or "multiple_choice"
+        options = [target_ans] + [d.option_text for d in sel.distractors] if mode == "multiple_choice" else [target_ans]
+        return {
+            "ok": True,
+            "card_id": int(card_id),
+            "question": str(target["rendered_question"]),
+            "target_answer": target_ans,
+            "question_facet": q_facet.value,
+            "mode": mode,
+            "options": options,
+            "distractor_relations_used": sorted(set(selected_relations)),
+            "tap_blocks": list(tap_blocks),
+            "age_tier": age_tier,
+        }
+
 
 def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[BaseHTTPRequestHandler]:
     """Create the BaseHTTPRequestHandler class bound to AnkiStudioService."""
@@ -400,6 +707,10 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
 
             if path == "/api/status":
                 self._send_json(svc.get_status())
+                return
+
+            if path == "/api/catalog":
+                self._send_json(svc.get_curriculum_catalog())
                 return
 
             if path == "/api/due":
@@ -560,6 +871,37 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         deck_id=deck_id,
                         daily_cap=int(body.get("daily_cap") or 25),
                         horizon_days=int(body.get("horizon_days") or 7),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/catalog/generate-collection-deck":
+                    res = svc.generate_collection_deck(
+                        collection_id=str(body.get("collection_id") or ""),
+                        limit=int(body.get("limit") or 25),
+                        deck_name=str(body.get("deck_name") or "") or None,
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/catalog/generate-exam-scope-deck":
+                    p_start = int(body["page_start"]) if body.get("page_start") not in (None, "") else None
+                    p_end = int(body["page_end"]) if body.get("page_end") not in (None, "") else None
+                    res = svc.generate_exam_scope_deck(
+                        textbook_id=str(body.get("textbook_id") or ""),
+                        unit_ids=[str(u) for u in (body.get("unit_ids") or [])],
+                        page_start=p_start,
+                        page_end=p_end,
+                        max_importance_tier=int(body.get("max_importance_tier") or 2),
+                        deck_name=str(body.get("deck_name") or "") or None,
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/quiz/interactive-options":
+                    res = svc.build_interactive_quiz(
+                        card_id=int(body["card_id"]),
+                        age_tier=str(body.get("age_tier") or "teen"),
                     )
                     self._send_json(res)
                     return

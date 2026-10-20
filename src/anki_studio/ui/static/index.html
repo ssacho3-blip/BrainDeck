@@ -312,8 +312,42 @@
       </div>
     </section>
 
-    <!-- Right Column: Universal Photo/PDF Auto-Deck Builder, AI Card Factory & Forgetting Curve -->
+    <!-- Right Column: Universal Photo/PDF Auto-Deck Builder, School Textbook & Hanja Catalog, AI Card Factory & Forgetting Curve -->
     <section style="display:flex;flex-direction:column;gap:20px;">
+      <div class="panel" style="border-color:rgba(52,211,153,0.45);">
+        <div class="panel-header">
+          <div class="panel-title">🏫 중1 동아(윤정미) 교과서 시험범위 & 漢字 급수·각종 시험 덱 생성기</div>
+          <span class="badge-pill">Tier R 내장 DB</span>
+        </div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
+          <strong>중학교 1학년 영어 (동아출판 윤정미)</strong> 단원·쪽수 시험범위 선택 및 <strong>한자 급수별(8급~3급)·한국사·토익·JLPT·사자성어·초등 받아쓰기</strong> 카드를 원클릭으로 생성합니다.
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+          <div style="font-size:0.8rem;font-weight:700;color:var(--accent);">1) 중·고등학교 출판사 교과서 시험범위 맞춤 덱</div>
+          <select id="catalog-textbook-select"></select>
+          <div id="catalog-units-box" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:rgba(15,23,42,0.65);border-radius:8px;border:1px solid var(--border);"></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="exam-page-start" placeholder="시작 쪽 (선택, 예: 10)" style="width:140px;" />
+            <input type="text" id="exam-page-end" placeholder="끝 쪽 (선택, 예: 45)" style="width:140px;" />
+            <button id="btn-gen-exam-scope" class="btn-primary" type="button" style="margin-left:auto;white-space:nowrap;">
+              🎯 선택한 시험범위 카드 생성
+            </button>
+          </div>
+        </div>
+
+        <div style="border-top:1px dashed var(--border);padding-top:10px;display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:0.8rem;font-weight:700;color:var(--emerald);">2) 한자 급수별 (8급~3급) · 한국사 · 어학 · 초등 받아쓰기 기본 덱</div>
+          <div style="display:flex;gap:8px;">
+            <select id="catalog-collection-select" style="flex:1;"></select>
+            <button id="btn-gen-collection" class="btn-primary" type="button" style="white-space:nowrap;">
+              📚 급수·시험 카드 생성
+            </button>
+          </div>
+          <div id="catalog-status-msg" style="font-size:0.8rem;color:var(--emerald);"></div>
+        </div>
+      </div>
+
       <div class="panel" style="border-color:rgba(56,189,248,0.4);">
         <div class="panel-header">
           <div class="panel-title">📸 사진 & 📄 PDF 자동 덱 생성기 (범용 학습자용)</div>

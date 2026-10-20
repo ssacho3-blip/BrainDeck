@@ -1,5 +1,6 @@
 package com.ankistudio.domain.quiz
 
+import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
@@ -140,5 +141,60 @@ class AdaptiveQuizEngineTest {
         val nearMiss = AdaptiveQuizEngine.gradeDictationJamo("마춤법", "맞춤법", AgeTier.JUNIOR)
         assertEquals(Rating.HARD, nearMiss.recommendedRating)
         assertEquals(1, nearMiss.jamoDistance)
+    }
+
+    @Test
+    fun `T27 and T28 BuiltInCurriculumCatalog provides Mid-1 Dong-A Yoon 8 lessons and Hanja grades 8 to 3`() {
+        val textbooks = BuiltInCurriculumCatalog.listTextbooks()
+        assertEquals(
+            setOf(
+                "kr.mid1.eng.donga_yoon.2022",
+                "kr.mid2.eng.donga_yoon.2022",
+                "kr.mid2.hist.miraeen.2022",
+                "kr.high1.sci.visang.2022"
+            ),
+            textbooks.map { it.textbookId }.toSet()
+        )
+        val mid1 = textbooks.first { it.textbookId == "kr.mid1.eng.donga_yoon.2022" }
+        assertEquals(8, mid1.units.size)
+        assertEquals(35, mid1.entries.size)
+        assertEquals(10, mid1.units.first().pageStart)
+        assertEquals(153, mid1.units.last().pageEnd)
+
+        val examCards = BuiltInCurriculumCatalog.buildExamScopeCards(
+            textbookId = "kr.mid1.eng.donga_yoon.2022",
+            selectedUnitIds = setOf("kr.mid1.eng.donga_yoon.2022:U01", "kr.mid1.eng.donga_yoon.2022:U02"),
+            pageStart = 10,
+            pageEnd = 35
+        )
+        assertTrue(examCards.isNotEmpty())
+        assertTrue(examCards.any { it.spec.frontText.contains("introduce") })
+        assertTrue(examCards.any { it.spec.frontText.contains("delicious") })
+        assertTrue(examCards.none { it.spec.frontText.contains("volunteer") }) // Lesson 3 excluded
+
+        val expectedCollections = setOf(
+            "hanja-grade:8geup",
+            "hanja-grade:7geup",
+            "hanja-grade:6geup",
+            "hanja-grade:5geup",
+            "hanja-grade:4geup",
+            "hanja-grade:3geup",
+            "moe-hanja-1800:middle",
+            "ko-dictation:grade1-2",
+            "moe-eng:elementary",
+            "khist:essential",
+            "exam-eng:toeic-core",
+            "exam-ja:jlpt-n5-n3",
+            "ko-idiom:essential",
+            "law-statute:constitution",
+            "sci-element-formula:core",
+            "cert-it:core"
+        )
+        val collections = BuiltInCurriculumCatalog.listCollections().map { it.collectionId }.toSet()
+        assertEquals(expectedCollections, collections)
+        for (colId in expectedCollections) {
+            val cards = BuiltInCurriculumCatalog.buildCollectionCards(colId)
+            assertTrue(cards.size >= 3, "Expected >= 3 cards for $colId")
+        }
     }
 }

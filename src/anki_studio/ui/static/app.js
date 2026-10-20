@@ -445,8 +445,99 @@
     });
   }
 
+  async function loadCatalogAndBind() {
+    const cat = await apiGet("/api/catalog");
+    if (!cat || !cat.ok) return;
+    state.catalog = cat;
+
+    const tbSel = el("catalog-textbook-select");
+    const unitsBox = el("catalog-units-box");
+    const colSel = el("catalog-collection-select");
+    if (!tbSel || !unitsBox || !colSel) return;
+
+    tbSel.textContent = "";
+    (cat.textbooks || []).forEach((tb) => {
+      const opt = document.createElement("option");
+      opt.value = tb.textbook_id;
+      opt.textContent = `${tb.title} (${tb.publisher_name} · ${tb.curriculum_revision} 개정)`;
+      tbSel.appendChild(opt);
+    });
+
+    function renderUnitsForSelectedTextbook() {
+      unitsBox.textContent = "";
+      const tb = (cat.textbooks || []).find((t) => t.textbook_id === tbSel.value);
+      if (!tb || !tb.units) return;
+      tb.units.forEach((u, idx) => {
+        const lbl = document.createElement("label");
+        lbl.style.cssText =
+          "display:inline-flex;align-items:center;gap:4px;font-size:0.76rem;padding:4px 8px;border-radius:6px;background:rgba(30,41,59,0.9);border:1px solid var(--border);cursor:pointer;";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = u.unit_id;
+        cb.className = "exam-unit-cb";
+        if (idx < 2) cb.checked = true;
+        const span = document.createElement("span");
+        span.textContent = `${u.unit_code_label}: ${u.unit_title} (p.${u.page_start}~${u.page_end})`;
+        lbl.appendChild(cb);
+        lbl.appendChild(span);
+        unitsBox.appendChild(lbl);
+      });
+    }
+
+    tbSel.addEventListener("change", renderUnitsForSelectedTextbook);
+    renderUnitsForSelectedTextbook();
+
+    colSel.textContent = "";
+    (cat.collections || []).forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.collection_id;
+      opt.textContent = `${c.level_label} (${c.item_count}문항 · ${c.collection_id})`;
+      colSel.appendChild(opt);
+    });
+
+    const btnExam = el("btn-gen-exam-scope");
+    if (btnExam) {
+      btnExam.addEventListener("click", async () => {
+        const checked = Array.from(document.querySelectorAll(".exam-unit-cb:checked")).map((n) => n.value);
+        if (!checked.length) return;
+        const pStart = el("exam-page-start").value.trim();
+        const pEnd = el("exam-page-end").value.trim();
+        el("catalog-status-msg").textContent = "⏳ 선택한 시험범위 암기 카드를 생성 중입니다...";
+        const res = await apiPost("/api/catalog/generate-exam-scope-deck", {
+          textbook_id: tbSel.value,
+          unit_ids: checked,
+          page_start: pStart ? Number(pStart) : null,
+          page_end: pEnd ? Number(pEnd) : null,
+        });
+        if (res && res.ok) {
+          el("catalog-status-msg").textContent = `✅ '${res.deck_name}' (${res.saved_count}장) 생성 완료!`;
+          state.selectedDeckId = String(res.deck_id);
+          await refreshDashboardAndQueue();
+        }
+      });
+    }
+
+    const btnCol = el("btn-gen-collection");
+    if (btnCol) {
+      btnCol.addEventListener("click", async () => {
+        if (!colSel.value) return;
+        el("catalog-status-msg").textContent = "⏳ 급수·시험 암기 카드를 생성 중입니다...";
+        const res = await apiPost("/api/catalog/generate-collection-deck", {
+          collection_id: colSel.value,
+          limit: 30,
+        });
+        if (res && res.ok) {
+          el("catalog-status-msg").textContent = `✅ '${res.deck_name}' (${res.saved_count}장) 생성 완료!`;
+          state.selectedDeckId = String(res.deck_id);
+          await refreshDashboardAndQueue();
+        }
+      });
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     bindEvents();
+    loadCatalogAndBind();
     refreshDashboardAndQueue();
   });
 })();

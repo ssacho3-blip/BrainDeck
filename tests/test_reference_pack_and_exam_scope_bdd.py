@@ -23,6 +23,7 @@ from anki_studio.adapters.reference_pack_store import (
     TierULedgerStore,
     build_starter_k12_and_exam_pack,
 )
+from anki_studio.service.studio_server import AnkiStudioService
 
 
 def test_t21_t27_pack_builder_license_gate_and_tier_r_triggers(tmp_path: Path) -> None:
@@ -319,6 +320,31 @@ def test_t27_t28_school_textbook_exam_scope_filtering_and_queue_preserving_recon
         assert (recipe_card["state"], recipe_card["queue"]) == ("suspended", -1)
         assert express_card["queue"] == -2
 
+    # Verify get_in_scope_review_cards excludes out-of-scope (in_scope=0) AND suspended/buried (queue<0) cards
+    active_review_cards = ledger.get_in_scope_review_cards(scope_id=scope_id)
+    active_note_ids = {c["note_id"] for c in active_review_cards}
+    assert recipe_note_id not in active_note_ids   # out-of-scope AND suspended
+    assert express_note_id not in active_note_ids  # in-scope, but manually buried (queue = -2)
+
+    # Re-expand scope back to include Lesson 2 and verify in_scope restores to 1 while recipe_card stays suspended (-1)
+    ledger.update_exam_scope_rules(
+        scope_id=scope_id,
+        rules=[
+            {"unit_id": "kr.mid2.eng.donga_yoon.2022:U01", "include_subunits": True, "page_start": None, "page_end": None},
+            {"unit_id": "kr.mid2.eng.donga_yoon.2022:U02", "include_subunits": True, "page_start": 20, "page_end": 35},
+        ],
+    )
+    re_expanded = ledger.resolve_and_reconcile_exam_scope(
+        scope_id=scope_id,
+        pack_db_path=pack_path,
+        as_of_date="2026-04-28",
+        materialize_now=True,
+    )
+    assert "word:recipe" in {item["entry_key"] for item in re_expanded if item["item_kind"] == "pack_entry"}
+    with ledger._write_tx() as conn:
+        recipe_card_after = conn.execute("SELECT state, queue FROM cards WHERE note_id = ?", (recipe_note_id,)).fetchone()
+        assert (recipe_card_after["state"], recipe_card_after["queue"]) == ("suspended", -1)
+
     # Verify deleting a bound user_note cascades cleanly without CHECK or trigger failure
     ledger.delete_note(user_note_u1)
     remaining_items = ledger.list_exam_scope_items(scope_id=scope_id, only_in_scope=False)
@@ -346,3 +372,164 @@ def test_t27_t28_school_textbook_exam_scope_filtering_and_queue_preserving_recon
         assert note_row["back"] == "내가 직접 수정한 뜻"
         assert card_row["stability"] == pytest.approx(14.5)
         assert card_row["reps"] == 5
+
+
+def test_mid1_donga_yoon_full_curriculum_and_hanja_grades_and_balanced_packs(tmp_path: Path) -> None:
+    """Verify Middle School Grade 1 Dong-A (Yoon) Lessons 1..8, Hanja Grades 8..3, and balanced starter packs."""
+    pack_path = tmp_path / "starter_pack.sqlite"
+    pack_info = build_starter_k12_and_exam_pack(pack_path)
+
+    ledger = TierULedgerStore(tmp_path / "tier_u.sqlite")
+    teen_id = ledger.create_profile(name="중1 학습자", age_tier="teen")
+    mid1_deck_id = ledger.create_deck(
+        profile_id=teen_id,
+        name="중1 영어 1학기 중간고사 (동아 윤정미)",
+        category="language",
+    )
+    ledger.register_installed_pack(
+        pack_id=pack_info["pack_id"],
+        pack_version=pack_info["pack_version"],
+        file_sha256=pack_info["file_sha256"],
+        content_sha256=pack_info["content_sha256"],
+        local_path=str(pack_path),
+        license_spdx="CC0-1.0",
+        redistribution_allowed=True,
+    )
+
+    # 1. Verify kr.mid1.eng.donga_yoon.2022 has all 8 lessons (U01..U08) and Selecting Lesson 1 + Lesson 2 works
+    scope_id = ledger.create_exam_scope(
+        profile_id=teen_id,
+        deck_id=mid1_deck_id,
+        title="중1 동아(윤정미) 1학기 중간고사 (Lesson 1~2)",
+        pack_id=pack_info["pack_id"],
+        resolved_pack_version=pack_info["pack_version"],
+        textbook_id="kr.mid1.eng.donga_yoon.2022",
+        max_importance_tier=2,
+        rules=[
+            {"unit_id": "kr.mid1.eng.donga_yoon.2022:U01", "include_subunits": True, "page_start": None, "page_end": None},
+            {"unit_id": "kr.mid1.eng.donga_yoon.2022:U02", "include_subunits": True, "page_start": 30, "page_end": 42},
+        ],
+    )
+    resolved = ledger.resolve_and_reconcile_exam_scope(
+        scope_id=scope_id,
+        pack_db_path=pack_path,
+        as_of_date="2026-04-20",
+        materialize_now=True,
+    )
+    keys = {item["entry_key"] for item in resolved}
+    assert "word:introduce" in keys          # Lesson 1 core vocab
+    assert "grammar:mid1_u1_be_verb" in keys # Lesson 1 core grammar
+    assert "word:delicious" in keys          # Lesson 2 p.32 core vocab
+    assert "word:volunteer" not in keys      # Lesson 3 (excluded from Lesson 1~2 midterm scope)
+
+    # 2. Verify Hanja Grade collections (8급 ~ 3급) and balanced all-domain collections exist and materialize
+    expected_collections = [
+        "hanja-grade:8geup",
+        "hanja-grade:7geup",
+        "hanja-grade:6geup",
+        "hanja-grade:5geup",
+        "hanja-grade:4geup",
+        "hanja-grade:3geup",
+        "ko-dictation:grade1-2",
+        "moe-eng:elementary",
+        "khist:essential",
+        "exam-eng:toeic-core",
+        "exam-ja:jlpt-n5-n3",
+        "ko-idiom:essential",
+        "law-statute:constitution",
+        "sci-element-formula:core",
+        "cert-it:core",
+    ]
+    for col_id in expected_collections:
+        col_deck = ledger.create_deck(profile_id=teen_id, name=f"Deck {col_id}", category="general")
+        act_id = ledger.activate_pack_collection(
+            profile_id=teen_id,
+            deck_id=col_deck,
+            pack_id=pack_info["pack_id"],
+            collection_id=col_id,
+        )
+        cards = ledger.materialize_daily_pack_cards(
+            activation_id=act_id,
+            pack_db_path=pack_path,
+            daily_new_limit=10,
+        )
+        assert len(cards) >= 3, f"Expected >= 3 starter cards in collection {col_id}, got {len(cards)}"
+
+
+def test_studio_service_catalog_and_exam_scope_and_hanja_deck_generation(tmp_path: Path) -> None:
+    """Verify AnkiStudioService exposes catalog, generates Mid-1 Dong-A Yoon exam decks, Hanja grade decks, and 4-choice quizzes."""
+    svc = AnkiStudioService(db_path=tmp_path / "studio.sqlite", seed_defaults=True)
+
+    catalog = svc.get_curriculum_catalog()
+    assert catalog["ok"] is True
+    textbook_ids = {tb["textbook_id"] for tb in catalog["textbooks"]}
+    assert textbook_ids == {
+        "kr.mid1.eng.donga_yoon.2022",
+        "kr.mid2.eng.donga_yoon.2022",
+        "kr.mid2.hist.miraeen.2022",
+        "kr.high1.sci.visang.2022",
+    }
+
+    # Verify Mid-1 Dong-A (Yoon) has all 8 lessons with exact page anchors (10..27 to 136..153) and 35 items total
+    mid1_tb = next(tb for tb in catalog["textbooks"] if tb["textbook_id"] == "kr.mid1.eng.donga_yoon.2022")
+    assert len(mid1_tb["units"]) == 8
+    expected_anchors = [
+        ("kr.mid1.eng.donga_yoon.2022:U01", 10, 27, 5),
+        ("kr.mid1.eng.donga_yoon.2022:U02", 28, 45, 5),
+        ("kr.mid1.eng.donga_yoon.2022:U03", 46, 63, 5),
+        ("kr.mid1.eng.donga_yoon.2022:U04", 64, 81, 4),
+        ("kr.mid1.eng.donga_yoon.2022:U05", 82, 99, 4),
+        ("kr.mid1.eng.donga_yoon.2022:U06", 100, 117, 4),
+        ("kr.mid1.eng.donga_yoon.2022:U07", 118, 135, 4),
+        ("kr.mid1.eng.donga_yoon.2022:U08", 136, 153, 4),
+    ]
+    actual_anchors = [
+        (u["unit_id"], u["page_start"], u["page_end"], u["entry_count"])
+        for u in mid1_tb["units"]
+    ]
+    assert actual_anchors == expected_anchors
+
+    # Verify per-grade Hanja counts and all 16 collection IDs
+    col_counts = {c["collection_id"]: c["item_count"] for c in catalog["collections"]}
+    assert col_counts["hanja-grade:8geup"] == 12
+    assert col_counts["hanja-grade:7geup"] == 8
+    assert col_counts["hanja-grade:6geup"] == 6
+    assert col_counts["hanja-grade:5geup"] == 6
+    assert col_counts["hanja-grade:4geup"] == 6
+    assert col_counts["hanja-grade:3geup"] == 6
+    assert col_counts["moe-hanja-1800:middle"] == 44
+
+    # 1. Generate a deck from Middle School Grade 1 Dong-A (Yoon) Lesson 1 & Lesson 3 exam scope
+    exam_res = svc.generate_exam_scope_deck(
+        textbook_id="kr.mid1.eng.donga_yoon.2022",
+        unit_ids=["kr.mid1.eng.donga_yoon.2022:U01", "kr.mid1.eng.donga_yoon.2022:U03"],
+        page_start=None,
+        page_end=None,
+        deck_name="중1 동아(윤정미) 1·3단원 시험범위 덱",
+    )
+    assert exam_res["ok"] is True
+    assert exam_res["saved_count"] == 10  # 5 items in Lesson 1 + 5 items in Lesson 3
+    due_exam = svc.get_due_cards(deck_id=exam_res["deck_id"])
+    assert due_exam["count"] == 10
+
+    # 2. Generate a Hanja 3급 deck (contains 校, 學, 樂 with explicit distractor relations) and build a 4-choice quiz
+    hanja_res = svc.generate_collection_deck(
+        collection_id="hanja-grade:3geup",
+        limit=15,
+    )
+    assert hanja_res["ok"] is True
+    assert hanja_res["saved_count"] == 6
+    due_hanja = svc.get_due_cards(deck_id=hanja_res["deck_id"])
+    gyo_card = next(c for c in due_hanja["cards"] if "校" in c["front_text"])
+
+    quiz_res = svc.build_interactive_quiz(
+        card_id=gyo_card["card_id"],
+        age_tier="teen",
+    )
+    assert quiz_res["ok"] is True
+    assert quiz_res["question_facet"] == "hanja_char"
+    assert quiz_res["mode"] == "multiple_choice"
+    assert len(quiz_res["options"]) == 4
+    assert quiz_res["target_answer"] in quiz_res["options"]
+    assert set(quiz_res["distractor_relations_used"]) >= {"similar_shape", "same_radical", "homophone"}
+

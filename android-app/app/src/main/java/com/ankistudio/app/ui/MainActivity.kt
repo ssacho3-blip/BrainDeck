@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -42,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
+import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
 
@@ -115,6 +118,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onSelectCategory = viewModel::selectCategoryOverride,
                     onDeckTitleChange = viewModel::updateCustomDeckTitle,
+                    onToggleExamUnit = viewModel::toggleExamUnit,
+                    onSelectCollection = viewModel::selectStarterCollection,
+                    onGenerateExamScopeDeck = viewModel::generateExamScopeDeck,
+                    onGenerateCollectionDeck = viewModel::generateCollectionDeck,
                     onUpdatePreviewCard = viewModel::updatePreviewCard,
                     onRemovePreviewCard = viewModel::removePreviewCard,
                     onSavePreviewDeck = viewModel::savePreviewAsDeck,
@@ -160,12 +167,19 @@ fun AnkiStudioScreen(
     onPickPdf: () -> Unit,
     onSelectCategory: (String?) -> Unit,
     onDeckTitleChange: (String) -> Unit,
+    onToggleExamUnit: (String) -> Unit,
+    onSelectCollection: (String) -> Unit,
+    onGenerateExamScopeDeck: () -> Unit,
+    onGenerateCollectionDeck: () -> Unit,
     onUpdatePreviewCard: (Int, String, String) -> Unit,
     onRemovePreviewCard: (Int) -> Unit,
     onSavePreviewDeck: () -> Unit,
     onRevealAnswer: () -> Unit,
     onRateCard: (Rating) -> Unit
 ) {
+    val activeTextbook = BuiltInCurriculumCatalog.textbooks.firstOrNull { it.textbookId == state.selectedTextbookId }
+        ?: BuiltInCurriculumCatalog.textbooks.first()
+
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -205,6 +219,76 @@ fun AnkiStudioScreen(
                             fontSize = 13.sp,
                             modifier = Modifier.padding(12.dp)
                         )
+                    }
+                }
+            }
+
+            // Textbook Exam-Scope & Hanja Grade / Starter Collections Card
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "🏫 교과서 시험범위 & 漢字 급수별·전 연령 기본 팩",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "① ${activeTextbook.title} (${activeTextbook.publisher} · ${activeTextbook.author}) 단원 선택",
+                            fontSize = 13.sp,
+                            color = Color(0xFF38BDF8),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(activeTextbook.units) { unit ->
+                                FilterChip(
+                                    selected = unit.unitId in state.selectedUnitIds,
+                                    onClick = { onToggleExamUnit(unit.unitId) },
+                                    label = { Text("${unit.unitId} (p.${unit.pageStart}~${unit.pageEnd})") }
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = onGenerateExamScopeDeck,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("⚡ 선택한 시험범위 단원(${state.selectedUnitIds.size}개) 암기 덱 생성")
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "② 한자 급수별(8급~3급) 및 전 연령 기본 학습 팩",
+                            fontSize = 13.sp,
+                            color = Color(0xFF38BDF8),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(BuiltInCurriculumCatalog.collections) { col ->
+                                FilterChip(
+                                    selected = state.selectedCollectionId == col.collectionId,
+                                    onClick = { onSelectCollection(col.collectionId) },
+                                    label = { Text(col.title) }
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onGenerateCollectionDeck,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("📚 선택한 급수·기본 컬렉션 덱 즉시 생성")
+                        }
                     }
                 }
             }

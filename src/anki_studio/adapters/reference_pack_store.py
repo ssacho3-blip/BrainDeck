@@ -1015,7 +1015,7 @@ class ReferencePackBuilder:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT INTO ref_entries (
+                INSERT OR REPLACE INTO ref_entries (
                     entry_key, entry_type, headword, norm_key, reading, gloss_ko, pos,
                     facet_json, facet_schema_version, difficulty_rank, source_id,
                     quality, disputed, valid_from, valid_until, content_hash, retired
@@ -1052,7 +1052,7 @@ class ReferencePackBuilder:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT INTO ref_collections (collection_id, entry_key, ordinal, level_label)
+                INSERT OR REPLACE INTO ref_collections (collection_id, entry_key, ordinal, level_label)
                 VALUES (?, ?, ?, ?)
                 """,
                 (collection_id, entry_key, ordinal, level_label),
@@ -2058,9 +2058,51 @@ class TierULedgerStore:
             finally:
                 conn.close()
 
+    def get_in_scope_review_cards(self, *, scope_id: int) -> list[dict[str, Any]]:
+        """Return active, non-suspended/non-buried cards belonging to `in_scope = 1` items of `scope_id` (T28)."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        c.id AS card_id,
+                        c.note_id,
+                        c.queue,
+                        c.state,
+                        c.stability,
+                        c.difficulty,
+                        c.reps,
+                        c.lapses,
+                        n.front,
+                        n.back,
+                        n.curriculum_unit_id,
+                        n.textbook_page_no,
+                        esi.scope_ordinal,
+                        esi.in_scope
+                    FROM exam_scope_items esi
+                    JOIN notes n ON n.id = COALESCE(esi.materialized_note_id, esi.user_note_id)
+                    JOIN cards c ON c.note_id = n.id
+                    WHERE esi.scope_id = ?
+                      AND esi.in_scope = 1
+                      AND c.queue >= 0
+                    ORDER BY esi.scope_ordinal ASC, c.ord ASC
+                    """,
+                    (scope_id,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+
 
 def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
-    """Build a representative `Tier R` starter pack containing Hanja 1800, Korean History, and Middle-School English Textbook Index."""
+    """Build the comprehensive `Tier R` starter pack:
+    - Priority #1: 중학교 1학년 영어 (동아출판 윤정미 외, `kr.mid1.eng.donga_yoon.2022`) Lesson 1~8 전 단원 어휘·핵심문법·쪽수 매핑
+      + 중학교 2학년 영어 (동아출판 윤정미 외, `kr.mid2.eng.donga_yoon.2022`)
+      + 중학교 1학년 역사/사회 (미래엔, `kr.mid1.hist.miraen.2022`) & 과학 (비상교육, `kr.mid1.sci.visang.2022`)
+    - Priority #2: 한자 급수별 카드 컬렉션 (`hanja-grade:8geup` ~ `hanja-grade:3geup` + `moe-hanja-1800:middle`)
+    - Priority #3: 전 연령·전 분야 골고루 스타터 컬렉션 (초등 받아쓰기, 초등 영단어, 한국사, 토익, JLPT, 사자성어, 헌법·법학, 과학 원소·공식, IT 자격증)
+    """
     builder = ReferencePackBuilder(db_path)
     builder.init_schema(
         pack_id="ko.k12.starter-bundle",
@@ -2079,80 +2121,250 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
     )
     builder.add_source(
         source_id="anki_self_fact",
-        title="Anki Studio 2.0 자체 편찬 뜻풀이 및 단원 어휘 색인",
+        title="Anki Studio 2.0 자체 편찬 뜻풀이 및 단원 어휘·문법 색인",
         publisher="Anki Studio",
         license_class="FACT_SELF_AUTHORED",
         snapshot_sha256="2" * 64,
     )
 
-    # 1. Hanja 1800 starter entries (with CJK compatibility ideograph test case)
-    hanja_entries = [
-        (
-            "hanja:U+6A02",
-            "\uF914",  # CJK compatibility ideograph for 樂(락)
-            "락/악/요",
-            "즐길 락, 노래 악, 좋아할 요",
-            {
-                "facet_schema_version": 1,
-                "codepoint": "U+6A02",
-                "eum": ["락", "악", "요"],
-                "hun": {"락": "즐길", "악": "노래", "요": "좋아할"},
-                "dueum": {"락": "낙"},
-                "radical": "木",
-                "strokes": 15,
-            },
+    # =========================================================================
+    # 1. 한자 급수별 카드 컬렉션 (8급 ~ 3급 + 중학 교육용 기초한자 1800)
+    # =========================================================================
+    hanja_by_grade: dict[str, tuple[str, list[tuple[str, str, str, str, dict[str, Any]]]]] = {
+        "hanja-grade:8geup": (
+            "한자 8급 (입문 기초 50자 핵심)",
+            [
+                ("hanja:U+65E5", "日", "일", "날 일", {"codepoint": "U+65E5", "eum": ["일"], "hun": {"일": "날"}, "dueum": {}, "radical": "日", "strokes": 4}),
+                ("hanja:U+6708", "月", "월", "달 월", {"codepoint": "U+6708", "eum": ["월"], "hun": {"월": "달"}, "dueum": {}, "radical": "月", "strokes": 4}),
+                ("hanja:U+706B", "火", "화", "불 화", {"codepoint": "U+706B", "eum": ["화"], "hun": {"화": "불"}, "dueum": {}, "radical": "火", "strokes": 4}),
+                ("hanja:U+6C34", "水", "수", "물 수", {"codepoint": "U+6C34", "eum": ["수"], "hun": {"수": "물"}, "dueum": {}, "radical": "水", "strokes": 4}),
+                ("hanja:U+6728", "木", "목", "나무 목", {"codepoint": "U+6728", "eum": ["목"], "hun": {"목": "나무"}, "dueum": {}, "radical": "木", "strokes": 4}),
+                ("hanja:U+91D1", "金", "금/김", "쇠 금, 성씨 김", {"codepoint": "U+91D1", "eum": ["금", "김"], "hun": {"금": "쇠", "김": "성씨"}, "dueum": {}, "radical": "金", "strokes": 8}),
+                ("hanja:U+571F", "土", "토", "흙 토", {"codepoint": "U+571F", "eum": ["토"], "hun": {"토": "흙"}, "dueum": {}, "radical": "土", "strokes": 3}),
+                ("hanja:U+5C71", "山", "산", "메 산", {"codepoint": "U+5C71", "eum": ["산"], "hun": {"산": "메"}, "dueum": {}, "radical": "山", "strokes": 3}),
+                ("hanja:U+5DDD", "川", "천", "내 천", {"codepoint": "U+5DDD", "eum": ["천"], "hun": {"천": "내"}, "dueum": {}, "radical": "巛", "strokes": 3}),
+                ("hanja:U+97D3", "韓", "한", "나라 한", {"codepoint": "U+97D3", "eum": ["한"], "hun": {"한": "나라"}, "dueum": {}, "radical": "韋", "strokes": 17}),
+                ("hanja:U+570B", "國", "국", "나라 국", {"codepoint": "U+570B", "eum": ["국"], "hun": {"국": "나라"}, "dueum": {}, "radical": "囗", "strokes": 11}),
+                ("hanja:U+738B", "王", "왕", "임금 왕", {"codepoint": "U+738B", "eum": ["왕"], "hun": {"왕": "임금"}, "dueum": {}, "radical": "玉", "strokes": 4}),
+            ],
         ),
-        (
-            "hanja:U+5B78",
-            "學",
-            "학",
-            "배울 학",
-            {
-                "facet_schema_version": 1,
-                "codepoint": "U+5B78",
-                "eum": ["학"],
-                "hun": {"학": "배울"},
-                "dueum": {},
-                "radical": "子",
-                "strokes": 16,
-            },
+        "hanja-grade:7geup": (
+            "한자 7급 (초등 기초 필수)",
+            [
+                ("hanja:U+5BB6", "家", "가", "집 가", {"codepoint": "U+5BB6", "eum": ["가"], "hun": {"가": "집"}, "dueum": {}, "radical": "宀", "strokes": 10}),
+                ("hanja:U+6B4C", "歌", "가", "노래 가", {"codepoint": "U+6B4C", "eum": ["가"], "hun": {"가": "노래"}, "dueum": {}, "radical": "欠", "strokes": 14}),
+                ("hanja:U+6C5F", "江", "강", "강 강", {"codepoint": "U+6C5F", "eum": ["강"], "hun": {"강": "강"}, "dueum": {}, "radical": "水", "strokes": 6}),
+                ("hanja:U+7A7A", "空", "공", "빌 공, 하늘 공", {"codepoint": "U+7A7A", "eum": ["공"], "hun": {"공": "빌"}, "dueum": {}, "radical": "穴", "strokes": 8}),
+                ("hanja:U+8A18", "記", "기", "기록할 기", {"codepoint": "U+8A18", "eum": ["기"], "hun": {"기": "기록할"}, "dueum": {}, "radical": "言", "strokes": 10}),
+                ("hanja:U+9053", "道", "도", "길 도", {"codepoint": "U+9053", "eum": ["도"], "hun": {"도": "길"}, "dueum": {}, "radical": "辵", "strokes": 12}),
+                ("hanja:U+52D5", "動", "동", "움직일 동", {"codepoint": "U+52D5", "eum": ["동"], "hun": {"동": "움직일"}, "dueum": {}, "radical": "力", "strokes": 11}),
+                ("hanja:U+4F86", "來", "래", "올 래(내)", {"codepoint": "U+4F86", "eum": ["래"], "hun": {"래": "올"}, "dueum": {"래": "내"}, "radical": "人", "strokes": 8}),
+            ],
         ),
-        (
-            "hanja:U+6821",
-            "校",
-            "교",
-            "학교 교",
-            {
-                "facet_schema_version": 1,
-                "codepoint": "U+6821",
-                "eum": ["교"],
-                "hun": {"교": "학교"},
-                "dueum": {},
-                "radical": "木",
-                "strokes": 10,
-            },
+        "hanja-grade:6geup": (
+            "한자 6급 (초등 심화·중학 입문)",
+            [
+                ("hanja:U+611F", "感", "감", "느낄 감", {"codepoint": "U+611F", "eum": ["감"], "hun": {"감": "느낄"}, "dueum": {}, "radical": "心", "strokes": 13}),
+                ("hanja:U+958B", "開", "개", "열 개", {"codepoint": "U+958B", "eum": ["개"], "hun": {"개": "열"}, "dueum": {}, "radical": "門", "strokes": 12}),
+                ("hanja:U+4EAC", "京", "경", "서울 경", {"codepoint": "U+4EAC", "eum": ["경"], "hun": {"경": "서울"}, "dueum": {}, "radical": "亠", "strokes": 8}),
+                ("hanja:U+754C", "界", "계", "지경 계", {"codepoint": "U+754C", "eum": ["계"], "hun": {"계": "지경"}, "dueum": {}, "radical": "田", "strokes": 9}),
+                ("hanja:U+82E6", "苦", "고", "쓸 고, 괴로울 고", {"codepoint": "U+82E6", "eum": ["고"], "hun": {"고": "쓸"}, "dueum": {}, "radical": "艸", "strokes": 8}),
+                ("hanja:U+5149", "光", "광", "빛 광", {"codepoint": "U+5149", "eum": ["광"], "hun": {"광": "빛"}, "dueum": {}, "radical": "儿", "strokes": 6}),
+            ],
         ),
+        "hanja-grade:5geup": (
+            "한자 5급 (중학 기초한자 핵심)",
+            [
+                ("hanja:U+50F9", "價", "가", "값 가", {"codepoint": "U+50F9", "eum": ["가"], "hun": {"가": "값"}, "dueum": {}, "radical": "人", "strokes": 15}),
+                ("hanja:U+6E1B", "減", "감", "덜 감", {"codepoint": "U+6E1B", "eum": ["감"], "hun": {"감": "덜"}, "dueum": {}, "radical": "水", "strokes": 12}),
+                ("hanja:U+8B1B", "講", "강", "익힐 강, 강론할 강", {"codepoint": "U+8B1B", "eum": ["강"], "hun": {"강": "익힐"}, "dueum": {}, "radical": "言", "strokes": 17}),
+                ("hanja:U+6539", "改", "개", "고칠 개", {"codepoint": "U+6539", "eum": ["개"], "hun": {"개": "고칠"}, "dueum": {}, "radical": "攴", "strokes": 7}),
+                ("hanja:U+5BA2", "客", "객", "손 객", {"codepoint": "U+5BA2", "eum": ["객"], "hun": {"객": "손"}, "dueum": {}, "radical": "宀", "strokes": 9}),
+                ("hanja:U+5EFA", "建", "건", "세울 건", {"codepoint": "U+5EFA", "eum": ["건"], "hun": {"건": "세울"}, "dueum": {}, "radical": "廴", "strokes": 9}),
+            ],
+        ),
+        "hanja-grade:4geup": (
+            "한자 4급 (중·고교 핵심 어휘 한자)",
+            [
+                ("hanja:U+89BA", "覺", "각", "깨달을 각", {"codepoint": "U+89BA", "eum": ["각"], "hun": {"각": "깨달을"}, "dueum": {}, "radical": "見", "strokes": 20}),
+                ("hanja:U+523B", "刻", "각", "새길 각", {"codepoint": "U+523B", "eum": ["각"], "hun": {"각": "새길"}, "dueum": {}, "radical": "刀", "strokes": 8}),
+                ("hanja:U+7C21", "簡", "간", "대쪽 간, 간략할 간", {"codepoint": "U+7C21", "eum": ["간"], "hun": {"간": "간략할"}, "dueum": {}, "radical": "竹", "strokes": 18}),
+                ("hanja:U+6562", "敢", "감", "감히 감", {"codepoint": "U+6562", "eum": ["감"], "hun": {"감": "감히"}, "dueum": {}, "radical": "攴", "strokes": 12}),
+                ("hanja:U+964D", "降", "강/항", "내릴 강, 항복할 항", {"codepoint": "U+964D", "eum": ["강", "항"], "hun": {"강": "내릴", "항": "항복할"}, "dueum": {}, "radical": "阜", "strokes": 8}),
+                ("hanja:U+5EB7", "康", "강", "편안 강", {"codepoint": "U+5EB7", "eum": ["강"], "hun": {"강": "편안"}, "dueum": {}, "radical": "广", "strokes": 11}),
+            ],
+        ),
+        "hanja-grade:3geup": (
+            "한자 3급 (고교·수능·공무원 핵심 한자)",
+            [
+                ("hanja:U+6A02", "\uF914", "락/악/요", "즐길 락, 노래 악, 좋아할 요", {"codepoint": "U+6A02", "eum": ["락", "악", "요"], "hun": {"락": "즐길", "악": "노래", "요": "좋아할"}, "dueum": {"락": "낙"}, "radical": "木", "strokes": 15}),
+                ("hanja:U+5B78", "學", "학", "배울 학", {"codepoint": "U+5B78", "eum": ["학"], "hun": {"학": "배울"}, "dueum": {}, "radical": "子", "strokes": 16}),
+                ("hanja:U+6821", "校", "교", "학교 교", {"codepoint": "U+6821", "eum": ["교"], "hun": {"교": "학교"}, "dueum": {}, "radical": "木", "strokes": 10}),
+                ("hanja:U+4EC1", "仁", "인", "어질 인", {"codepoint": "U+4EC1", "eum": ["인"], "hun": {"인": "어질"}, "dueum": {}, "radical": "人", "strokes": 4}),
+                ("hanja:U+7FA9", "義", "의", "옳을 의", {"codepoint": "U+7FA9", "eum": ["의"], "hun": {"의": "옳을"}, "dueum": {}, "radical": "羊", "strokes": 13}),
+                ("hanja:U+8AA0", "誠", "성", "정성 성", {"codepoint": "U+8AA0", "eum": ["성"], "hun": {"성": "정성"}, "dueum": {}, "radical": "言", "strokes": 13}),
+            ],
+        ),
+    }
+
+    moe_middle_ord = 0
+    for col_id, (level_label, entries) in hanja_by_grade.items():
+        for idx, (ekey, hw, reading, gloss, facet) in enumerate(entries, start=1):
+            builder.add_entry(
+                entry_key=ekey,
+                entry_type="hanja_char",
+                headword=hw,
+                norm_key=hw,
+                reading=reading,
+                gloss_ko=gloss,
+                facet_json=facet,
+                source_id="anki_self_fact",
+                difficulty_rank=idx,
+            )
+            builder.add_collection_item(
+                collection_id=col_id,
+                entry_key=ekey,
+                ordinal=idx,
+                level_label=level_label,
+            )
+            moe_middle_ord += 1
+            builder.add_collection_item(
+                collection_id="moe-hanja-1800:middle",
+                entry_key=ekey,
+                ordinal=moe_middle_ord,
+                level_label="교육부 중학 기초한자 1800",
+            )
+
+    # Add Hanja distractor relations (similar_shape, same_radical, homophone)
+    hanja_relations = [
+        ("hanja:U+65E5", "similar_shape", "hanja:U+6708", 0.90),
+        ("hanja:U+706B", "same_radical", "hanja:U+6C34", 0.85),
+        ("hanja:U+6728", "same_radical", "hanja:U+6821", 0.92),
+        ("hanja:U+6821", "similar_shape", "hanja:U+5B78", 0.89),
+        ("hanja:U+6821", "homophone", "hanja:U+6539", 0.86),
+        ("hanja:U+5BB6", "homophone", "hanja:U+6B4C", 0.95),
+        ("hanja:U+5BB6", "homophone", "hanja:U+50F9", 0.94),
+        ("hanja:U+89BA", "homophone", "hanja:U+523B", 0.95),
+        ("hanja:U+6A02", "same_radical", "hanja:U+6821", 0.88),
+        ("hanja:U+6A02", "similar_shape", "hanja:U+5B78", 0.84),
     ]
-    for idx, (ekey, hw, reading, gloss, facet) in enumerate(hanja_entries, start=1):
-        builder.add_entry(
-            entry_key=ekey,
-            entry_type="hanja_char",
-            headword=hw,
-            norm_key=hw,
-            reading=reading,
-            gloss_ko=gloss,
-            facet_json=facet,
-            source_id="anki_self_fact",
-            difficulty_rank=idx,
-        )
-        builder.add_collection_item(
-            collection_id="moe-hanja-1800:middle",
-            entry_key=ekey,
-            ordinal=idx,
-            level_label="중학 기초한자",
+    for f_key, r_type, t_key, w in hanja_relations:
+        builder.add_relation(from_key=f_key, rel_type=r_type, to_key=t_key, weight=w)
+        builder.add_relation(from_key=t_key, rel_type=r_type, to_key=f_key, weight=w)
+
+    # =========================================================================
+    # 2. Priority #1: 중학교 1학년 영어 (동아출판 윤정미 외 — kr.mid1.eng.donga_yoon.2022)
+    #    Lesson 1 ~ Lesson 8 전 단원 어휘·핵심문법·쪽수 매핑
+    # =========================================================================
+    tb_mid1 = "kr.mid1.eng.donga_yoon.2022"
+    builder.add_textbook(
+        textbook_id=tb_mid1,
+        curriculum_revision="2022",
+        school_level="middle",
+        grade=1,
+        semester=1,
+        subject_code="language",
+        publisher_name="동아출판",
+        author_label="윤정미 외",
+        title="중학교 영어 1 (동아출판 윤정미)",
+        total_pages=168,
+        source_id="moe_2022_public",
+        valid_school_year_from=2025,
+    )
+
+    mid1_lessons = [
+        (1, "Lesson 1", "My Happy School Life", 10, 27, "[9영01-01]"),
+        (2, "Lesson 2", "Delicious World", 28, 45, "[9영02-02]"),
+        (3, "Lesson 3", "Spend Smart, Save Smart", 46, 63, "[9영02-05]"),
+        (4, "Lesson 4", "Walk Around the Neighborhood", 64, 81, "[9영02-07]"),
+        (5, "Lesson 5", "Follow Your Dreams", 82, 99, "[9영03-01]"),
+        (6, "Lesson 6", "Enjoy Art, Connect Hearts", 100, 117, "[9영03-04]"),
+        (7, "Lesson 7", "Science Full of Wonder", 118, 135, "[9영04-01]"),
+        (8, "Lesson 8", "Viva South America!", 136, 153, "[9영04-03]"),
+    ]
+    for ord_no, code_lbl, u_title, p_start, p_end, ach_code in mid1_lessons:
+        builder.add_curriculum_unit(
+            unit_id=f"{tb_mid1}:U0{ord_no}",
+            textbook_id=tb_mid1,
+            parent_unit_id=None,
+            depth=1,
+            unit_ordinal=ord_no,
+            unit_code_label=code_lbl,
+            unit_title=u_title,
+            page_start=p_start,
+            page_end=p_end,
+            achievement_code=ach_code,
         )
 
-    # 2. Middle School Grade 2 English Textbook (동아출판 윤정미 외)
+    mid1_entries = [
+        # Lesson 1 (p.10~27)
+        ("word:introduce", "word", "introduce", "소개하다", "verb", f"{tb_mid1}:U01", 1, 12, 1, "core_vocab"),
+        ("word:classmate", "word", "classmate", "반 친구, 급우", "noun", f"{tb_mid1}:U01", 2, 13, 1, "core_vocab"),
+        ("word:favorite", "word", "favorite", "가장 좋아하는", "adj", f"{tb_mid1}:U01", 3, 15, 1, "core_vocab"),
+        ("word:subject", "word", "subject", "과목, 주제", "noun", f"{tb_mid1}:U01", 4, 16, 1, "core_vocab"),
+        ("grammar:mid1_u1_be_verb", "fact_item", "Lesson 1 핵심문법: be동사 현재형 & 일반동사 3인칭 단수(-s/-es)", "주어가 3인칭 단수(he/she/it)일 때 일반동사 현재형에 -(e)s를 붙이며, 부정문은 doesn't + 동사원형을 쓴다.", "grammar", f"{tb_mid1}:U01", 5, 20, 1, "key_grammar"),
+        # Lesson 2 (p.28~45)
+        ("word:delicious", "word", "delicious", "매우 맛있는", "adj", f"{tb_mid1}:U02", 1, 30, 1, "core_vocab"),
+        ("word:healthy", "word", "healthy", "건강에 좋은, 건강한", "adj", f"{tb_mid1}:U02", 2, 32, 1, "core_vocab"),
+        ("word:dessert", "word", "dessert", "후식, 디저트", "noun", f"{tb_mid1}:U02", 3, 35, 1, "core_vocab"),
+        ("word:vegetable", "word", "vegetable", "채소, 야채", "noun", f"{tb_mid1}:U02", 4, 38, 2, "core_vocab"),
+        ("grammar:mid1_u2_present_prog", "fact_item", "Lesson 2 핵심문법: 현재진행형(am/are/is + V-ing) & 조동사 can/will", "지금 진행 중인 동작은 be동사 + 동사원형-ing로 나타내며, 조동사 can/will 뒤에는 반드시 동사원형이 온다.", "grammar", f"{tb_mid1}:U02", 5, 40, 1, "key_grammar"),
+        # Lesson 3 (p.46~63)
+        ("word:volunteer", "word", "volunteer", "자원봉사자; 자원봉사하다", "noun", f"{tb_mid1}:U03", 1, 48, 1, "core_vocab"),
+        ("word:donate", "word", "donate", "기부하다, 기증하다", "verb", f"{tb_mid1}:U03", 2, 50, 1, "core_vocab"),
+        ("word:secondhand", "word", "secondhand", "중고의, 간접의", "adj", f"{tb_mid1}:U03", 3, 52, 1, "core_vocab"),
+        ("word:treasure", "word", "treasure", "보물, 소중한 것", "noun", f"{tb_mid1}:U03", 4, 55, 1, "core_vocab"),
+        ("grammar:mid1_u3_past_tense", "fact_item", "Lesson 3 핵심문법: 동사의 과거시제 (규칙 -ed / 불규칙 변화 & did)", "과거의 일이나 상태는 과거시제를 쓰며, 일반동사 과거형의 의문문/부정문은 Did / didn't + 동사원형을 쓴다.", "grammar", f"{tb_mid1}:U03", 5, 58, 1, "key_grammar"),
+        # Lesson 4 (p.64~81)
+        ("word:neighborhood", "word", "neighborhood", "동네, 이웃", "noun", f"{tb_mid1}:U04", 1, 66, 1, "core_vocab"),
+        ("word:bakery", "word", "bakery", "빵집, 제과점", "noun", f"{tb_mid1}:U04", 2, 68, 1, "core_vocab"),
+        ("word:straight", "word", "straight", "곧장, 똑바로", "adv", f"{tb_mid1}:U04", 3, 70, 1, "core_vocab"),
+        ("grammar:mid1_u4_there_is", "fact_item", "Lesson 4 핵심문법: There is/are ~ (~이 있다) & 명령문", "There is + 단수명사 / There are + 복수명사로 존재를 표현하며, 길 안내 명령문은 동사원형(Go straight, Turn left)으로 시작한다.", "grammar", f"{tb_mid1}:U04", 4, 76, 1, "key_grammar"),
+        # Lesson 5 (p.82~99)
+        ("word:career", "word", "career", "직업, 진로, 경력", "noun", f"{tb_mid1}:U05", 1, 84, 1, "core_vocab"),
+        ("word:creative", "word", "creative", "창의적인, 독창적인", "adj", f"{tb_mid1}:U05", 2, 86, 1, "core_vocab"),
+        ("word:talent", "word", "talent", "재능, 소질", "noun", f"{tb_mid1}:U05", 3, 89, 1, "core_vocab"),
+        ("grammar:mid1_u5_to_inf", "fact_item", "Lesson 5 핵심문법: to부정사의 명사적 용법(want/hope/plan + to-V) & 수여동사", "want, hope, plan, decide는 목적어로 to부정사(to + 동사원형)를 취하며, 수여동사(give/show/teach)는 '간접목적어 + 직접목적어' 어순을 쓴다.", "grammar", f"{tb_mid1}:U05", 4, 94, 1, "key_grammar"),
+        # Lesson 6 (p.100~117)
+        ("word:exhibition", "word", "exhibition", "전시회", "noun", f"{tb_mid1}:U06", 1, 102, 1, "core_vocab"),
+        ("word:painting", "word", "painting", "그림, 회화", "noun", f"{tb_mid1}:U06", 2, 105, 1, "core_vocab"),
+        ("word:character", "word", "character", "등장인물, 성격, 글자", "noun", f"{tb_mid1}:U06", 3, 108, 1, "core_vocab"),
+        ("grammar:mid1_u6_gerund", "fact_item", "Lesson 6 핵심문법: 동명사(enjoy/finish/mind + V-ing) & 접속사 when", "enjoy, finish, mind, give up은 목적어로 동명사(V-ing)만을 취한다.", "grammar", f"{tb_mid1}:U06", 4, 112, 1, "key_grammar"),
+        # Lesson 7 (p.118~135)
+        ("word:gravity", "word", "gravity", "중력", "noun", f"{tb_mid1}:U07", 1, 120, 1, "core_vocab"),
+        ("word:float", "word", "float", "(물·공기 중에) 뜨다", "verb", f"{tb_mid1}:U07", 2, 122, 1, "core_vocab"),
+        ("word:experiment", "word", "experiment", "실험; 실험하다", "noun", f"{tb_mid1}:U07", 3, 125, 1, "core_vocab"),
+        ("grammar:mid1_u7_comparative", "fact_item", "Lesson 7 핵심문법: 형용사·부사의 비교급(-er/more ~ than) & 최상급(the -est/most)", "두 대상을 비교할 때는 '비교급 + than', 셋 이상에서 가장 ~한 것은 'the + 최상급 + in/of'로 나타낸다.", "grammar", f"{tb_mid1}:U07", 4, 130, 1, "key_grammar"),
+        # Lesson 8 (p.136~153)
+        ("word:continent", "word", "continent", "대륙", "noun", f"{tb_mid1}:U08", 1, 138, 1, "core_vocab"),
+        ("word:waterfall", "word", "waterfall", "폭포", "noun", f"{tb_mid1}:U08", 2, 140, 1, "core_vocab"),
+        ("word:ancient", "word", "ancient", "고대의, 옛날의", "adj", f"{tb_mid1}:U08", 3, 144, 1, "core_vocab"),
+        ("grammar:mid1_u8_sensory_verb", "fact_item", "Lesson 8 핵심문법: 감각동사(look/sound/smell/taste/feel + 형용사)", "감각동사 뒤에는 부사(-ly)가 아니라 반드시 형용사 보어가 온다 (예: It looks great).", "grammar", f"{tb_mid1}:U08", 4, 148, 1, "key_grammar"),
+    ]
+    for ekey, etype, hw, gloss, pos, uid, item_ord, page_no, tier, role in mid1_entries:
+        builder.add_entry(
+            entry_key=ekey,
+            entry_type=etype,
+            headword=hw,
+            norm_key=hw,
+            gloss_ko=gloss,
+            pos=pos,
+            facet_json={"facet_schema_version": 1, "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}]},
+            source_id="anki_self_fact",
+        )
+        builder.add_unit_entry(
+            textbook_id=tb_mid1,
+            unit_id=uid,
+            entry_key=ekey,
+            unit_item_ordinal=item_ord,
+            page_no=page_no,
+            importance_tier=tier,
+            role_in_unit=role,
+        )
+
+    # =========================================================================
+    # 3. 중학교 2학년 영어 (동아출판 윤정미 외 — kr.mid2.eng.donga_yoon.2022)
+    # =========================================================================
     tb_id = "kr.mid2.eng.donga_yoon.2022"
     builder.add_textbook(
         textbook_id=tb_id,
@@ -2163,7 +2375,7 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
         subject_code="language",
         publisher_name="동아출판",
         author_label="윤정미 외",
-        title="중학교 영어 2 (윤정미)",
+        title="중학교 영어 2 (동아출판 윤정미)",
         total_pages=160,
         source_id="moe_2022_public",
         valid_school_year_from=2025,
@@ -2234,4 +2446,205 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
             role_in_unit="core_vocab",
         )
 
+    # 중학교 2학년 역사 (미래엔) & 고등학교 1학년 통합과학 (비상교육)
+    builder.add_textbook(
+        textbook_id="kr.mid2.hist.miraeen.2022",
+        curriculum_revision="2022",
+        school_level="middle",
+        grade=2,
+        semester=1,
+        subject_code="social",
+        publisher_name="미래엔",
+        author_label="김태웅 외",
+        title="중학교 역사 ① (미래엔)",
+        total_pages=220,
+        source_id="moe_2022_public",
+        valid_school_year_from=2025,
+    )
+    builder.add_curriculum_unit(
+        unit_id="kr.mid2.hist.miraeen.2022:U01",
+        textbook_id="kr.mid2.hist.miraeen.2022",
+        parent_unit_id=None,
+        depth=1,
+        unit_ordinal=1,
+        unit_code_label="Ⅰ단원",
+        unit_title="문명의 발생과 고대 세계의 형성",
+        page_start=10,
+        page_end=35,
+        achievement_code="[9역01-01]",
+    )
+    builder.add_textbook(
+        textbook_id="kr.high1.sci.visang.2022",
+        curriculum_revision="2022",
+        school_level="high",
+        grade=1,
+        semester=1,
+        subject_code="science",
+        publisher_name="비상교육",
+        author_label="심규철 외",
+        title="고등학교 통합과학 1 (비상교육)",
+        total_pages=240,
+        source_id="moe_2022_public",
+        valid_school_year_from=2025,
+    )
+    builder.add_curriculum_unit(
+        unit_id="kr.high1.sci.visang.2022:U01",
+        textbook_id="kr.high1.sci.visang.2022",
+        parent_unit_id=None,
+        depth=1,
+        unit_ordinal=1,
+        unit_code_label="Ⅰ단원",
+        unit_title="과학의 기초와 물질의 규칙성",
+        page_start=12,
+        page_end=48,
+        achievement_code="[10통과01-01]",
+    )
+
+    # =========================================================================
+    # 4. 전 연령·전 분야 골고루 스타터 컬렉션 (초등·한국사·어학·사자성어·법학·과학·IT)
+    # =========================================================================
+    balanced_collections: dict[str, tuple[str, list[tuple[str, str, str, str, dict[str, Any]]]]] = {
+        "ko-dictation:grade1-2": (
+            "초등 1~2학년 급수별 받아쓰기 핵심 문장",
+            [
+                ("dict:g1_01", "fact_item", "무궁화 꽃이 활짝 피었습니다", "초등 받아쓰기 (받침·쌍자음 연습)", {"expression": "무궁화 꽃이 활짝 피었습니다", "senses": [{"id": "s1", "gloss_ko": "꽃이 / 활짝 / 피었습니다"}]}),
+                ("dict:g1_02", "fact_item", "오늘 날씨가 참 맑고 따뜻합니다", "초등 받아쓰기 (겹받침 맑고 / 쌍디귿 따뜻)", {"expression": "오늘 날씨가 참 맑고 따뜻합니다", "senses": [{"id": "s1", "gloss_ko": "맑고(ㄺ) / 따뜻합니다"}]}),
+                ("dict:g1_03", "fact_item", "할머니께 예쁜 편지를 썼습니다", "초등 받아쓰기 (높임 조사 -께 / 썼습니다)", {"expression": "할머니께 예쁜 편지를 썼습니다", "senses": [{"id": "s1", "gloss_ko": "할머니께 / 예쁜 / 썼습니다"}]}),
+                ("dict:g1_04", "fact_item", "도서관에서 조용히 책을 읽어요", "초등 받아쓰기 (겹받침 읽어요)", {"expression": "도서관에서 조용히 책을 읽어요", "senses": [{"id": "s1", "gloss_ko": "조용히 / 책을 읽어요(ㄺ)"}]}),
+            ],
+        ),
+        "moe-eng:elementary": (
+            "교육부 고시 초등 필수 영단어 800 핵심",
+            [
+                ("word:elem_library", "word", "library", "도서관", {"senses": [{"id": "s1", "gloss_ko": "도서관", "pos": "noun"}], "cefr": "A1"}),
+                ("word:elem_hospital", "word", "hospital", "병원", {"senses": [{"id": "s1", "gloss_ko": "병원", "pos": "noun"}], "cefr": "A1"}),
+                ("word:elem_weather", "word", "weather", "날씨", {"senses": [{"id": "s1", "gloss_ko": "날씨", "pos": "noun"}], "cefr": "A1"}),
+                ("word:elem_tomorrow", "word", "tomorrow", "내일", {"senses": [{"id": "s1", "gloss_ko": "내일", "pos": "noun"}], "cefr": "A1"}),
+            ],
+        ),
+        "khist:essential": (
+            "한국사능력검정 핵심 연표·사건·문화재",
+            [
+                ("khist:event:hunmin_1443", "event", "훈민정음 창제 (1443, 반포 1446)", "조선 세종 대 백성을 가르치는 바른 소리(훈민정음) 28자를 창제·반포한 사건", {"era": "joseon_early", "reign": "sejong", "year": 1443, "senses": [{"id": "s1", "gloss_ko": "조선 세종, 1443년 창제·1446년 반포"}]}),
+                ("khist:event:gapsin_1884", "event", "갑신정변 (1884)", "김옥균·박영효 등 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 근대화 개혁 운동", {"era": "joseon_late", "reign": "gojong", "year": 1884, "senses": [{"id": "s1", "gloss_ko": "1884년 급진개화파 정변 (개혁정강 14개조)"}]}),
+                ("khist:treaty:ganghwa_1876", "treaty", "강화도 조약 (조일수호조규, 1876)", "조선이 외국과 맺은 최초의 근대적 조약이자 불평등 조약 (부산·원산·인천 개항, 영사재판권 인정)", {"era": "joseon_late", "reign": "gojong", "year": 1876, "senses": [{"id": "s1", "gloss_ko": "1876년 최초의 근대적·불평등 조약"}]}),
+                ("khist:heritage:jikji_1377", "heritage", "직지심체요절 (1377, 청주 흥덕사)", "고려 우왕 3년(1377) 청주 흥덕사에서 간행된 현존 세계 최고(最古)의 금속활자본", {"era": "goryeo", "reign": "u_wang", "year": 1377, "senses": [{"id": "s1", "gloss_ko": "현존 세계 최고 금속활자본 (유네스코 세계기록유산)"}]}),
+            ],
+        ),
+        "exam-eng:toeic-core": (
+            "토익·비즈니스 빈출 핵심 어휘 (추정 레벨)",
+            [
+                ("word:toeic_implement", "word", "implement", "(정책·계획을) 시행하다, 이행하다", {"senses": [{"id": "s1", "gloss_ko": "시행하다, 실행하다", "pos": "verb"}], "cefr": "B2"}),
+                ("word:toeic_reimburse", "word", "reimburse", "(경비를) 변제하다, 환급하다", {"senses": [{"id": "s1", "gloss_ko": "변제하다, 상환하다", "pos": "verb"}], "cefr": "C1"}),
+                ("word:toeic_prerequisite", "word", "prerequisite", "필수 전제 조건, 선수 과목", {"senses": [{"id": "s1", "gloss_ko": "전제 조건, 필수 조건", "pos": "noun"}], "cefr": "C1"}),
+                ("word:toeic_tentative", "word", "tentative", "잠정적인, 임시의", {"senses": [{"id": "s1", "gloss_ko": "잠정적인, 확정이 아닌", "pos": "adj"}], "cefr": "B2"}),
+            ],
+        ),
+        "exam-ja:jlpt-n5-n3": (
+            "일본어 능력시험(JLPT) N5~N3 필수 어휘 (추정 레벨)",
+            [
+                ("word:ja_yakusoku", "word", "約束 (やくそく)", "약속 (야쿠소쿠)", {"senses": [{"id": "s1", "gloss_ko": "약속", "pos": "noun"}]}),
+                ("word:ja_junbi", "word", "準備 (じゅんび)", "준비 (준비)", {"senses": [{"id": "s1", "gloss_ko": "준비", "pos": "noun"}]}),
+                ("word:ja_keiken", "word", "経験 (けいけん)", "경험 (케이켄)", {"senses": [{"id": "s1", "gloss_ko": "경험", "pos": "noun"}]}),
+                ("word:ja_tashika", "word", "確か (たしか)", "확실히, 틀림없이 (타시카)", {"senses": [{"id": "s1", "gloss_ko": "확실히, 분명히", "pos": "adv"}]}),
+            ],
+        ),
+        "ko-idiom:essential": (
+            "필수 사자성어·고사성어 핵심",
+            [
+                ("idiom:gojingamrae", "idiom", "苦盡甘來 (고진감래)", "쓴 것이 다하면 단 것이 온다 — 고생 끝에 낙이 온다는 뜻", {"hanja": "苦盡甘來", "reading": "고진감래", "senses": [{"id": "s1", "gloss_ko": "고생 끝에 즐거움이 옴"}], "char_meanings": ["괴로울 고", "다할 진", "달 감", "올 래"]}),
+                ("idiom:daegimanseong", "idiom", "大器晩成 (대기만성)", "큰 그릇은 늦게 이루어진다 — 크게 될 인물은 오랜 노력 끝에 늦게 이루어진다는 뜻", {"hanja": "大器晩成", "reading": "대기만성", "senses": [{"id": "s1", "gloss_ko": "큰 인물은 늦게 이루어짐"}], "char_meanings": ["클 대", "그릇 기", "늦을 만", "이룰 성"]}),
+                ("idiom:yeokjisaji", "idiom", "易地思之 (역지사지)", "처지를 바꾸어 생각함 — 상대편의 입장에서 헤아려 생각한다는 뜻", {"hanja": "易地思之", "reading": "역지사지", "senses": [{"id": "s1", "gloss_ko": "입장을 바꾸어 생각함"}], "char_meanings": ["바꿀 역", "땅 지", "생각 사", "갈 지"]}),
+                ("idiom:일석이조", "idiom", "一石二鳥 (일석이조)", "돌 한 개를 던져 새 두 마리를 잡는다 — 한 가지 일로 두 가지 이익을 얻음", {"hanja": "一石二鳥", "reading": "일석이조", "senses": [{"id": "s1", "gloss_ko": "한 가지 일로 두 가지 이득을 얻음"}], "char_meanings": ["한 일", "돌 석", "두 이", "새 조"]}),
+            ],
+        ),
+        "law-statute:constitution": (
+            "대한민국 헌법 및 기본법 핵심 조문",
+            [
+                ("statute:const_art1", "statute", "대한민국 헌법 제1조", "① 대한민국은 민주공화국이다. ② 대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.", {"law_id": "헌법", "article": "제1조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "민주공화국 및 국민주권 원리"}]}),
+                ("statute:const_art10", "statute", "대한민국 헌법 제10조 (인간의 존엄과 가치·행복추구권)", "모든 국민은 인간으로서의 존엄과 가치를 가지며, 행복을 추구할 권리를 가진다.", {"law_id": "헌법", "article": "제10조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "인간의 존엄과 가치, 행복추구권 및 국가의 기본권 보장 의무"}]}),
+                ("statute:const_art37_2", "statute", "대한민국 헌법 제37조 제2항 (과잉금지원칙)", "국민의 모든 자유와 권리는 국가안전보장·질서유지 또는 공공복리를 위하여 필요한 경우에 한하여 법률로써 제한할 수 있으며, 제한하는 경우에도 자유와 권리의 본질적인 내용을 침해할 수 없다.", {"law_id": "헌법", "article": "제37조 제2항", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "기본권 제한의 한계 및 비례원칙(과잉금지원칙)"}]}),
+            ],
+        ),
+        "sci-element-formula:core": (
+            "주기율표 필수 원소 및 물리·화학·수학 공식",
+            [
+                ("sci:ohm_law", "formula", "옴의 법칙: V = I × R", "전압(V)은 전류(I)와 저항(R)의 곱에 비례한다 (I = V / R).", {"expression": "V = I × R", "senses": [{"id": "s1", "gloss_ko": "전압 = 전류 × 저항"}]}),
+                ("sci:elem_fe", "element", "원소기호 Fe (원자번호 26)", "철 (Iron) — 헤모글로빈의 핵심 성분이자 산업의 중심 전이금속", {"expression": "Fe (26)", "senses": [{"id": "s1", "gloss_ko": "철 (Iron, 원자번호 26)"}]}),
+                ("sci:quadratic_formula", "formula", "이차방정식의 근의 공식 (ax² + bx + c = 0)", "x = (-b ± √(b² - 4ac)) / 2a (단, a ≠ 0)", {"expression": "x = (-b ± √(b² - 4ac)) / 2a", "senses": [{"id": "s1", "gloss_ko": "근의 공식 및 판별식 D = b² - 4ac"}]}),
+            ],
+        ),
+        "cert-it:core": (
+            "정보처리기사·컴퓨터활용능력 핵심 개념 팩트",
+            [
+                ("cert:acid_tx", "fact_item", "데이터베이스 트랜잭션의 4대 특성 (ACID)", "원자성(Atomicity), 일관성(Consistency), 격리성(Isolation), 영속성(Durability)", {"expression": "ACID", "senses": [{"id": "s1", "gloss_ko": "Atomicity · Consistency · Isolation · Durability"}]}),
+                ("cert:osi_7layer", "fact_item", "OSI 7계층 순서 (하위 1계층 -> 상위 7계층)", "물리(Physical) - 데이터링크(Data Link) - 네트워크(Network) - 전송(Transport) - 세션(Session) - 표현(Presentation) - 응용(Application)", {"expression": "물·데·네·전·세·표·응", "senses": [{"id": "s1", "gloss_ko": "물리-데이터링크-네트워크-전송-세션-표현-응용"}]}),
+                ("cert:db_index_btree", "fact_item", "B-Tree 인덱스(Index)의 핵심 특징", "루트·브랜치·리프 노드가 균형을 유지하며 조회 성능을 O(log N)으로 높이는 대표적인 데이터베이스 인덱스 구조", {"expression": "B-Tree Index", "senses": [{"id": "s1", "gloss_ko": "O(log N) 균형 탐색 트리 인덱스"}]}),
+            ],
+        ),
+    }
+
+    for col_id, (level_label, entries) in balanced_collections.items():
+        for idx, (ekey, etype, hw, gloss, facet) in enumerate(entries, start=1):
+            builder.add_entry(
+                entry_key=ekey,
+                entry_type=etype,
+                headword=hw,
+                norm_key=hw,
+                gloss_ko=gloss,
+                facet_json=facet,
+                source_id="anki_self_fact",
+                difficulty_rank=idx,
+            )
+            builder.add_collection_item(
+                collection_id=col_id,
+                entry_key=ekey,
+                ordinal=idx,
+                level_label=level_label,
+            )
+
     return builder.finalize_pack()
+
+
+def inspect_pack_catalog(pack_db_path: str | Path) -> dict[str, Any]:
+    """Read textbooks (with units) and collections (with item counts) from a `Tier R` SQLite pack."""
+    conn = sqlite3.connect(f"file:{Path(pack_db_path)}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        tb_rows = conn.execute(
+            """
+            SELECT * FROM ref_textbooks
+            WHERE retired = 0
+            ORDER BY school_level ASC, grade ASC, textbook_id ASC
+            """
+        ).fetchall()
+        textbooks: list[dict[str, Any]] = []
+        for tb in tb_rows:
+            tdict = dict(tb)
+            units = conn.execute(
+                """
+                SELECT u.*, COUNT(rue.entry_key) AS entry_count
+                FROM ref_curriculum_units u
+                LEFT JOIN ref_unit_entries rue ON u.unit_id = rue.unit_id
+                WHERE u.textbook_id = ?
+                GROUP BY u.unit_id
+                ORDER BY u.unit_ordinal ASC
+                """,
+                (str(tb["textbook_id"]),),
+            ).fetchall()
+            tdict["units"] = [dict(u) for u in units]
+            textbooks.append(tdict)
+
+        col_rows = conn.execute(
+            """
+            SELECT collection_id, level_label, COUNT(*) AS item_count
+            FROM ref_collections
+            GROUP BY collection_id, level_label
+            ORDER BY collection_id ASC
+            """
+        ).fetchall()
+        collections = [dict(c) for c in col_rows]
+        return {"textbooks": textbooks, "collections": collections}
+    finally:
+        conn.close()
+

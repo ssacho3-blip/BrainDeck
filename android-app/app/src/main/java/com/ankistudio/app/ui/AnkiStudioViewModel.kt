@@ -12,6 +12,7 @@ import com.ankistudio.app.data.DeckEntity
 import com.ankistudio.app.data.DueReviewCardRow
 import com.ankistudio.app.data.RevlogEntity
 import com.ankistudio.app.ingest.AndroidDocumentIngestor
+import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import com.ankistudio.domain.deck.DocumentDeckBuilder.DeckPlan
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
@@ -30,6 +31,9 @@ data class AnkiStudioUiState(
     val isIngesting: Boolean = false,
     val selectedCategoryOverride: String? = null,
     val customDeckTitle: String = "",
+    val selectedTextbookId: String = "kr.mid1.eng.donga_yoon.2022",
+    val selectedUnitIds: Set<String> = setOf("L1", "L2", "L3"),
+    val selectedCollectionId: String = "hanja-grade:8geup",
     val previewPlan: DeckPlan? = null,
     val previewFilename: String = "",
     val statusBannerMessage: String? = null,
@@ -69,6 +73,88 @@ class AnkiStudioViewModel(
 
     fun updateCustomDeckTitle(title: String) {
         _uiState.update { it.copy(customDeckTitle = title) }
+    }
+
+    fun toggleExamUnit(unitId: String) {
+        _uiState.update { state ->
+            val updated = if (unitId in state.selectedUnitIds) {
+                state.selectedUnitIds - unitId
+            } else {
+                state.selectedUnitIds + unitId
+            }
+            state.copy(selectedUnitIds = updated)
+        }
+    }
+
+    fun selectStarterCollection(collectionId: String) {
+        _uiState.update { it.copy(selectedCollectionId = collectionId) }
+    }
+
+    fun generateExamScopeDeck() {
+        val state = _uiState.value
+        val plan = BuiltInCurriculumCatalog.buildExamScopeDeckPlan(
+            textbookId = state.selectedTextbookId,
+            unitIds = state.selectedUnitIds,
+            deckTitleOverride = state.customDeckTitle.takeIf { it.isNotBlank() }
+        )
+        if (plan.status != "OK" || plan.cards.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    statusBannerMessage = "시험범위 단원을 최소 1개 이상 선택해 주세요.",
+                    isErrorBanner = true
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            val deckId = dao.createDeckWithGeneratedCards(
+                deckName = plan.deckName,
+                description = "교과서 시험범위 덱 (${state.selectedTextbookId})",
+                category = plan.category,
+                sourceFilename = state.selectedTextbookId,
+                cards = plan.cards
+            )
+            _uiState.update {
+                it.copy(
+                    statusBannerMessage = "'${plan.deckName}' 시험범위 덱 (${plan.cards.size}장)이 생성되었습니다!",
+                    isErrorBanner = false
+                )
+            }
+            refreshWorkspace(deckId = deckId)
+        }
+    }
+
+    fun generateCollectionDeck() {
+        val state = _uiState.value
+        val plan = BuiltInCurriculumCatalog.buildCollectionDeckPlan(
+            collectionId = state.selectedCollectionId,
+            deckTitleOverride = state.customDeckTitle.takeIf { it.isNotBlank() }
+        )
+        if (plan.status != "OK" || plan.cards.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    statusBannerMessage = "선택한 기본 컬렉션에 생성할 카드가 없습니다.",
+                    isErrorBanner = true
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            val deckId = dao.createDeckWithGeneratedCards(
+                deckName = plan.deckName,
+                description = "기본 제공 커리큘럼 (${state.selectedCollectionId})",
+                category = plan.category,
+                sourceFilename = state.selectedCollectionId,
+                cards = plan.cards
+            )
+            _uiState.update {
+                it.copy(
+                    statusBannerMessage = "'${plan.deckName}' 덱 (${plan.cards.size}장)이 생성되었습니다!",
+                    isErrorBanner = false
+                )
+            }
+            refreshWorkspace(deckId = deckId)
+        }
     }
 
     fun ingestDocument(uri: Uri, filename: String, mimeType: String?) {
