@@ -80,4 +80,94 @@ class ReaV56EngineTest {
         assertEquals("general_concept", customQType.facetKey)
         assertEquals("history_sci", customQType.categoryKey)
     }
+
+    @Test
+    fun `v58 C1 to C4 simple is best drawer summary smart router curriculum segments and fluency calibration`() {
+        // C1: Study tools summary
+        val s0 = ReaV56Engine.computeStudyToolsSummary("all", "all", false)
+        assertEquals(0, s0.activeCount)
+        assertTrue(s0.isDefault)
+        assertEquals("", s0.summaryBadgeText)
+
+        val s2 = ReaV56Engine.computeStudyToolsSummary("wrong_only", "vocab", false)
+        assertEquals(2, s2.activeCount)
+        assertFalse(s2.isDefault)
+        assertEquals("필터 2개 적용 중", s2.summaryBadgeText)
+
+        // C2: Smart AI Engine router & fail-closed block
+        val rAuto = ReaV56Engine.resolveSmartAiEngine(taskType = "card_generate", offlineOnly = false)
+        assertEquals("OK", rAuto.status)
+        assertEquals("glm-5.3-flash", rAuto.selectedModel)
+        assertFalse(rAuto.exposesRawModelName)
+
+        val rBlocked = ReaV56Engine.resolveSmartAiEngine(taskType = "card_generate", manualOverride = "kimi-k2.6")
+        assertEquals("BLOCKED_MODEL", rBlocked.status)
+        assertEquals("", rBlocked.selectedModel)
+
+        val rUnknown = ReaV56Engine.resolveSmartAiEngine(taskType = "card_generate", manualOverride = "unknown-model-x")
+        assertEquals("BLOCKED_MODEL", rUnknown.status)
+
+        val sShuffle = ReaV56Engine.computeStudyToolsSummary("all", "all", false, "interleaved")
+        assertEquals(1, sShuffle.activeCount)
+        assertEquals("필터 1개 적용 중", sShuffle.summaryBadgeText)
+
+        // C3: Curriculum 3-segment state
+        val cSeg = ReaV56Engine.resolveCurriculumSegmentState("collection", 2)
+        assertEquals("collection", cSeg.activeSegment)
+        assertEquals("🎯 시험범위 조합 (2)", cSeg.combinedTabLabel)
+        assertEquals(true, cSeg.visiblePanels["collection"])
+        assertEquals(false, cSeg.visiblePanels["textbook"])
+
+        // C4: Response-Time Fluency Calibration & Confusion Matrix
+        val baseline = listOf(2000L, 2200L, 2100L, 2300L, 2050L)
+        val hesitantGood = ReaV56Engine.calibrateFluencyGrade(3, 9500L, baseline, 2)
+        assertEquals(2, hesitantGood.effectiveRating)
+        assertEquals("DOWNGRADED_HESITANT_GOOD", hesitantGood.status)
+
+        val zeroMad = ReaV56Engine.calibrateFluencyGrade(3, 4000L, listOf(2000L, 2000L, 2000L, 2000L, 2000L), 2)
+        assertEquals(3, zeroMad.effectiveRating)
+        assertEquals("BYPASSED_ZERO_MAD", zeroMad.status)
+
+        val tooFast = ReaV56Engine.calibrateFluencyGrade(3, 250L, baseline, 2)
+        assertEquals(3, tooFast.effectiveRating)
+        assertEquals("BYPASSED_INVALID_RT", tooFast.status)
+
+        val tooSlow = ReaV56Engine.calibrateFluencyGrade(3, 65000L, baseline, 2)
+        assertEquals(3, tooSlow.effectiveRating)
+        assertEquals("BYPASSED_INVALID_RT", tooSlow.status)
+
+        val coldStart = ReaV56Engine.calibrateFluencyGrade(3, 9500L, listOf(2000L, 2100L, 2200L), 2)
+        assertEquals(3, coldStart.effectiveRating)
+        assertEquals("BYPASSED_COLD_START", coldStart.status)
+
+        val rReasoning = ReaV56Engine.resolveSmartAiEngine(taskType = "reasoning", offlineOnly = false)
+        assertEquals("deepseek-v4.1-flash", rReasoning.selectedModel)
+        assertEquals("✨ 스마트 자동 생성", rReasoning.uiLabel)
+        assertFalse(rReasoning.exposesRawModelName)
+
+        val fluentGood = ReaV56Engine.calibrateFluencyGrade(3, 750L, listOf(2500L, 2800L, 2600L, 2700L, 2550L), 2)
+        assertEquals(4, fluentGood.effectiveRating)
+        assertEquals("UPGRADED_FLUENT_GOOD", fluentGood.status)
+
+        val explicitAgain = ReaV56Engine.calibrateFluencyGrade(1, 500L, baseline, 5)
+        assertEquals(1, explicitAgain.effectiveRating)
+        assertEquals("PRESERVED_EXPLICIT_RATING", explicitAgain.status)
+
+        val conf = ReaV56Engine.updateConfusionMatrixWeight(2.0, 0.0, "c1", "c2", "rev1", emptySet())
+        assertEquals(3.0, conf.weight)
+        assertTrue(conf.shouldInterleavePeer)
+        assertEquals(1.0, ReaV56Engine.computeConfusionIntervalFactor(0.0))
+        assertEquals(0.85, ReaV56Engine.computeConfusionIntervalFactor(10.0))
+
+        // C4 Non-interference: fluency rating downgrade (3 -> 2) wins and locks intervalFactor = 1.0
+        val coordRewritten = ReaV56Engine.applyC4ReviewCalibration(3, 9500L, baseline, 2, 3.0)
+        assertEquals(2, coordRewritten.effectiveRating)
+        assertEquals(1.0, coordRewritten.effectiveIntervalFactor)
+        assertFalse(coordRewritten.intervalScaledByConfusion)
+
+        val coordUnrewritten = ReaV56Engine.applyC4ReviewCalibration(3, 2100L, baseline, 1, 2.0)
+        assertEquals(3, coordUnrewritten.effectiveRating)
+        assertEquals(0.9, coordUnrewritten.effectiveIntervalFactor)
+        assertTrue(coordUnrewritten.intervalScaledByConfusion)
+    }
 }

@@ -435,64 +435,72 @@
       <section class="panel">
         <div class="panel-header" style="flex-wrap:wrap;gap:10px;">
           <select id="deck-select" style="flex:1;min-width:180px;"></select>
-          <!-- 3-Color Queue Counter Pills -->
-          <div id="study-queue-counters" style="display:flex;gap:6px;align-items:center;font-size:0.78rem;font-weight:800;">
+          <!-- 3-Color Queue Counter Pills + Progressive Disclosure Study Tools Toggle (Contract C1) -->
+          <div id="study-queue-counters" style="display:flex;gap:6px;align-items:center;font-size:0.78rem;font-weight:800;flex-wrap:wrap;">
             <span id="count-new" style="padding:5px 10px;border-radius:999px;background:#e8f3ff;color:#1b64da;">새 카드 0</span>
             <span id="count-learn" style="padding:5px 10px;border-radius:999px;background:#fff0f0;color:#be123c;">학습·오답 0</span>
             <span id="count-review" style="padding:5px 10px;border-radius:999px;background:#e8faf0;color:#008a50;">복습 0</span>
+            <span id="active-study-filter-summary" class="badge-pill" style="display:none;background:#eef2ff;color:#1d4ed8;font-size:0.74rem;"></span>
+            <button type="button" id="btn-toggle-study-tools" aria-expanded="false" style="padding:5px 11px;font-size:0.76rem;border-radius:999px;" title="필터 · 문제유형 · 요약시트 · 인쇄 · 오디오 도구 열기">
+              🎛️ 필터·도구
+            </button>
           </div>
         </div>
 
-        <!-- Study Filter Chips (All / Wrong-Unknown Only / Marked Only + Smart Interleaved Shuffle Toggle) -->
-        <div id="study-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
-          <button type="button" class="study-filter-btn btn-primary" data-filter="all" style="padding:7px 13px;font-size:0.8rem;">
-            📚 전체 학습
-          </button>
-          <button type="button" class="study-filter-btn" id="btn-filter-wrong" data-filter="wrong_only" style="padding:7px 13px;font-size:0.8rem;">
-            🔥 오답·모르는 것만 (0)
-          </button>
-          <button type="button" class="study-filter-btn" id="btn-filter-marked" data-filter="marked_only" style="padding:7px 13px;font-size:0.8rem;">
-            ⭐ 별표 카드만 (0)
-          </button>
-          <button type="button" id="btn-toggle-shuffle" class="btn-primary" style="padding:7px 13px;font-size:0.8rem;margin-left:auto;" title="단원·유형 쏠림 없이 지능형 랜덤 섞기">
-            🔀 스마트 랜덤 섞기: ON
-          </button>
-        </div>
+        <!-- Contract C1: Collapsible Study Tools & Filter Drawer (Default closed for Zen focus, Zero Feature Loss) -->
+        <div id="study-tools-drawer" style="display:none;margin-bottom:12px;padding:12px;border-radius:16px;background:#f8fafc;border:1px solid var(--border);">
+          <!-- Study Filter Chips (All / Wrong-Unknown Only / Marked Only + Smart Interleaved Shuffle Toggle) -->
+          <div id="study-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+            <button type="button" class="study-filter-btn btn-primary" data-filter="all" style="padding:7px 13px;font-size:0.8rem;">
+              📚 전체 학습
+            </button>
+            <button type="button" class="study-filter-btn" id="btn-filter-wrong" data-filter="wrong_only" style="padding:7px 13px;font-size:0.8rem;">
+              🔥 오답·모르는 것만 (0)
+            </button>
+            <button type="button" class="study-filter-btn" id="btn-filter-marked" data-filter="marked_only" style="padding:7px 13px;font-size:0.8rem;">
+              ⭐ 별표 카드만 (0)
+            </button>
+            <button type="button" id="btn-toggle-shuffle" class="btn-primary" style="padding:7px 13px;font-size:0.8rem;margin-left:auto;" title="단원·유형 쏠림 없이 지능형 랜덤 섞기">
+              🔀 스마트 랜덤 섞기: ON
+            </button>
+          </div>
 
-        <!-- Gate T43: Question-Type Organization & Filter Bar (유형별 모아풀기 · 4지선다 동종 보기 격리) -->
-        <div id="study-type-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:7px 10px;border-radius:13px;background:#f1f5f9;border:1px solid #e2e8f0;">
-          <span style="font-size:0.76rem;font-weight:800;color:#334155;margin-right:2px;">🏷️ 문제 유형별 정리:</span>
-          <button type="button" class="study-qtype-btn btn-primary" id="btn-qtype-all" data-qtype="all" style="padding:5px 11px;font-size:0.76rem;">
-            🗂️ 전체 유형
-          </button>
-          <button type="button" class="study-qtype-btn" id="btn-qtype-vocab" data-qtype="vocab" style="padding:5px 11px;font-size:0.76rem;">
-            📘 단어·어휘만
-          </button>
-          <button type="button" class="study-qtype-btn" id="btn-qtype-grammar" data-qtype="grammar" style="padding:5px 11px;font-size:0.76rem;">
-            📐 문법·구문만
-          </button>
-          <button type="button" class="study-qtype-btn" id="btn-qtype-hanja" data-qtype="hanja" style="padding:5px 11px;font-size:0.76rem;">
-            漢字 한자·성어만
-          </button>
-          <button type="button" class="study-qtype-btn" id="btn-qtype-history_sci" data-qtype="history_sci" style="padding:5px 11px;font-size:0.76rem;">
-            🏛️ 역사·과학·전공
-          </button>
-        </div>
+          <!-- Gate T43: Question-Type Organization & Filter Bar (유형별 모아풀기 · 4지선다 동종 보기 격리) -->
+          <div id="study-type-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:7px 10px;border-radius:13px;background:#f1f5f9;border:1px solid #e2e8f0;">
+            <span style="font-size:0.76rem;font-weight:800;color:#334155;margin-right:2px;">🏷️ 문제 유형별 정리:</span>
+            <button type="button" class="study-qtype-btn btn-primary" id="btn-qtype-all" data-qtype="all" style="padding:5px 11px;font-size:0.76rem;">
+              🗂️ 전체 유형
+            </button>
+            <button type="button" class="study-qtype-btn" id="btn-qtype-vocab" data-qtype="vocab" style="padding:5px 11px;font-size:0.76rem;">
+              📘 단어·어휘만
+            </button>
+            <button type="button" class="study-qtype-btn" id="btn-qtype-grammar" data-qtype="grammar" style="padding:5px 11px;font-size:0.76rem;">
+              📐 문법·구문만
+            </button>
+            <button type="button" class="study-qtype-btn" id="btn-qtype-hanja" data-qtype="hanja" style="padding:5px 11px;font-size:0.76rem;">
+              漢字 한자·성어만
+            </button>
+            <button type="button" class="study-qtype-btn" id="btn-qtype-history_sci" data-qtype="history_sci" style="padding:5px 11px;font-size:0.76rem;">
+              🏛️ 역사·과학·전공
+            </button>
+          </div>
 
-        <!-- v5.6 Study Utilities: Electronic Red-Cellophane Sheet, 2-Col Printable Exam, Commute Audio Loop, Non-Destructive Cram -->
-        <div id="v56-rea-utility-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;padding:8px 10px;border-radius:14px;background:#f8fafc;border:1px solid var(--border);">
-          <button type="button" id="btn-open-summary-sheet" style="padding:6px 11px;font-size:0.78rem;background:#fff0f0;color:#be123c;border-color:#fecdd3;">
-            🟥 전자 셀로판지 요약시트
-          </button>
-          <button type="button" id="btn-print-exam-sheet" style="padding:6px 11px;font-size:0.78rem;">
-            🖨️ 2단 쪽지시험지 인쇄/PDF
-          </button>
-          <button type="button" id="btn-commute-audio-loop" style="padding:6px 11px;font-size:0.78rem;">
-            🎧 통학 오디오 루프
-          </button>
-          <button type="button" id="btn-toggle-cram-sandbox" style="padding:6px 11px;font-size:0.78rem;margin-left:auto;" title="켜면 벼락치기 다회독 시 장기기억 스케줄을 오염시키지 않습니다">
-            🧪 무오염 벼락치기(CRAM): OFF
-          </button>
+          <!-- v5.6 Study Utilities: Electronic Red-Cellophane Sheet, 2-Col Printable Exam, Commute Audio Loop, Non-Destructive Cram -->
+          <div id="v56-rea-utility-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border-radius:14px;background:#ffffff;border:1px solid var(--border);">
+            <button type="button" id="btn-open-summary-sheet" style="padding:6px 11px;font-size:0.78rem;background:#fff0f0;color:#be123c;border-color:#fecdd3;">
+              🟥 전자 셀로판지 요약시트
+            </button>
+            <button type="button" id="btn-print-exam-sheet" style="padding:6px 11px;font-size:0.78rem;">
+              🖨️ 2단 쪽지시험지 인쇄/PDF
+            </button>
+            <button type="button" id="btn-commute-audio-loop" style="padding:6px 11px;font-size:0.78rem;">
+              🎧 통학 오디오 루프
+            </button>
+            <button type="button" id="btn-toggle-cram-sandbox" style="padding:6px 11px;font-size:0.78rem;" title="켜면 벼락치기 다회독 시 장기기억 스케줄을 오염시키지 않습니다">
+              🧪 무오염 벼락치기(CRAM): OFF
+            </button>
+            <button id="btn-reset-card-arena" type="button" style="padding:6px 11px;font-size:0.76rem;color:#be123c;border-color:#fecdd3;background:#fff0f0;margin-left:auto;" title="현재 덱 처음부터 초기화">🔄 덱 진도 초기화</button>
+          </div>
         </div>
 
         <!-- Electronic Red-Cellophane Summary Sheet Panel (v5.6 RN-1) -->
@@ -522,7 +530,6 @@
                 <button id="btn-mark-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="중요 별표 표시">☆ 별표</button>
                 <button id="btn-bury-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="오늘 하루 숨기기">💤 숨김</button>
                 <button id="btn-suspend-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="카드 일시 정지">⏸️ 정지</button>
-                <button id="btn-reset-card-arena" type="button" style="padding:4px 9px;font-size:0.74rem;color:#be123c;border-color:#fecdd3;background:#fff0f0;" title="현재 덱 처음부터 초기화">🔄 초기화</button>
               </div>
             </div>
             <div class="card-question" id="card-question">오늘 카드를 모두 끝냈어요! 🎉</div>
@@ -595,27 +602,30 @@
       </section>
     </main>
 
-    <!-- PAGE 2: CURRICULUM (학교 시험범위 & 급수) -->
+    <!-- PAGE 2: CURRICULUM (학교 시험범위 & 급수 — Contract C3: 3-Segment Simplification) -->
     <section id="page-curriculum" class="tab-page">
-      <!-- Difficulty Level Selector for Curriculum & Exam Scope Cards -->
-      <div class="panel">
-        <div class="panel-header" style="flex-wrap:wrap;">
-          <div class="panel-title">🎚️ 생성 카드 난이도 & 학습 깊이 설정</div>
-          <span class="badge-pill">난이도별 맞춤 생성</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <div id="curriculum-seg-bar" role="tablist" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex:1;min-width:260px;">
+          <button type="button" role="tab" aria-selected="true" class="curr-seg-btn btn-primary" data-curr-seg="textbook" style="padding:10px;font-size:0.83rem;">
+            🏫 교과서 단원
+          </button>
+          <button type="button" role="tab" aria-selected="false" class="curr-seg-btn" data-curr-seg="collection" style="padding:10px;font-size:0.83rem;">
+            📚 교육부·급수
+          </button>
+          <button type="button" role="tab" aria-selected="false" class="curr-seg-btn" id="btn-curr-seg-combined" data-curr-seg="combined" style="padding:10px;font-size:0.83rem;">
+            🎯 시험범위 조합
+          </button>
         </div>
-        <div style="font-size:0.83rem;color:var(--muted);margin-bottom:10px;">
-          선택한 난이도에 따라 <strong>기초 개념 확인(Lv.1)</strong>, <strong>실전 문맥 빈칸(Lv.2)</strong>, <strong>역방향 인출·함정 변별(Lv.3)</strong> 또는 <strong>전 단계 통합(Mixed)</strong> 카드로 다르게 생성됩니다.
-        </div>
-        <select id="curriculum-difficulty-select">
-          <option value="mixed">🎲 통합 난이도 (Lv.1 기초 + Lv.2 실전 빈칸 + Lv.3 심화·역방향 골고루)</option>
-          <option value="lv1">🌱 Lv.1 기초·핵심 개념 (정확한 뜻·핵심 규칙 빠르게 잡기)</option>
-          <option value="lv2">🚀 Lv.2 실전 문맥 빈칸 (시험 예문·조문 속 Cloze 빈칸 추론)</option>
-          <option value="lv3">🔥 Lv.3 심화·역방향·함정 (뜻 보고 영단어/한자 쓰기 · 오답 함정 구분)</option>
-          <option value="standard">📘 표준 기본형 (단일 대표 카드)</option>
+        <select id="curriculum-difficulty-select" style="width:auto;min-width:210px;" title="생성할 카드의 학습 깊이를 선택하세요">
+          <option value="mixed">🎚️ 난이도: 통합 (Lv.1~3 골고루)</option>
+          <option value="lv1">🌱 Lv.1 기초·핵심 개념</option>
+          <option value="lv2">🚀 Lv.2 실전 문맥 빈칸</option>
+          <option value="lv3">🔥 Lv.3 심화·역방향·함정</option>
+          <option value="standard">📘 표준 기본형</option>
         </select>
       </div>
 
-      <div class="panel">
+      <div class="panel curr-seg-panel" id="curr-seg-textbook">
         <div class="panel-header">
           <div class="panel-title">🏫 학교 교과서 시험범위 덱</div>
           <button id="btn-toggle-all-units" type="button" style="padding:5px 10px;font-size:0.76rem;">☑️ 전체 선택</button>
@@ -636,9 +646,9 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel curr-seg-panel" id="curr-seg-collection" style="display:none;">
         <div class="panel-header">
-          <div class="panel-title">漢字 급수 한자 · 한국사 · 기초 팩</div>
+          <div class="panel-title">📚 교육부 9대 필수 · 급수 한자 · 한국사 · 자격증</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <select id="catalog-collection-select" style="flex:1;min-width:200px;"></select>
@@ -653,7 +663,7 @@
       </div>
 
       <!-- Multi-Scope Combined Exam Deck Builder (지능형 다중 조합 랜덤 인터리빙 덱) -->
-      <div class="panel" style="border:2px solid #c9e2ff;background:#f4f9ff;">
+      <div class="panel curr-seg-panel" id="curr-seg-combined" style="display:none;border:2px solid #c9e2ff;background:#f4f9ff;">
         <div class="panel-header" style="flex-wrap:wrap;">
           <div class="panel-title">🎯 내 시험 출제범위 다중 조합 & 지능형 랜덤 덱</div>
           <button id="btn-preset-midterm-combo" type="button" style="padding:5px 10px;font-size:0.76rem;background:#ffffff;">
@@ -661,7 +671,7 @@
           </button>
         </div>
         <div style="font-size:0.82rem;color:#4e5968;margin-bottom:10px;">
-          위에서 여러 교과서 단원(예: 영어 1~3단원 + 역사 1단원 + 과학 1단원)이나 급수 팩을 <strong>[➕ 통합 시험범위에 추가]</strong>로 담은 뒤 생성하면, 같은 단원이 연속으로 몰리지 않도록 <strong>스마트 인터리빙 랜덤 알고리즘</strong>으로 섞인 통합 시험대비 덱이 만들어집니다.
+          여러 교과서 단원이나 급수 팩을 <strong>[➕ 통합 시험범위에 추가]</strong>로 담은 뒤 생성하면, 같은 단원이 연속으로 몰리지 않도록 <strong>스마트 인터리빙 랜덤 알고리즘</strong>으로 섞인 통합 시험대비 덱이 만들어집니다.
         </div>
         <div id="combined-scope-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -693,16 +703,13 @@
       <div class="panel create-seg-panel" id="create-seg-doc">
         <div class="panel-header" style="flex-wrap:wrap;gap:8px;">
           <div class="panel-title">📸 사진 · 📄 PDF로 카드 만들기</div>
-          <span class="badge-pill" style="background:#eef2ff;color:#1d4ed8;">☁️ Ollama Cloud 모델 연동</span>
+          <span class="badge-pill" style="background:#eef2ff;color:#1d4ed8;">✨ 스마트 자동 생성</span>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
           <input type="text" id="doc-deck-name" placeholder="단어장 이름 (비워두면 자동 지정)" style="flex:1;min-width:180px;" />
-          <select id="doc-ollama-model-select" style="width:auto;min-width:215px;" title="사진·PDF에서 추출한 내용을 정교한 카드로 구조화할 올라마 클라우드 모델을 선택하세요">
-            <option value="glm-5.3-flash">☁️ Ollama Cloud · GLM-5.3 Flash (추천)</option>
-            <option value="deepseek-v4.1-flash">☁️ Ollama Cloud · DeepSeek-v4.1 Flash</option>
-            <option value="gemma4:31b">☁️ Ollama Cloud · Gemma-4 31B (시각·문서)</option>
-            <option value="glm-5.3">☁️ Ollama Cloud · GLM-5.3 (심화·전공)</option>
-            <option value="local_rule">⚡ 기기 내장 엔진만 사용 (오프라인 · 0초)</option>
+          <select id="doc-ollama-model-select" style="width:auto;min-width:190px;" title="문서에서 핵심 개념을 정교한 카드로 자동 구조화합니다">
+            <option value="glm-5.3-flash">✨ 스마트 자동 생성 (추천)</option>
+            <option value="local_rule">⚡ 오프라인 빠른 생성</option>
           </select>
           <select id="doc-difficulty-select" style="width:auto;min-width:150px;">
             <option value="standard">난이도: 표준</option>
@@ -758,11 +765,8 @@
           <div class="panel-title">✨ 텍스트 붙여넣기</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <select id="ai-ollama-model-select" style="width:auto;">
-              <option value="glm-5.3-flash">☁️ Ollama Cloud · GLM-5.3 Flash</option>
-              <option value="deepseek-v4.1-flash">☁️ Ollama Cloud · DeepSeek-v4.1 Flash</option>
-              <option value="gemma4:31b">☁️ Ollama Cloud · Gemma-4 31B</option>
-              <option value="glm-5.3">☁️ Ollama Cloud · GLM-5.3</option>
-              <option value="local_rule">⚡ 기기 내장 초고속 엔진</option>
+              <option value="glm-5.3-flash">✨ 스마트 자동 생성 (추천)</option>
+              <option value="local_rule">⚡ 오프라인 빠른 생성</option>
             </select>
             <select id="ai-difficulty-select" style="width:auto;">
               <option value="standard">난이도: 표준</option>

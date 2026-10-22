@@ -1647,3 +1647,371 @@ def build_type_matched_quiz_options(
         "options": shuffled_options,
     }
 
+
+# ============================================================================
+# PHASE 5 (v5.8): SIMPLE IS BEST — ANKI REA PROGRESSIVE DISCLOSURE & FLUENCY
+# ============================================================================
+
+SMART_AI_FALLBACK_CHAIN: Tuple[str, ...] = (
+    "glm-5.3-flash",
+    "deepseek-v4.1-flash",
+    "gemma4:31b",
+    "glm-5.3",
+    "local_rule",
+)
+
+BLOCKED_MODEL_PREFIXES_V58: Tuple[str, ...] = (
+    "kimi-k2",
+    "kimi-2",
+    "kimi-k3",
+    "minimax-2.7",
+    "minimax-m3",
+    "minimax",
+)
+
+
+ALLOWED_SMART_AI_MODELS: Tuple[str, ...] = (
+    "glm-5.3-flash",
+    "deepseek-v4.1-flash",
+    "gemma4:31b",
+    "glm-5.3",
+    "local_rule",
+)
+
+
+def compute_study_tools_summary(
+    study_filter: str = "all",
+    qtype_filter: str = "all",
+    cram_mode: bool = False,
+    shuffle_mode: str = "sequential",
+) -> Dict[str, Any]:
+    """Contract C1: Compute active study filter/tool count and compact badge label for the Study Drawer."""
+    sf = str(study_filter or "all").strip().lower()
+    qf = str(qtype_filter or "all").strip().lower()
+    sh = str(shuffle_mode or "sequential").strip().lower()
+    active_count = 0
+    if sf != "all":
+        active_count += 1
+    if qf != "all":
+        active_count += 1
+    if bool(cram_mode):
+        active_count += 1
+    if sh not in ("", "sequential", "default"):
+        active_count += 1
+    is_default = active_count == 0
+    return {
+        "active_count": active_count,
+        "is_default": is_default,
+        "summary_badge_text": "" if is_default else f"필터 {active_count}개 적용 중",
+    }
+
+
+def resolve_smart_ai_engine(
+    task_type: str = "card_generate",
+    offline_only: bool = False,
+    manual_override: Optional[str] = None,
+    failed_models: Sequence[str] = (),
+) -> Dict[str, Any]:
+    """Contract C2: Route to the optimal recommended model without exposing raw model jargon in the UI.
+
+    Enforces a strict allowlist (fail-closed on any blocked or unknown model) and task-specific fallback chain.
+    """
+    task_norm = str(task_type or "card_generate").strip().lower()
+    if task_norm == "vision_doc":
+        chain: Tuple[str, ...] = (
+            "glm-5.3-flash",
+            "gemma4:31b",
+            "deepseek-v4.1-flash",
+            "glm-5.3",
+            "local_rule",
+        )
+    else:
+        chain = SMART_AI_FALLBACK_CHAIN
+
+    if manual_override is not None and str(manual_override).strip():
+        override_raw = str(manual_override).strip()
+        override = override_raw.lower()
+        if override not in ("auto", "smart"):
+            if override == "offline":
+                return {
+                    "ok": True,
+                    "status": "OFFLINE_LOCAL",
+                    "selected_model": "local_rule",
+                    "fallback_chain": ["local_rule"],
+                    "ui_label": "⚡ 오프라인 빠른 생성",
+                    "exposes_raw_model_name": False,
+                }
+            for prefix in BLOCKED_MODEL_PREFIXES_V58:
+                if override.startswith(prefix) or prefix in override:
+                    return {
+                        "ok": False,
+                        "status": "BLOCKED_MODEL",
+                        "selected_model": "",
+                        "fallback_chain": list(chain),
+                        "ui_label": "✨ 스마트 자동 생성",
+                        "exposes_raw_model_name": False,
+                    }
+            if override not in ALLOWED_SMART_AI_MODELS:
+                return {
+                    "ok": False,
+                    "status": "BLOCKED_MODEL",
+                    "selected_model": "",
+                    "fallback_chain": list(chain),
+                    "ui_label": "✨ 스마트 자동 생성",
+                    "exposes_raw_model_name": False,
+                }
+            return {
+                "ok": True,
+                "status": "MANUAL_OVERRIDE",
+                "selected_model": override,
+                "fallback_chain": list(chain),
+                "ui_label": "⚡ 오프라인 빠른 생성" if override == "local_rule" else "✨ 스마트 자동 생성",
+                "exposes_raw_model_name": False,
+            }
+
+    if offline_only:
+        return {
+            "ok": True,
+            "status": "OFFLINE_LOCAL",
+            "selected_model": "local_rule",
+            "fallback_chain": ["local_rule"],
+            "ui_label": "⚡ 오프라인 빠른 생성",
+            "exposes_raw_model_name": False,
+        }
+
+    failed_set = {str(m).strip().lower() for m in (failed_models or ()) if str(m).strip()}
+    for candidate in chain:
+        if candidate.lower() not in failed_set:
+            status = "FALLBACK_LOCAL" if candidate == "local_rule" else "OK"
+            return {
+                "ok": True,
+                "status": status,
+                "selected_model": candidate,
+                "fallback_chain": list(chain),
+                "ui_label": "⚡ 오프라인 빠른 생성" if candidate == "local_rule" else "✨ 스마트 자동 생성",
+                "exposes_raw_model_name": False,
+            }
+
+    return {
+        "ok": True,
+        "status": "FALLBACK_LOCAL",
+        "selected_model": "local_rule",
+        "fallback_chain": list(chain),
+        "ui_label": "⚡ 오프라인 빠른 생성",
+        "exposes_raw_model_name": False,
+    }
+
+
+def resolve_curriculum_segment_state(
+    active_segment: str = "textbook",
+    combined_scope_count: int = 0,
+) -> Dict[str, Any]:
+    """Contract C3: Pure ViewModel resolver for the 3-segment Curriculum screen."""
+    valid_segments = ("textbook", "collection", "combined")
+    seg = str(active_segment or "textbook").strip().lower()
+    if seg not in valid_segments:
+        seg = "textbook"
+    cnt = max(0, int(combined_scope_count or 0))
+    combo_label = f"🎯 시험범위 조합 ({cnt})" if cnt > 0 else "🎯 시험범위 조합"
+    return {
+        "active_segment": seg,
+        "combined_scope_count": cnt,
+        "combined_tab_label": combo_label,
+        "visible_panels": {
+            "textbook": seg == "textbook",
+            "collection": seg == "collection",
+            "combined": seg == "combined",
+        },
+    }
+
+
+def calibrate_fluency_grade(
+    raw_rating: int,
+    response_time_ms: Optional[int] = None,
+    baseline_rt_ms_samples: Sequence[int] = (),
+    consecutive_good_streak: int = 0,
+) -> Dict[str, Any]:
+    """Contract C4-A: Response-time fluency pre-calibration for FSRS-5 using robust log-RT Median/MAD.
+
+    Invariants:
+    - Never mutates explicit Again(1), Hard(2), or Easy(4).
+    - Fails closed (returns raw_rating unchanged) when response_time_ms is missing, non-finite, < 300ms, or > 60000ms.
+    - Fails closed on cold start (< 5 valid baseline samples) or zero dispersion (MAD == 0).
+    - Adjusts Good(3) by at most +/- 1 step (Hard=2 on z >= +1.5; Easy=4 on z <= -1.0 with streak >= 2).
+    """
+    r_raw = int(raw_rating)
+    if r_raw not in (1, 2, 3, 4):
+        raise ValueError(f"raw_rating must be 1..4, got {raw_rating}")
+
+    if r_raw != 3:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": r_raw,
+            "z_score": 0.0,
+            "status": "PRESERVED_EXPLICIT_RATING",
+        }
+
+    if (
+        response_time_ms is None
+        or isinstance(response_time_ms, bool)
+        or not isinstance(response_time_ms, (int, float))
+        or not math.isfinite(float(response_time_ms))
+    ):
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": r_raw,
+            "z_score": 0.0,
+            "status": "BYPASSED_INVALID_RT",
+        }
+
+    rt = float(response_time_ms)
+    if rt < 300.0 or rt > 60000.0:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": r_raw,
+            "z_score": 0.0,
+            "status": "BYPASSED_INVALID_RT",
+        }
+
+    valid_samples = [
+        float(x)
+        for x in (baseline_rt_ms_samples or ())
+        if not isinstance(x, bool)
+        and isinstance(x, (int, float))
+        and math.isfinite(float(x))
+        and 300.0 <= float(x) <= 60000.0
+    ]
+    if len(valid_samples) < 5:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": r_raw,
+            "z_score": 0.0,
+            "status": "BYPASSED_COLD_START",
+        }
+
+    ln_samples = sorted(math.log(x) for x in valid_samples)
+    n = len(ln_samples)
+    mid = n // 2
+    median_ln = ln_samples[mid] if n % 2 == 1 else 0.5 * (ln_samples[mid - 1] + ln_samples[mid])
+
+    abs_devs = sorted(abs(v - median_ln) for v in ln_samples)
+    mad_ln = abs_devs[mid] if n % 2 == 1 else 0.5 * (abs_devs[mid - 1] + abs_devs[mid])
+    if mad_ln < 1e-9:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": r_raw,
+            "z_score": 0.0,
+            "status": "BYPASSED_ZERO_MAD",
+        }
+
+    denom = max(0.15, 1.4826 * mad_ln)
+    z = quantize_1e6((math.log(rt) - median_ln) / denom)
+
+    if z >= 1.5:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": 2,
+            "z_score": z,
+            "status": "DOWNGRADED_HESITANT_GOOD",
+        }
+    if z <= -1.0 and int(consecutive_good_streak or 0) >= 2:
+        return {
+            "raw_rating": r_raw,
+            "effective_rating": 4,
+            "z_score": z,
+            "status": "UPGRADED_FLUENT_GOOD",
+        }
+    return {
+        "raw_rating": r_raw,
+        "effective_rating": 3,
+        "z_score": z,
+        "status": "UNCHANGED_NORMAL_GOOD",
+    }
+
+
+def update_confusion_matrix_weight(
+    current_weight: float,
+    elapsed_days: float,
+    card_a: str,
+    card_b: str,
+    review_id: str = "",
+    seen_review_ids: Sequence[str] = (),
+    tau_days: float = 30.0,
+) -> Dict[str, Any]:
+    """Contract C4-B: Exponential-decay directional confusion matrix weight update C'(A,B) = C*exp(-dt/tau) + 1."""
+    a_id = str(card_a or "").strip()
+    b_id = str(card_b or "").strip()
+    raw_w = float(current_weight or 0.0) if isinstance(current_weight, (int, float)) else 0.0
+    cur_w = 0.0 if (not math.isfinite(raw_w) or raw_w < 0.0) else min(100.0, raw_w)
+    if not a_id or not b_id or a_id == b_id:
+        return {
+            "weight": quantize_1e6(cur_w),
+            "updated": False,
+            "should_interleave_peer": cur_w >= 2.0,
+            "should_suggest_contrast_note": cur_w >= 4.0,
+        }
+    rev_key = str(review_id or "").strip()
+    if rev_key and rev_key in {str(x).strip() for x in (seen_review_ids or ())}:
+        return {
+            "weight": quantize_1e6(cur_w),
+            "updated": False,
+            "should_interleave_peer": cur_w >= 2.0,
+            "should_suggest_contrast_note": cur_w >= 4.0,
+        }
+    raw_dt = float(elapsed_days or 0.0) if isinstance(elapsed_days, (int, float)) else 0.0
+    dt = 0.0 if (not math.isfinite(raw_dt) or raw_dt < 0.0) else raw_dt
+    raw_tau = float(tau_days or 30.0) if isinstance(tau_days, (int, float)) else 30.0
+    tau = 30.0 if (not math.isfinite(raw_tau) or raw_tau < 1.0) else raw_tau
+    next_w = quantize_1e6(min(100.0, cur_w * math.exp(-dt / tau) + 1.0))
+    return {
+        "weight": next_w,
+        "updated": True,
+        "should_interleave_peer": next_w >= 2.0,
+        "should_suggest_contrast_note": next_w >= 4.0,
+    }
+
+
+def compute_confusion_interval_factor(confusion_weight: float) -> float:
+    """Contract C4-B: Clamped interval factor [0.85, 1.0] for confusion-induced lapses."""
+    raw_w = float(confusion_weight or 0.0) if isinstance(confusion_weight, (int, float)) else 0.0
+    if not math.isfinite(raw_w) or raw_w <= 0.0:
+        return 1.0
+    w = min(100.0, raw_w)
+    penalty = min(0.15, 0.05 * w)
+    return quantize_1e6(max(0.85, 1.0 - penalty))
+
+
+def apply_c4_review_calibration(
+    raw_rating: int,
+    response_time_ms: Optional[int] = None,
+    baseline_rt_ms_samples: Sequence[int] = (),
+    consecutive_good_streak: int = 0,
+    confusion_weight: float = 0.0,
+) -> Dict[str, Any]:
+    """Contract C4 Combined Coordinator with Non-Interference Guarantee.
+
+    Invariant:
+    - If `calibrate_fluency_grade` already rewrote `raw_rating` (e.g., hesitant Good(3) -> Hard(2)),
+      the confusion interval factor is NOT stacked (`effective_interval_factor = 1.0`), preventing
+      double interval penalization on the same review.
+    """
+    fluency = calibrate_fluency_grade(
+        raw_rating=raw_rating,
+        response_time_ms=response_time_ms,
+        baseline_rt_ms_samples=baseline_rt_ms_samples,
+        consecutive_good_streak=consecutive_good_streak,
+    )
+    raw_factor = compute_confusion_interval_factor(confusion_weight)
+    rewritten = int(fluency["effective_rating"]) != int(fluency["raw_rating"])
+    effective_factor = 1.0 if rewritten else raw_factor
+    return {
+        "raw_rating": fluency["raw_rating"],
+        "effective_rating": fluency["effective_rating"],
+        "z_score": fluency["z_score"],
+        "status": fluency["status"],
+        "raw_confusion_factor": raw_factor,
+        "effective_interval_factor": effective_factor,
+        "interval_scaled_by_confusion": (not rewritten) and (effective_factor < 1.0),
+    }
+
+

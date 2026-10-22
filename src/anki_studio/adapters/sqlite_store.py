@@ -18,7 +18,11 @@ import tempfile
 from typing import Any, Dict, Iterator, List, Optional
 import zipfile
 
-from anki_studio.domain.rea_v56 import ReviewEvent
+from anki_studio.domain.rea_v56 import (
+    ReviewEvent,
+    apply_c4_review_calibration,
+    update_confusion_matrix_weight,
+)
 from anki_studio.domain.ai_learning import (
     extract_clean_target_answer,
     interleave_study_cards,
@@ -135,6 +139,15 @@ CREATE TABLE IF NOT EXISTS confusion_edges (
     CHECK(a_card_id < b_card_id)
 );
 
+CREATE TABLE IF NOT EXISTS confusion_matrix_weights (
+    card_a TEXT NOT NULL,
+    card_b TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 0.0,
+    updated_at_ms INTEGER NOT NULL,
+    seen_review_ids_json TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY(card_a, card_b)
+);
+
 CREATE TABLE IF NOT EXISTS exam_plans (
     plan_id TEXT PRIMARY KEY,
     deck_id INTEGER NOT NULL REFERENCES decks(deck_id) ON DELETE CASCADE,
@@ -220,6 +233,12 @@ class AnkiStudioStore:
                 conn.execute("ALTER TABLE notes ADD COLUMN source_page INTEGER;")
             if "source_excerpt" not in cols:
                 conn.execute("ALTER TABLE notes ADD COLUMN source_excerpt TEXT NOT NULL DEFAULT '';")
+            rev_cols = {
+                str(r["name"])
+                for r in conn.execute("PRAGMA table_info(revlog)").fetchall()
+            }
+            if "response_time_ms" not in rev_cols:
+                conn.execute("ALTER TABLE revlog ADD COLUMN response_time_ms INTEGER;")
 
     def ensure_deck(
         self,
@@ -550,9 +569,16 @@ class AnkiStudioStore:
         card_id: int,
         rating: Rating | int,
         reviewed_at: Optional[datetime] = None,
+        response_time_ms: Optional[int] = None,
+        confused_with_card_id: Optional[int | str] = None,
+        confusion_weight: Optional[float] = None,
+        review_id: Optional[str] = None,
+        baseline_rt_ms_samples: Optional[List[int]] = None,
+        consecutive_good_streak: Optional[int] = None,
     ) -> Dict[str, Any]:
         now_dt = reviewed_at or datetime.now(timezone.utc)
         now_iso = now_dt.isoformat()
+        now_ms = int(now_dt.timestamp() * 1000)
 
         with self._write_tx() as conn:
             row = conn.execute(
@@ -580,17 +606,119 @@ class AnkiStudioStore:
                 prev_dt = datetime.fromisoformat(str(row["last_review_at"]))
                 elapsed_days = max(0.0, (now_dt - prev_dt).total_seconds() / 86400.0)
 
+            # Contract C4: Load recent RT baseline & consecutive Good streak from revlog if not explicitly provided
+            if baseline_rt_ms_samples is not None:
+                rt_samples = list(baseline_rt_ms_samples)
+            else:
+                rt_rows = conn.execute(
+                    """
+                    SELECT response_time_ms FROM revlog
+                    WHERE card_id = ? AND response_time_ms IS NOT NULL
+                    ORDER BY rev_id DESC LIMIT 20
+                    """,
+                    (int(card_id),),
+                ).fetchall()
+                rt_samples = [int(r["response_time_ms"]) for r in rt_rows if r["response_time_ms"] is not None]
+
+            if consecutive_good_streak is not None:
+                good_streak = int(consecutive_good_streak)
+            else:
+                rating_rows = conn.execute(
+                    "SELECT rating FROM revlog WHERE card_id = ? ORDER BY rev_id DESC LIMIT 10",
+                    (int(card_id),),
+                ).fetchall()
+                good_streak = 0
+                for rr in rating_rows:
+                    if int(rr["rating"]) >= 3:
+                        good_streak += 1
+                    else:
+                        break
+
+            # Contract C4-B: Update directional confusion matrix weight in SQLite when confused_with_card_id is given
+            eff_confusion_weight = float(confusion_weight or 0.0)
+            peer_id_str = str(confused_with_card_id or "").strip()
+            card_id_str = str(int(card_id))
+            if peer_id_str and peer_id_str != card_id_str:
+                cm_row = conn.execute(
+                    "SELECT weight, updated_at_ms, seen_review_ids_json FROM confusion_matrix_weights WHERE card_a = ? AND card_b = ?",
+                    (card_id_str, peer_id_str),
+                ).fetchone()
+                prev_w = float(cm_row["weight"]) if cm_row else 0.0
+                prev_ms = int(cm_row["updated_at_ms"]) if cm_row else now_ms
+                try:
+                    seen_ids = json.loads(str(cm_row["seen_review_ids_json"])) if cm_row else []
+                except Exception:
+                    seen_ids = []
+                cm_elapsed = max(0.0, (now_ms - prev_ms) / 86_400_000.0)
+                rev_key = str(review_id or f"rev_{card_id}_{now_ms}")
+                cm_res = update_confusion_matrix_weight(
+                    current_weight=prev_w,
+                    elapsed_days=cm_elapsed,
+                    card_a=card_id_str,
+                    card_b=peer_id_str,
+                    review_id=rev_key,
+                    seen_review_ids=seen_ids,
+                )
+                if cm_res["updated"]:
+                    next_seen = (list(seen_ids) + [rev_key])[-50:]
+                    conn.execute(
+                        """
+                        INSERT INTO confusion_matrix_weights (card_a, card_b, weight, updated_at_ms, seen_review_ids_json)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(card_a, card_b) DO UPDATE SET
+                            weight = excluded.weight,
+                            updated_at_ms = excluded.updated_at_ms,
+                            seen_review_ids_json = excluded.seen_review_ids_json
+                        """,
+                        (card_id_str, peer_id_str, float(cm_res["weight"]), now_ms, json.dumps(next_seen)),
+                    )
+                eff_confusion_weight = max(eff_confusion_weight, float(cm_res["weight"]))
+            elif confusion_weight is None:
+                max_row = conn.execute(
+                    "SELECT MAX(weight) AS max_w FROM confusion_matrix_weights WHERE card_a = ?",
+                    (card_id_str,),
+                ).fetchone()
+                if max_row and max_row["max_w"] is not None:
+                    eff_confusion_weight = max(eff_confusion_weight, float(max_row["max_w"]))
+
+            raw_rating_int = int(rating)
+            c4 = apply_c4_review_calibration(
+                raw_rating=raw_rating_int,
+                response_time_ms=response_time_ms,
+                baseline_rt_ms_samples=rt_samples,
+                consecutive_good_streak=good_streak,
+                confusion_weight=eff_confusion_weight,
+            )
+            eff_rating_int = int(c4["effective_rating"])
+
             outcome = step_fsrs(
                 memory=mem_before,
-                rating=Rating(int(rating)),
+                rating=Rating(eff_rating_int),
                 elapsed_days=elapsed_days,
                 desired_retention=float(row["desired_retention"]),
             )
 
-            if outcome.scheduled_days == 0:
+            eff_sched_days = int(outcome.scheduled_days)
+            eff_stability = float(outcome.memory.stability)
+            eff_sched_label = str(outcome.scheduled_label)
+            if c4["interval_scaled_by_confusion"] and eff_sched_days > 0:
+                factor = float(c4["effective_interval_factor"])
+                eff_sched_days = max(1, int(round(eff_sched_days * factor)))
+                eff_stability = round(eff_stability * factor, 4)
+                eff_sched_label = f"{eff_sched_days}d"
+
+            eff_memory = CardMemoryState(
+                difficulty=outcome.memory.difficulty,
+                stability=eff_stability,
+                reps=outcome.memory.reps,
+                lapses=outcome.memory.lapses,
+                state=outcome.memory.state,
+            )
+
+            if eff_sched_days == 0:
                 due_dt = now_dt + timedelta(minutes=10)
             else:
-                due_dt = now_dt + timedelta(days=outcome.scheduled_days)
+                due_dt = now_dt + timedelta(days=eff_sched_days)
 
             conn.execute(
                 """
@@ -600,25 +728,35 @@ class AnkiStudioStore:
                 WHERE card_id = ?
                 """,
                 (
-                    outcome.memory.state,
-                    outcome.memory.difficulty,
-                    outcome.memory.stability,
-                    outcome.memory.reps,
-                    outcome.memory.lapses,
+                    eff_memory.state,
+                    eff_memory.difficulty,
+                    eff_memory.stability,
+                    eff_memory.reps,
+                    eff_memory.lapses,
                     due_dt.isoformat(),
                     now_iso,
                     int(card_id),
                 ),
             )
 
+            valid_rt_db = (
+                int(response_time_ms)
+                if (
+                    response_time_ms is not None
+                    and not isinstance(response_time_ms, bool)
+                    and isinstance(response_time_ms, (int, float))
+                    and 300 <= int(response_time_ms) <= 60000
+                )
+                else None
+            )
             rev_cur = conn.execute(
                 """
                 INSERT INTO revlog (
                     card_id, rating, state_before, difficulty_before, stability_before,
                     difficulty_after, stability_after, retrievability, scheduled_days,
-                    elapsed_days, reviewed_at
+                    elapsed_days, reviewed_at, response_time_ms
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(card_id),
@@ -626,12 +764,13 @@ class AnkiStudioStore:
                     mem_before.state,
                     mem_before.difficulty,
                     mem_before.stability,
-                    outcome.memory.difficulty,
-                    outcome.memory.stability,
+                    eff_memory.difficulty,
+                    eff_memory.stability,
                     outcome.retrievability_before,
-                    outcome.scheduled_days,
+                    eff_sched_days,
                     round(elapsed_days, 4),
                     now_iso,
+                    valid_rt_db,
                 ),
             )
             rev_id = int(rev_cur.lastrowid)
@@ -660,10 +799,16 @@ class AnkiStudioStore:
             return {
                 "card_id": int(card_id),
                 "rev_id": rev_id,
+                "raw_rating": raw_rating_int,
                 "rating": int(outcome.rating),
-                "memory": outcome.memory,
-                "scheduled_days": outcome.scheduled_days,
-                "scheduled_label": outcome.scheduled_label,
+                "effective_rating": int(outcome.rating),
+                "fluency_status": c4["status"],
+                "fluency_z_score": c4["z_score"],
+                "effective_interval_factor": c4["effective_interval_factor"],
+                "confusion_weight": eff_confusion_weight,
+                "memory": eff_memory,
+                "scheduled_days": eff_sched_days,
+                "scheduled_label": eff_sched_label,
                 "due_at": due_dt.isoformat(),
             }
 

@@ -24,6 +24,7 @@ import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedAnswerEvaluation
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedUnderstandingVerdict
+import com.ankistudio.domain.rea.ReaV56Engine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +89,9 @@ class AnkiStudioViewModel(
     )
     val uiState: StateFlow<AnkiStudioUiState> = _uiState.asStateFlow()
     private var lastUndoSnapshot: CardEntity? = null
+    private var cardShownEpochMs: Long = System.currentTimeMillis()
+    private val rtBaselineSamples: MutableList<Long> = mutableListOf()
+    private var consecutiveGoodStreak: Int = 0
 
     init {
         refreshWorkspace()
@@ -289,7 +293,7 @@ class AnkiStudioViewModel(
                 statusBannerMessage = if (clean == "local_rule") {
                     "⚡ 기기 내장 초고속 추출 엔진 선택됨 (오프라인 즉시 생성)"
                 } else {
-                    "☁️ 올라마 클라우드 모델($clean) 연동 활성화됨"
+                    "✨ 스마트 자동 생성 (추천) 활성화됨"
                 },
                 isErrorBanner = false
             )
@@ -1026,7 +1030,12 @@ class AnkiStudioViewModel(
     fun ingestDocument(uri: Uri, filename: String, mimeType: String?) {
         viewModelScope.launch {
             val selectedModel = _uiState.value.selectedOllamaCloudModel
-            val modelLabel = if (selectedModel != "local_rule") "☁️ Ollama Cloud ($selectedModel)" else "⚡ 기기 내장 엔진"
+            val aiDecision = ReaV56Engine.resolveSmartAiEngine(
+                taskType = "ocr_extract",
+                offlineOnly = selectedModel == "local_rule",
+                manualOverride = selectedModel
+            )
+            val modelLabel = aiDecision.uiLabel
             _uiState.update {
                 it.copy(
                     activeTab = "create",
@@ -1043,7 +1052,7 @@ class AnkiStudioViewModel(
                     mimeType = mimeType,
                     categoryOverride = current.selectedCategoryOverride,
                     deckTitleOverride = current.customDeckTitle.takeIf { it.isNotBlank() },
-                    ollamaCloudModel = current.selectedOllamaCloudModel
+                    ollamaCloudModel = aiDecision.selectedModel.ifBlank { current.selectedOllamaCloudModel }
                 )
                 val banner = if (plan.status == "OK") {
                     "✅ [$modelLabel] ${plan.cards.size}장의 카드를 찾았습니다."
@@ -1144,7 +1153,24 @@ class AnkiStudioViewModel(
     fun submitReviewRating(rating: Rating) {
         val currentCard = _uiState.value.dueCards.firstOrNull() ?: return
         viewModelScope.launch {
-            val nowSec = System.currentTimeMillis() / 1000L
+            val nowMs = System.currentTimeMillis()
+            val nowSec = nowMs / 1000L
+            val rtMs = max(0L, nowMs - cardShownEpochMs)
+            val c4 = ReaV56Engine.applyC4ReviewCalibration(
+                rawRating = rating.code,
+                responseTimeMs = rtMs,
+                baselineRtMsSamples = rtBaselineSamples.toList(),
+                consecutiveGoodStreak = consecutiveGoodStreak
+            )
+            if (rtMs in 300L..60_000L) {
+                rtBaselineSamples.add(rtMs)
+                if (rtBaselineSamples.size > 20) {
+                    rtBaselineSamples.removeAt(0)
+                }
+            }
+            val effectiveRating = Rating.fromCode(c4.effectiveRating)
+            consecutiveGoodStreak = if (effectiveRating.code >= 3) consecutiveGoodStreak + 1 else 0
+
             val elapsedDays = if (currentCard.lastReviewEpochSec != null) {
                 max(0.0, (nowSec - currentCard.lastReviewEpochSec).toDouble() / 86400.0)
             } else {
@@ -1159,9 +1185,10 @@ class AnkiStudioViewModel(
             )
             val outcome = Fsrs5Engine.stepFsrs(
                 memory = memory,
-                rating = rating,
+                rating = effectiveRating,
                 elapsedDays = elapsedDays
             )
+            cardShownEpochMs = System.currentTimeMillis()
             val nextDueEpochSec = if (outcome.scheduledDays == 0) {
                 nowSec + 600L
             } else {

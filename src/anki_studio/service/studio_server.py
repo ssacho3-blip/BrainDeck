@@ -134,14 +134,39 @@ class AnkiStudioService:
             "suspended": bool(suspended),
         }
 
-    def submit_review(self, card_id: int, rating: int) -> Dict[str, Any]:
+    def submit_review(
+        self,
+        card_id: int,
+        rating: int,
+        response_time_ms: Optional[int] = None,
+        confused_with_card_id: Optional[int | str] = None,
+        confusion_weight: Optional[float] = None,
+        review_id: Optional[str] = None,
+        baseline_rt_ms_samples: Optional[List[int]] = None,
+        consecutive_good_streak: Optional[int] = None,
+    ) -> Dict[str, Any]:
         if rating not in (1, 2, 3, 4):
             raise ValueError(f"rating must be 1 (Again), 2 (Hard), 3 (Good), or 4 (Easy); got {rating}")
-        outcome = self.store.review_card(card_id=card_id, rating=Rating(rating))
+        outcome = self.store.review_card(
+            card_id=card_id,
+            rating=Rating(rating),
+            response_time_ms=response_time_ms,
+            confused_with_card_id=confused_with_card_id,
+            confusion_weight=confusion_weight,
+            review_id=review_id,
+            baseline_rt_ms_samples=baseline_rt_ms_samples,
+            consecutive_good_streak=consecutive_good_streak,
+        )
         return {
             "ok": True,
             "card_id": outcome["card_id"],
+            "raw_rating": outcome.get("raw_rating", rating),
             "rating": outcome["rating"],
+            "effective_rating": outcome.get("effective_rating", outcome["rating"]),
+            "fluency_status": outcome.get("fluency_status", "UNCHANGED_NORMAL_GOOD"),
+            "fluency_z_score": outcome.get("fluency_z_score", 0.0),
+            "effective_interval_factor": outcome.get("effective_interval_factor", 1.0),
+            "confusion_weight": outcome.get("confusion_weight", 0.0),
             "scheduled_days": outcome["scheduled_days"],
             "scheduled_label": outcome["scheduled_label"],
             "due_at": outcome["due_at"],
@@ -1404,6 +1429,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             if path.startswith("/download/") and path.endswith(".apk"):
                 root_dir = Path(__file__).resolve().parents[3]
                 candidates = [
+                    root_dir / "dist" / "BrainDeck-v5.8.apk",
                     root_dir / "dist" / "BrainDeck-v5.7.apk",
                     root_dir / "dist" / "BrainDeck-v5.6.apk",
                     root_dir / "dist" / "BrainDeck-v5.5.apk",
@@ -1525,9 +1551,21 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
 
             try:
                 if path == "/api/review":
+                    raw_rt = body.get("response_time_ms")
+                    rt_val = (
+                        int(raw_rt)
+                        if (raw_rt is not None and not isinstance(raw_rt, bool) and isinstance(raw_rt, (int, float)))
+                        else None
+                    )
                     res = svc.submit_review(
                         card_id=int(body["card_id"]),
                         rating=int(body["rating"]),
+                        response_time_ms=rt_val,
+                        confused_with_card_id=body.get("confused_with_card_id"),
+                        confusion_weight=body.get("confusion_weight"),
+                        review_id=body.get("review_id"),
+                        baseline_rt_ms_samples=body.get("baseline_rt_ms_samples"),
+                        consecutive_good_streak=body.get("consecutive_good_streak"),
                     )
                     self._send_json(res)
                     return

@@ -214,11 +214,11 @@
   }
 
   const OLLAMA_CLOUD_MODELS = [
-    { id: "glm-5.3-flash", label: "☁️ Ollama Cloud · GLM-5.3 Flash (초고속 핵심 카드)", recommended: true },
-    { id: "deepseek-v4.1-flash", label: "☁️ Ollama Cloud · DeepSeek-v4.1 Flash (정밀 빈칸·문맥)", recommended: false },
-    { id: "gemma4:31b", label: "☁️ Ollama Cloud · Gemma-4 31B (시각·표·문서 정밀 분석)", recommended: false },
-    { id: "glm-5.3", label: "☁️ Ollama Cloud · GLM-5.3 (심화·전공 서술 카드)", recommended: false },
-    { id: "local_rule", label: "⚡ 기기 내장 초고속 엔진 (오프라인 · 0초)", recommended: false },
+    { id: "glm-5.3-flash", label: "✨ 스마트 자동 생성 (추천 · 초고속 핵심 카드)", recommended: true },
+    { id: "deepseek-v4.1-flash", label: "✨ 스마트 자동 생성 (정밀 빈칸·문맥)", recommended: false },
+    { id: "gemma4:31b", label: "✨ 스마트 자동 생성 (시각·표·문서 정밀 분석)", recommended: false },
+    { id: "glm-5.3", label: "✨ 스마트 자동 생성 (심화·전공 서술 카드)", recommended: false },
+    { id: "local_rule", label: "⚡ 오프라인 빠른 생성 (기기 내장 · 0초)", recommended: false },
   ];
 
   function isOllamaCloudModelBlocked(modelName) {
@@ -242,15 +242,16 @@
     const st = res.stats || {};
     const cat = formatCategoryBadge(res.category);
     const savedMsg = res.deck_id ? ` · 덱 즉시 저장 완료(#${res.deck_id})` : " · 미리보기 검수 대기";
-    const cloudBadge =
-      res.ollama_cloud_model && res.ollama_cloud_model !== "local_rule"
-        ? ` · ☁️ Ollama Cloud (${res.ollama_cloud_model})`
-        : "";
+    const engineDecision = resolveSmartAiEngine({
+      manualOverride: res.ollama_cloud_model || "auto",
+      offlineOnly: res.ollama_cloud_model === "local_rule",
+    });
+    const engineBadge = engineDecision.ui_label ? ` · ${engineDecision.ui_label}` : "";
     return {
       status: "OK",
       tone: "emerald",
-      title: `✅ [${cat.label}] '${res.deck_name}' — ${cards.length}장 추출${savedMsg}${cloudBadge}`,
-      summary: `총 ${st.pages || 1}쪽 (OCR ${st.ocr_pages || 0}쪽) · 저신뢰 제외 ${st.low_confidence_lines || 0}줄 · 근거미달 폐기 ${st.dropped_ungrounded || 0}장 · 중복제거 ${st.duplicates || 0}장 · 엔진: ${res.provider || "local"} (${res.latency_ms || 0}ms)`,
+      title: `✅ [${cat.label}] '${res.deck_name}' — ${cards.length}장 추출${savedMsg}${engineBadge}`,
+      summary: `총 ${st.pages || 1}쪽 (OCR ${st.ocr_pages || 0}쪽) · 저신뢰 제외 ${st.low_confidence_lines || 0}줄 · 근거미달 폐기 ${st.dropped_ungrounded || 0}장 · 중복제거 ${st.duplicates || 0}장 · 엔진: ${engineDecision.ui_label || "스마트 자동 생성"} (${res.latency_ms || 0}ms)`,
       canSave: !res.deck_id && cards.length > 0,
     };
   }
@@ -2102,12 +2103,57 @@
       const p = payload || {};
       const db = loadDb();
       const card = db.cards.find((c) => Number(c.card_id) === Number(p.card_id));
-      const rating = Math.max(1, Math.min(4, Number(p.rating || 3)));
+      const rawRating = Math.max(1, Math.min(4, Number(p.rating || 3)));
       if (!card) {
         return { ok: false, error: "Card not found" };
       }
       const nowMs = Date.now();
       const prevEvents = Array.isArray(card.review_events) ? card.review_events.slice() : [];
+      const prevRtSamples = Array.isArray(card.rt_samples) ? card.rt_samples.slice() : [];
+      const prevGoodStreak = Number(card.consecutive_good_streak || 0);
+
+      if (!db.confusionMatrix || typeof db.confusionMatrix !== "object") {
+        db.confusionMatrix = {};
+      }
+      let activeConfusionWeight = Number(p.confusion_weight || 0.0);
+      const confusedPeerId = p.confused_with_card_id !== undefined && p.confused_with_card_id !== null ? String(p.confused_with_card_id).trim() : "";
+      if (confusedPeerId && confusedPeerId !== String(card.card_id)) {
+        const edgeKey = `${card.card_id}->${confusedPeerId}`;
+        const prevEdge = db.confusionMatrix[edgeKey] || { weight: 0.0, ts_ms: nowMs, seen_ids: [] };
+        const elapsedDays = Math.max(0.0, (nowMs - Number(prevEdge.ts_ms || nowMs)) / DAY_MS_V56);
+        const revKey = String(p.review_id || `rev_${card.card_id}_${nowMs}`);
+        const cmRes = updateConfusionMatrixWeight(
+          prevEdge.weight,
+          elapsedDays,
+          String(card.card_id),
+          confusedPeerId,
+          revKey,
+          prevEdge.seen_ids || [],
+          30.0
+        );
+        db.confusionMatrix[edgeKey] = {
+          weight: cmRes.weight,
+          ts_ms: nowMs,
+          seen_ids: (prevEdge.seen_ids || []).concat([revKey]).slice(-50),
+        };
+        activeConfusionWeight = Math.max(activeConfusionWeight, cmRes.weight);
+      } else {
+        Object.keys(db.confusionMatrix).forEach((k) => {
+          if (k.startsWith(`${card.card_id}->`)) {
+            activeConfusionWeight = Math.max(activeConfusionWeight, Number(db.confusionMatrix[k].weight || 0.0));
+          }
+        });
+      }
+
+      const c4 = applyC4ReviewCalibration(
+        rawRating,
+        p.response_time_ms !== undefined ? p.response_time_ms : null,
+        Array.isArray(p.baseline_rt_ms_samples) ? p.baseline_rt_ms_samples : prevRtSamples,
+        p.consecutive_good_streak !== undefined ? p.consecutive_good_streak : prevGoodStreak,
+        activeConfusionWeight
+      );
+      const rating = c4.effective_rating;
+
       db.reviewHistory.push({
         card_id: card.card_id,
         prev_state: card.state,
@@ -2117,9 +2163,22 @@
         prev_difficulty: card.difficulty,
         prev_due_at: card.due_at,
         prev_review_events: prevEvents,
+        prev_rt_samples: prevRtSamples,
+        prev_good_streak: prevGoodStreak,
+        raw_rating: rawRating,
         rating,
         at: new Date(nowMs).toISOString(),
       });
+
+      if (
+        typeof p.response_time_ms === "number" &&
+        Number.isFinite(p.response_time_ms) &&
+        p.response_time_ms >= 300 &&
+        p.response_time_ms <= 60000
+      ) {
+        card.rt_samples = prevRtSamples.concat([Math.round(p.response_time_ms)]).slice(-20);
+      }
+      card.consecutive_good_streak = rating >= 3 ? prevGoodStreak + 1 : 0;
 
       const nextEvents = prevEvents.concat([
         {
@@ -2135,7 +2194,7 @@
       card.review_events = nextEvents;
       card.reps = folded.reps;
       card.lapses = folded.lapses;
-      card.stability = folded.s;
+      card.stability = quantize1e6(folded.s * c4.effective_interval_factor);
       card.difficulty = folded.d;
 
       if (rating === 1) {
@@ -2162,7 +2221,12 @@
         ok: true,
         standalone: true,
         card_id: card.card_id,
+        raw_rating: rawRating,
         rating,
+        effective_rating: rating,
+        fluency_status: c4.status,
+        fluency_z_score: c4.z_score,
+        effective_interval_factor: c4.effective_interval_factor,
         scheduled_days: schedDays,
         scheduled_label: labelMap[rating],
         due_at: card.due_at,
@@ -3036,6 +3100,283 @@
     };
   }
 
+  // =========================================================================
+  // PHASE 5 (v5.8): SIMPLE IS BEST — ANKI REA PROGRESSIVE DISCLOSURE & FLUENCY
+  // =========================================================================
+
+  const SMART_AI_FALLBACK_CHAIN = [
+    "glm-5.3-flash",
+    "deepseek-v4.1-flash",
+    "gemma4:31b",
+    "glm-5.3",
+    "local_rule",
+  ];
+
+  const ALLOWED_SMART_AI_MODELS = new Set([
+    "glm-5.3-flash",
+    "deepseek-v4.1-flash",
+    "gemma4:31b",
+    "glm-5.3",
+    "local_rule",
+  ]);
+
+  function computeStudyToolsSummary(opts) {
+    const o = opts || {};
+    const sf = String(o.studyFilter || o.study_filter || "all").trim().toLowerCase();
+    const qf = String(o.qtypeFilter || o.qtype_filter || "all").trim().toLowerCase();
+    const cram = Boolean(o.cramMode || o.cram_mode);
+    const sh = String(o.shuffleMode || o.shuffle_mode || "sequential").trim().toLowerCase();
+    let activeCount = 0;
+    if (sf !== "all") activeCount += 1;
+    if (qf !== "all") activeCount += 1;
+    if (cram) activeCount += 1;
+    if (sh && sh !== "sequential" && sh !== "default") activeCount += 1;
+    const isDefault = activeCount === 0;
+    return {
+      active_count: activeCount,
+      is_default: isDefault,
+      summary_badge_text: isDefault ? "" : `필터 ${activeCount}개 적용 중`,
+    };
+  }
+
+  function resolveSmartAiEngine(opts) {
+    const o = opts || {};
+    const taskNorm = String(o.taskType || o.task_type || "card_generate").trim().toLowerCase();
+    const chain =
+      taskNorm === "vision_doc"
+        ? ["glm-5.3-flash", "gemma4:31b", "deepseek-v4.1-flash", "glm-5.3", "local_rule"]
+        : SMART_AI_FALLBACK_CHAIN.slice();
+
+    const manualRaw = String(o.manualOverride || o.manual_override || "").trim();
+    if (manualRaw) {
+      const manual = manualRaw.toLowerCase();
+      if (manual !== "auto" && manual !== "smart") {
+        if (manual === "offline") {
+          return {
+            ok: true,
+            status: "OFFLINE_LOCAL",
+            selected_model: "local_rule",
+            fallback_chain: ["local_rule"],
+            ui_label: "⚡ 오프라인 빠른 생성",
+            exposes_raw_model_name: false,
+          };
+        }
+        if (isOllamaCloudModelBlocked(manual) || !ALLOWED_SMART_AI_MODELS.has(manual)) {
+          return {
+            ok: false,
+            status: "BLOCKED_MODEL",
+            selected_model: "",
+            fallback_chain: chain,
+            ui_label: "✨ 스마트 자동 생성",
+            exposes_raw_model_name: false,
+          };
+        }
+        return {
+          ok: true,
+          status: "MANUAL_OVERRIDE",
+          selected_model: manual,
+          fallback_chain: chain,
+          ui_label: manual === "local_rule" ? "⚡ 오프라인 빠른 생성" : "✨ 스마트 자동 생성",
+          exposes_raw_model_name: false,
+        };
+      }
+    }
+
+    if (Boolean(o.offlineOnly || o.offline_only)) {
+      return {
+        ok: true,
+        status: "OFFLINE_LOCAL",
+        selected_model: "local_rule",
+        fallback_chain: ["local_rule"],
+        ui_label: "⚡ 오프라인 빠른 생성",
+        exposes_raw_model_name: false,
+      };
+    }
+
+    const failedArr = Array.isArray(o.failedModels || o.failed_models)
+      ? o.failedModels || o.failed_models
+      : [];
+    const failedSet = new Set(failedArr.map((m) => String(m || "").trim().toLowerCase()).filter(Boolean));
+    for (let i = 0; i < chain.length; i += 1) {
+      const cand = chain[i];
+      if (!failedSet.has(cand.toLowerCase())) {
+        return {
+          ok: true,
+          status: cand === "local_rule" ? "FALLBACK_LOCAL" : "OK",
+          selected_model: cand,
+          fallback_chain: chain,
+          ui_label: cand === "local_rule" ? "⚡ 오프라인 빠른 생성" : "✨ 스마트 자동 생성",
+          exposes_raw_model_name: false,
+        };
+      }
+    }
+    return {
+      ok: true,
+      status: "FALLBACK_LOCAL",
+      selected_model: "local_rule",
+      fallback_chain: chain,
+      ui_label: "⚡ 오프라인 빠른 생성",
+      exposes_raw_model_name: false,
+    };
+  }
+
+  function resolveCurriculumSegmentState(activeSegment, combinedScopeCount) {
+    const valid = ["textbook", "collection", "combined"];
+    const raw = String(activeSegment || "textbook").trim().toLowerCase();
+    const seg = valid.includes(raw) ? raw : "textbook";
+    const cnt = Math.max(0, Number(combinedScopeCount) || 0);
+    return {
+      active_segment: seg,
+      combined_scope_count: cnt,
+      combined_tab_label: cnt > 0 ? `🎯 시험범위 조합 (${cnt})` : "🎯 시험범위 조합",
+      visible_panels: {
+        textbook: seg === "textbook",
+        collection: seg === "collection",
+        combined: seg === "combined",
+      },
+    };
+  }
+
+  function calibrateFluencyGrade(rawRating, responseTimeMs, baselineRtMsSamples, consecutiveGoodStreak) {
+    const rRaw = Number(rawRating);
+    if (![1, 2, 3, 4].includes(rRaw)) {
+      throw new Error("raw_rating must be 1..4");
+    }
+    if (rRaw !== 3) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: rRaw,
+        z_score: 0.0,
+        status: "PRESERVED_EXPLICIT_RATING",
+      };
+    }
+    if (
+      responseTimeMs === null ||
+      responseTimeMs === undefined ||
+      typeof responseTimeMs !== "number" ||
+      !Number.isFinite(responseTimeMs) ||
+      responseTimeMs < 300 ||
+      responseTimeMs > 60000
+    ) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: rRaw,
+        z_score: 0.0,
+        status: "BYPASSED_INVALID_RT",
+      };
+    }
+    const samples = Array.isArray(baselineRtMsSamples)
+      ? baselineRtMsSamples.filter((x) => typeof x === "number" && Number.isFinite(x) && x >= 300 && x <= 60000)
+      : [];
+    if (samples.length < 5) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: rRaw,
+        z_score: 0.0,
+        status: "BYPASSED_COLD_START",
+      };
+    }
+    const lnSamples = samples.map((x) => Math.log(x)).sort((a, b) => a - b);
+    const n = lnSamples.length;
+    const mid = Math.floor(n / 2);
+    const medianLn = n % 2 === 1 ? lnSamples[mid] : 0.5 * (lnSamples[mid - 1] + lnSamples[mid]);
+    const absDevs = lnSamples.map((v) => Math.abs(v - medianLn)).sort((a, b) => a - b);
+    const madLn = n % 2 === 1 ? absDevs[mid] : 0.5 * (absDevs[mid - 1] + absDevs[mid]);
+    if (madLn < 1e-9) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: rRaw,
+        z_score: 0.0,
+        status: "BYPASSED_ZERO_MAD",
+      };
+    }
+    const denom = Math.max(0.15, 1.4826 * madLn);
+    const z = quantize1e6((Math.log(responseTimeMs) - medianLn) / denom);
+
+    if (z >= 1.5) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: 2,
+        z_score: z,
+        status: "DOWNGRADED_HESITANT_GOOD",
+      };
+    }
+    if (z <= -1.0 && (Number(consecutiveGoodStreak) || 0) >= 2) {
+      return {
+        raw_rating: rRaw,
+        effective_rating: 4,
+        z_score: z,
+        status: "UPGRADED_FLUENT_GOOD",
+      };
+    }
+    return {
+      raw_rating: rRaw,
+      effective_rating: 3,
+      z_score: z,
+      status: "UNCHANGED_NORMAL_GOOD",
+    };
+  }
+
+  function updateConfusionMatrixWeight(currentWeight, elapsedDays, cardA, cardB, reviewId, seenReviewIds, tauDays) {
+    const aId = String(cardA || "").trim();
+    const bId = String(cardB || "").trim();
+    const rawW = typeof currentWeight === "number" ? currentWeight : Number(currentWeight || 0.0);
+    const curW = !Number.isFinite(rawW) || rawW < 0.0 ? 0.0 : Math.min(100.0, rawW);
+    if (!aId || !bId || aId === bId) {
+      return {
+        weight: quantize1e6(curW),
+        updated: false,
+        should_interleave_peer: curW >= 2.0,
+        should_suggest_contrast_note: curW >= 4.0,
+      };
+    }
+    const revKey = String(reviewId || "").trim();
+    const seenSet = new Set((Array.isArray(seenReviewIds) ? seenReviewIds : []).map((x) => String(x || "").trim()));
+    if (revKey && seenSet.has(revKey)) {
+      return {
+        weight: quantize1e6(curW),
+        updated: false,
+        should_interleave_peer: curW >= 2.0,
+        should_suggest_contrast_note: curW >= 4.0,
+      };
+    }
+    const rawDt = typeof elapsedDays === "number" ? elapsedDays : Number(elapsedDays || 0.0);
+    const dt = !Number.isFinite(rawDt) || rawDt < 0.0 ? 0.0 : rawDt;
+    const rawTau = typeof tauDays === "number" ? tauDays : Number(tauDays || 30.0);
+    const tau = !Number.isFinite(rawTau) || rawTau < 1.0 ? 30.0 : rawTau;
+    const nextW = quantize1e6(Math.min(100.0, curW * Math.exp(-dt / tau) + 1.0));
+    return {
+      weight: nextW,
+      updated: true,
+      should_interleave_peer: nextW >= 2.0,
+      should_suggest_contrast_note: nextW >= 4.0,
+    };
+  }
+
+  function computeConfusionIntervalFactor(confusionWeight) {
+    const rawW = typeof confusionWeight === "number" ? confusionWeight : Number(confusionWeight || 0.0);
+    if (!Number.isFinite(rawW) || rawW <= 0.0) return 1.0;
+    const w = Math.min(100.0, rawW);
+    const penalty = Math.min(0.15, 0.05 * w);
+    return quantize1e6(Math.max(0.85, 1.0 - penalty));
+  }
+
+  function applyC4ReviewCalibration(rawRating, responseTimeMs, baselineRtMsSamples, consecutiveGoodStreak, confusionWeight) {
+    const fluency = calibrateFluencyGrade(rawRating, responseTimeMs, baselineRtMsSamples, consecutiveGoodStreak);
+    const rawFactor = computeConfusionIntervalFactor(confusionWeight);
+    const rewritten = Number(fluency.effective_rating) !== Number(fluency.raw_rating);
+    const effectiveFactor = rewritten ? 1.0 : rawFactor;
+    return {
+      raw_rating: fluency.raw_rating,
+      effective_rating: fluency.effective_rating,
+      z_score: fluency.z_score,
+      status: fluency.status,
+      raw_confusion_factor: rawFactor,
+      effective_interval_factor: effectiveFactor,
+      interval_scaled_by_confusion: !rewritten && effectiveFactor < 1.0,
+    };
+  }
+
   return {
     formatRetentionBadge,
     formatLeechBadge,
@@ -3080,6 +3421,13 @@
     filterStudyQueueByQuestionType,
     computeQuestionTypeCounts,
     buildTypeMatchedQuizOptions,
+    computeStudyToolsSummary,
+    resolveSmartAiEngine,
+    resolveCurriculumSegmentState,
+    calibrateFluencyGrade,
+    updateConfusionMatrixWeight,
+    computeConfusionIntervalFactor,
+    applyC4ReviewCalibration,
   };
 });
 

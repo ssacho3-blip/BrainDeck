@@ -633,17 +633,26 @@ private fun StudyTabScreen(
     }.size
 
     var showSummarySheet by remember { mutableStateOf(false) }
+    var showStudyToolsDrawer by remember { mutableStateOf(false) }
     var revealedIndices by remember { mutableStateOf(setOf<Int>()) }
+    val toolsSummary = ReaV56Engine.computeStudyToolsSummary(
+        studyFilter = state.studyFilterMode,
+        qtypeFilter = state.questionTypeFilter
+    )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (state.decks.isNotEmpty()) {
-            item {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.weight(1f)
                 ) {
                     item {
                         FilterChip(
@@ -660,76 +669,90 @@ private fun StudyTabScreen(
                         )
                     }
                 }
-            }
-        }
-
-        // Study Filter Mode Bar (전체 학습 · 🔥 오답·모르는 것만 · ⭐ 별표 카드만)
-        item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                item {
-                    FilterChip(
-                        selected = state.studyFilterMode == "all",
-                        onClick = { onSetStudyFilterMode("all") },
-                        label = { Text("📚 전체 학습 (${activeRaw.size})") }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = state.studyFilterMode == "wrong_only",
-                        onClick = { onSetStudyFilterMode("wrong_only") },
-                        label = { Text("🔥 오답·모르는 것만 ($wrongCount)") }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = state.studyFilterMode == "marked_only",
-                        onClick = { onSetStudyFilterMode("marked_only") },
-                        label = { Text("⭐ 별표만 (${state.markedCardIds.size})") }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = state.isInterleavedShuffleEnabled,
-                        onClick = onToggleInterleavedShuffle,
-                        label = {
-                            Text(
-                                if (state.isInterleavedShuffleEnabled) "🔀 스마트 랜덤 ON" else "📋 순차 학습"
-                            )
-                        }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = showSummarySheet,
-                        onClick = { showSummarySheet = !showSummarySheet },
-                        label = { Text("🟥 전자 셀로판지 요약시트") }
-                    )
-                }
-            }
-        }
-
-        // Gate T43: Question-Type Filter Bar (전체 유형 | 단어·어휘만 | 문법·구문만 | 한자·성어만 | 역사·과학·전공)
-        item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                val qtypeChips = listOf(
-                    "all" to "🗂️ 전체 유형",
-                    "vocab" to "📘 단어·어휘만",
-                    "grammar" to "📐 문법·구문만",
-                    "hanja" to "漢字 한자·성어만",
-                    "history_sci" to "🏛️ 역사·과학·전공"
+                FilterChip(
+                    selected = showStudyToolsDrawer || !toolsSummary.isDefault,
+                    onClick = { showStudyToolsDrawer = !showStudyToolsDrawer },
+                    label = {
+                        Text(
+                            if (toolsSummary.isDefault) "🎛️ 필터·도구"
+                            else "🎛️ ${toolsSummary.summaryBadgeText}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 )
-                items(qtypeChips) { (code, label) ->
-                    FilterChip(
-                        selected = state.questionTypeFilter == code,
-                        onClick = { onSetQuestionTypeFilter(code) },
-                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+
+        if (showStudyToolsDrawer) {
+            // Study Filter Mode Bar (전체 학습 · 🔥 오답·모르는 것만 · ⭐ 별표 카드만)
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = state.studyFilterMode == "all",
+                            onClick = { onSetStudyFilterMode("all") },
+                            label = { Text("📚 전체 학습 (${activeRaw.size})") }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = state.studyFilterMode == "wrong_only",
+                            onClick = { onSetStudyFilterMode("wrong_only") },
+                            label = { Text("🔥 오답·모르는 것만 ($wrongCount)") }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = state.studyFilterMode == "marked_only",
+                            onClick = { onSetStudyFilterMode("marked_only") },
+                            label = { Text("⭐ 별표만 (${state.markedCardIds.size})") }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = state.isInterleavedShuffleEnabled,
+                            onClick = onToggleInterleavedShuffle,
+                            label = {
+                                Text(
+                                    if (state.isInterleavedShuffleEnabled) "🔀 스마트 랜덤 ON" else "📋 순차 학습"
+                                )
+                            }
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = showSummarySheet,
+                            onClick = { showSummarySheet = !showSummarySheet },
+                            label = { Text("🟥 전자 셀로판지 요약시트") }
+                        )
+                    }
+                }
+            }
+
+            // Gate T43: Question-Type Filter Bar (전체 유형 | 단어·어휘만 | 문법·구문만 | 한자·성어만 | 역사·과학·전공)
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val qtypeChips = listOf(
+                        "all" to "🗂️ 전체 유형",
+                        "vocab" to "📘 단어·어휘만",
+                        "grammar" to "📐 문법·구문만",
+                        "hanja" to "漢字 한자·성어만",
+                        "history_sci" to "🏛️ 역사·과학·전공"
                     )
+                    items(qtypeChips) { (code, label) ->
+                        FilterChip(
+                            selected = state.questionTypeFilter == code,
+                            onClick = { onSetQuestionTypeFilter(code) },
+                            label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        )
+                    }
                 }
             }
         }
@@ -1495,12 +1518,17 @@ private fun CurriculumTabScreen(
         "lv3" to "🎓 Lv.3 심화",
         "standard" to "📋 표준"
     )
+    var curriculumSegment by remember { mutableStateOf("textbook") }
+    val segState = ReaV56Engine.resolveCurriculumSegmentState(
+        segment = curriculumSegment,
+        combinedScopeCount = state.combinedExamScopes.size
+    )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 0. Difficulty Level Selector Card
+        // 0. 3-Segment Switcher + Compact Difficulty Selector (v5.8 Simple Is Best C3)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
@@ -1510,19 +1538,25 @@ private fun CurriculumTabScreen(
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = "🎚️ 난이도별 맞춤형 카드 생성 모드",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "기초 개념(Lv.1) · 문맥 핵심 빈칸(Lv.2) · 역방향·함정 변별(Lv.3) 카드를 수준에 맞게 생성합니다.",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val segmentTabs = listOf(
+                            "textbook" to "🏫 교과서 단원",
+                            "collection" to "📚 교육부·급수",
+                            "combined" to segState.combinedTabLabel
+                        )
+                        segmentTabs.forEach { (segId, segLabel) ->
+                            FilterChip(
+                                selected = segState.activeSegment == segId,
+                                onClick = { curriculumSegment = segId },
+                                label = { Text(segLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1531,7 +1565,7 @@ private fun CurriculumTabScreen(
                             FilterChip(
                                 selected = state.selectedDifficultyLevel == modeId,
                                 onClick = { onSelectDifficultyLevel(modeId) },
-                                label = { Text(label) }
+                                label = { Text(label, fontSize = 11.sp) }
                             )
                         }
                     }
@@ -1540,210 +1574,222 @@ private fun CurriculumTabScreen(
         }
 
         // 1. Multi-Combination Exam-Scope Random Deck Builder
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (segState.visiblePanels["combined"] == true) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "🎯 다중 조합 시험범위 랜덤 덱",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = TextPrimary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(
-                                onClick = onLoadMidtermComboPreset,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("⚡ 중간고사 예시", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TossBlue)
-                            }
-                            if (state.combinedExamScopes.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🎯 다중 조합 시험범위 랜덤 덱",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = TextPrimary
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
-                                    onClick = onClearComboScopes,
+                                    onClick = onLoadMidtermComboPreset,
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("비우기", fontSize = 11.sp, color = TextSecondary)
+                                    Text("⚡ 중간고사 예시", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TossBlue)
+                                }
+                                if (state.combinedExamScopes.isNotEmpty()) {
+                                    OutlinedButton(
+                                        onClick = onClearComboScopes,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("비우기", fontSize = 11.sp, color = TextSecondary)
+                                    }
                                 }
                             }
                         }
-                    }
-                    Text(
-                        text = "여러 과목·단원·한자 급수를 한 바구니에 담으면 같은 단원이 뭉치지 않게 지능형 교차 랜덤(Interleaved Shuffle)으로 출제합니다.",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-                    Surface(
-                        color = Color(0xFFF9FAFB),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            if (state.combinedExamScopes.isEmpty()) {
-                                Text(
-                                    text = "아직 담긴 범위가 없습니다. 아래 교과서/급수에서 [➕ 통합 범위에 담기]나 [⚡ 중간고사 예시]를 눌러보세요.",
-                                    fontSize = 12.sp,
-                                    color = TextMuted
-                                )
-                            } else {
-                                state.combinedExamScopes.forEachIndexed { idx, item ->
-                                    Text(
-                                        text = "${idx + 1}. 📚 ${item.label}",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TossBlue
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Button(
-                        onClick = onGenerateCombinedExamDeck,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TossBlue),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) {
                         Text(
-                            text = "🎲 조합 출제범위(${maxOf(1, state.combinedExamScopes.size)}개) 랜덤 통합 덱 생성",
-                            fontWeight = FontWeight.Bold
+                            text = "여러 과목·단원·한자 급수를 한 바구니에 담으면 같은 단원이 뭉치지 않게 지능형 교차 랜덤(Interleaved Shuffle)으로 출제합니다.",
+                            fontSize = 12.sp,
+                            color = TextSecondary
                         )
+                        Surface(
+                            color = Color(0xFFF9FAFB),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (state.combinedExamScopes.isEmpty()) {
+                                    Text(
+                                        text = "아직 담긴 범위가 없습니다. 교과서/급수 탭에서 [➕ 범위 담기]나 [⚡ 중간고사 예시]를 눌러보세요.",
+                                        fontSize = 12.sp,
+                                        color = TextMuted
+                                    )
+                                } else {
+                                    state.combinedExamScopes.forEachIndexed { idx, item ->
+                                        Text(
+                                            text = "${idx + 1}. 📚 ${item.label}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TossBlue
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Button(
+                            onClick = onGenerateCombinedExamDeck,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = TossBlue),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) {
+                            Text(
+                                text = "🎲 조합 출제범위(${maxOf(1, state.combinedExamScopes.size)}개) 랜덤 통합 덱 생성",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
 
         // 2. School Textbook Selector & Unit Picker
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        if (segState.visiblePanels["textbook"] == true) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "🏫 학교 교과서 시험범위",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary
-                    )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(allTextbooks) { tb ->
-                            FilterChip(
-                                selected = tb.textbookId == activeTextbook.textbookId,
-                                onClick = { onSelectTextbook(tb.textbookId) },
-                                label = { Text(tb.title) }
-                            )
-                        }
-                    }
-                    Text(
-                        text = activeTextbook.title,
-                        fontSize = 14.sp,
-                        color = TossBlue,
-                        fontWeight = FontWeight.Bold
-                    )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(activeTextbook.units) { unit ->
-                            FilterChip(
-                                selected = unit.unitId in state.selectedUnitIds,
-                                onClick = { onToggleExamUnit(unit.unitId) },
-                                label = { Text(unit.unitCodeLabel) }
-                            )
-                        }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Button(
-                            onClick = onGenerateExamScopeDeck,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f).height(50.dp)
+                        Text(
+                            text = "🏫 학교 교과서 시험범위",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("단원(${state.selectedUnitIds.size}개) 학습 시작", fontWeight = FontWeight.Bold)
+                            items(allTextbooks) { tb ->
+                                FilterChip(
+                                    selected = tb.textbookId == activeTextbook.textbookId,
+                                    onClick = { onSelectTextbook(tb.textbookId) },
+                                    label = { Text(tb.title) }
+                                )
+                            }
                         }
-                        OutlinedButton(
-                            onClick = onAddTextbookToCombo,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(50.dp)
+                        Text(
+                            text = activeTextbook.title,
+                            fontSize = 14.sp,
+                            color = TossBlue,
+                            fontWeight = FontWeight.Bold
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                            items(activeTextbook.units) { unit ->
+                                FilterChip(
+                                    selected = unit.unitId in state.selectedUnitIds,
+                                    onClick = { onToggleExamUnit(unit.unitId) },
+                                    label = { Text(unit.unitCodeLabel) }
+                                )
+                            }
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = onGenerateExamScopeDeck,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f).height(50.dp)
+                            ) {
+                                Text("단원(${state.selectedUnitIds.size}개) 학습 시작", fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    onAddTextbookToCombo()
+                                    curriculumSegment = "combined"
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.height(50.dp)
+                            ) {
+                                Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 3. Collections (Hanja, Korean History, Idioms)
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        // 3. Collections (Hanja, Korean History, Idioms, MOE 2022)
+        if (segState.visiblePanels["collection"] == true) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "漢字 급수 한자 · 한국사 · 기초 팩",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = TextPrimary
-                    )
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(BuiltInCurriculumCatalog.listCollections()) { col ->
-                            FilterChip(
-                                selected = state.selectedCollectionId == col.collectionId,
-                                onClick = { onSelectCollection(col.collectionId) },
-                                label = { Text(col.title) }
-                            )
-                        }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Button(
-                            onClick = onGenerateCollectionDeck,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f).height(50.dp)
+                        Text(
+                            text = "📚 교육부 필수 · 급수 한자 · 한국사 팩",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("선택한 팩 학습 시작", fontWeight = FontWeight.Bold)
+                            items(BuiltInCurriculumCatalog.listCollections()) { col ->
+                                FilterChip(
+                                    selected = state.selectedCollectionId == col.collectionId,
+                                    onClick = { onSelectCollection(col.collectionId) },
+                                    label = { Text(col.title) }
+                                )
+                            }
                         }
-                        OutlinedButton(
-                            onClick = onAddCollectionToCombo,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(50.dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                            Button(
+                                onClick = onGenerateCollectionDeck,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f).height(50.dp)
+                            ) {
+                                Text("선택한 팩 학습 시작", fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    onAddCollectionToCombo()
+                                    curriculumSegment = "combined"
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.height(50.dp)
+                            ) {
+                                Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                            }
                         }
                     }
                 }
@@ -1768,12 +1814,9 @@ private fun CreateDeckTabScreen(
     onRemovePreviewCard: (Int) -> Unit,
     onSavePreviewDeck: () -> Unit
 ) {
-    val ollamaModels = listOf(
-        "glm-5.3-flash" to "☁️ GLM 5.3 Flash (초고속·추천)",
-        "deepseek-v4.1-flash" to "☁️ DeepSeek V4.1 Flash",
-        "gemma4:31b" to "☁️ Gemma 4 31B",
-        "glm-5.3" to "☁️ GLM 5.3",
-        "local_rule" to "⚡ 기기 내장 엔진"
+    val smartGenModes = listOf(
+        "glm-5.3-flash" to "✨ 스마트 자동 생성 (추천)",
+        "local_rule" to "⚡ 오프라인 빠른 생성"
     )
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1854,7 +1897,7 @@ private fun CreateDeckTabScreen(
                     )
 
                     Text(
-                        text = "☁️ 올라마 클라우드 모델 선택 (사진·PDF 문서 핵심 개념 정밀 생성)",
+                        text = "✨ 생성 방식 (사진·PDF 문서 핵심 개념 정밀 추출)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = TossBlue
@@ -1863,9 +1906,13 @@ private fun CreateDeckTabScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(ollamaModels) { (modelId, label) ->
+                        items(smartGenModes) { (modelId, label) ->
                             FilterChip(
-                                selected = state.selectedOllamaCloudModel == modelId,
+                                selected = if (modelId == "local_rule") {
+                                    state.selectedOllamaCloudModel == "local_rule"
+                                } else {
+                                    state.selectedOllamaCloudModel != "local_rule"
+                                },
                                 onClick = { onSelectOllamaCloudModel(modelId) },
                                 label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )

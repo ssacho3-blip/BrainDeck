@@ -25,6 +25,7 @@ from anki_studio.domain.ai_learning import (
     parse_ai_generated_cards,
 )
 from anki_studio.domain.document_deck_builder import DocumentBlock
+from anki_studio.domain.rea_v56 import resolve_smart_ai_engine
 
 OLLAMA_CLOUD_DEFAULT_URL = "https://ollama.com"
 OLLAMA_CLOUD_DEFAULT_MODEL = "glm-5.3-flash"
@@ -32,35 +33,35 @@ OLLAMA_CLOUD_DEFAULT_MODEL = "glm-5.3-flash"
 OLLAMA_CLOUD_MODELS_CATALOG: Tuple[Dict[str, Any], ...] = (
     {
         "id": "glm-5.3-flash",
-        "label": "☁️ Ollama Cloud · GLM-5.3 Flash (초고속 핵심 카드)",
+        "label": "✨ 스마트 자동 생성 (추천 · 초고속 핵심 카드)",
         "provider": "ollama_cloud",
         "supports_vision": False,
         "recommended": True,
     },
     {
         "id": "deepseek-v4.1-flash",
-        "label": "☁️ Ollama Cloud · DeepSeek-v4.1 Flash (정밀 빈칸·문맥)",
+        "label": "✨ 스마트 자동 생성 (정밀 빈칸·문맥)",
         "provider": "ollama_cloud",
         "supports_vision": False,
         "recommended": False,
     },
     {
         "id": "gemma4:31b",
-        "label": "☁️ Ollama Cloud · Gemma-4 31B (시각·표·문서 정밀 분석)",
+        "label": "✨ 스마트 자동 생성 (시각·표·문서 정밀 분석)",
         "provider": "ollama_cloud",
         "supports_vision": True,
         "recommended": False,
     },
     {
         "id": "glm-5.3",
-        "label": "☁️ Ollama Cloud · GLM-5.3 (심화·전공 서술 카드)",
+        "label": "✨ 스마트 자동 생성 (심화·전공 서술 카드)",
         "provider": "ollama_cloud",
         "supports_vision": False,
         "recommended": False,
     },
     {
         "id": "local_rule",
-        "label": "⚡ 기기 내장 초고속 엔진 (오프라인 · 0초)",
+        "label": "⚡ 오프라인 빠른 생성 (기기 내장 · 0초)",
         "provider": "local_rule",
         "supports_vision": False,
         "recommended": False,
@@ -231,7 +232,36 @@ class AICardSynthesizer:
                 "cards": [],
             }
 
-        if not norm_model or norm_model.lower() in ("local_rule", "off", "none", "local"):
+        if not norm_model or norm_model.lower() in ("local_rule", "off", "none", "local", "offline"):
+            return {
+                "ok": True,
+                "status": "OK",
+                "error_code": None,
+                "ollama_cloud_model": "local_rule",
+                "ollama_cloud_used": False,
+                "provider": "local_rule",
+                "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                "cards": base_cards[:max_cards],
+            }
+
+        route = resolve_smart_ai_engine(
+            task_type="ocr_extract",
+            offline_only=False,
+            manual_override=None if norm_model.lower() in ("auto", "smart") else norm_model,
+        )
+        if not route["ok"] or route["status"] == "BLOCKED_MODEL":
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": "BLOCKED_MODEL",
+                "ollama_cloud_model": norm_model,
+                "ollama_cloud_used": False,
+                "provider": "blocked_model_policy",
+                "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                "cards": [],
+            }
+        primary_model = str(route["selected_model"])
+        if primary_model == "local_rule":
             return {
                 "ok": True,
                 "status": "OK",
@@ -259,7 +289,7 @@ class AICardSynthesizer:
                 "ok": True,
                 "status": "OK",
                 "error_code": None,
-                "ollama_cloud_model": norm_model,
+                "ollama_cloud_model": primary_model,
                 "ollama_cloud_used": False,
                 "provider": "local_rule",
                 "fallback_reason": "empty_blocks",
@@ -278,76 +308,93 @@ class AICardSynthesizer:
             f"{joined_doc}"
         )
 
-        try:
-            raw_content = self._call_ollama_cloud_chat(
-                model=norm_model,
-                system_prompt=sys_prompt,
-                user_prompt=user_prompt,
-            )
-            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.IGNORECASE)
+        failed_models: List[str] = []
+        attempted_models: List[str] = []
+        fallback_err = "EmptyCloudCards"
+        cand_model = primary_model
+
+        while cand_model and cand_model != "local_rule":
+            attempted_models.append(cand_model)
             try:
-                parsed = json.loads(cleaned)
-            except json.JSONDecodeError:
-                m_obj = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", cleaned)
-                parsed = json.loads(m_obj.group(1)) if m_obj else {}
-            raw_items = parsed.get("cards") if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
-            cloud_cards: List[Dict[str, Any]] = []
-            if isinstance(raw_items, list):
-                for item in raw_items:
-                    if not isinstance(item, dict):
-                        continue
-                    front = str(item.get("front_text") or item.get("front") or "").strip()
-                    back = str(item.get("back_text") or item.get("back") or "").strip()
-                    if not front or not back:
-                        continue
-                    pg = max(1, int(item.get("source_page") or 1))
-                    if pg not in blocks_by_page and blocks_by_page:
-                        pg = min(blocks_by_page.keys())
-                    excerpt = str(item.get("source_excerpt") or "").strip()
-                    if not excerpt:
-                        page_txts = blocks_by_page.get(pg) or [joined_doc[:140]]
-                        excerpt = page_txts[0][:160]
-                    ntype = "cloze" if "{{c" in front else str(item.get("note_type") or "basic").lower()
-                    if ntype not in ("basic", "cloze"):
-                        ntype = "basic"
-                    raw_tags = item.get("tags") if isinstance(item.get("tags"), list) else []
-                    tags = list(dict.fromkeys([str(t) for t in raw_tags if t] + ["ollama-cloud", f"model:{norm_model}", f"diff_{difficulty_level}"]))
-                    cloud_cards.append(
-                        {
-                            "front_text": front,
-                            "back_text": back,
-                            "note_type": ntype,
-                            "tags": tags,
-                            "rationale": f"Ollama Cloud ({norm_model}) 구조화 카드",
-                            "pattern": str(item.get("pattern") or "ollama_cloud_grounded"),
-                            "source_page": pg,
-                            "source_excerpt": excerpt,
-                        }
-                    )
-            if cloud_cards:
-                return {
-                    "ok": True,
-                    "status": "OK",
-                    "error_code": None,
-                    "ollama_cloud_model": norm_model,
-                    "ollama_cloud_used": True,
-                    "provider": f"ollama_cloud:{norm_model}",
-                    "fallback_reason": None,
-                    "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
-                    "cards": cloud_cards[:max_cards],
-                }
-        except Exception as exc:
-            fallback_err = type(exc).__name__
-        else:
-            fallback_err = "EmptyCloudCards"
+                raw_content = self._call_ollama_cloud_chat(
+                    model=cand_model,
+                    system_prompt=sys_prompt,
+                    user_prompt=user_prompt,
+                )
+                cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.IGNORECASE)
+                try:
+                    parsed = json.loads(cleaned)
+                except json.JSONDecodeError:
+                    m_obj = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", cleaned)
+                    parsed = json.loads(m_obj.group(1)) if m_obj else {}
+                raw_items = parsed.get("cards") if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+                cloud_cards: List[Dict[str, Any]] = []
+                if isinstance(raw_items, list):
+                    for item in raw_items:
+                        if not isinstance(item, dict):
+                            continue
+                        front = str(item.get("front_text") or item.get("front") or "").strip()
+                        back = str(item.get("back_text") or item.get("back") or "").strip()
+                        if not front or not back:
+                            continue
+                        pg = max(1, int(item.get("source_page") or 1))
+                        if pg not in blocks_by_page and blocks_by_page:
+                            pg = min(blocks_by_page.keys())
+                        excerpt = str(item.get("source_excerpt") or "").strip()
+                        if not excerpt:
+                            page_txts = blocks_by_page.get(pg) or [joined_doc[:140]]
+                            excerpt = page_txts[0][:160]
+                        ntype = "cloze" if "{{c" in front else str(item.get("note_type") or "basic").lower()
+                        if ntype not in ("basic", "cloze"):
+                            ntype = "basic"
+                        raw_tags = item.get("tags") if isinstance(item.get("tags"), list) else []
+                        tags = list(dict.fromkeys([str(t) for t in raw_tags if t] + ["ollama-cloud", f"model:{cand_model}", f"diff_{difficulty_level}"]))
+                        cloud_cards.append(
+                            {
+                                "front_text": front,
+                                "back_text": back,
+                                "note_type": ntype,
+                                "tags": tags,
+                                "rationale": "스마트 자동 생성 구조화 카드",
+                                "pattern": str(item.get("pattern") or "ollama_cloud_grounded"),
+                                "source_page": pg,
+                                "source_excerpt": excerpt,
+                            }
+                        )
+                if cloud_cards:
+                    return {
+                        "ok": True,
+                        "status": "OK",
+                        "error_code": None,
+                        "ollama_cloud_model": cand_model,
+                        "ollama_cloud_used": True,
+                        "provider": f"ollama_cloud:{cand_model}",
+                        "attempted_models": attempted_models,
+                        "fallback_reason": None if len(attempted_models) == 1 else f"recovered_via:{cand_model}",
+                        "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                        "cards": cloud_cards[:max_cards],
+                    }
+                fallback_err = "EmptyCloudCards"
+            except Exception as exc:
+                fallback_err = type(exc).__name__
+
+            failed_models.append(cand_model)
+            next_route = resolve_smart_ai_engine(
+                task_type="ocr_extract",
+                offline_only=False,
+                failed_models=failed_models,
+            )
+            cand_model = str(next_route.get("selected_model") or "local_rule")
+            if cand_model in failed_models:
+                break
 
         # Graceful Fail-Closed fallback to grounded base_cards tagged with requested model fallback
         enriched_base: List[Dict[str, Any]] = []
         for c in base_cards[:max_cards]:
             copy_c = dict(c)
             tags = list(copy_c.get("tags") or [])
-            if f"ollama_fallback:{norm_model}" not in tags:
-                tags.append(f"ollama_fallback:{norm_model}")
+            if f"ollama_fallback:{primary_model}" not in tags:
+                tags.append(f"ollama_fallback:{primary_model}")
             copy_c["tags"] = tags
             enriched_base.append(copy_c)
 
@@ -355,9 +402,10 @@ class AICardSynthesizer:
             "ok": True,
             "status": "OK",
             "error_code": None,
-            "ollama_cloud_model": norm_model,
+            "ollama_cloud_model": primary_model,
             "ollama_cloud_used": False,
-            "provider": f"local_grounded_fallback({norm_model})",
+            "provider": f"local_grounded_fallback({primary_model})",
+            "attempted_models": attempted_models,
             "fallback_reason": f"ollama_cloud_fallback:{fallback_err}",
             "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
             "cards": enriched_base,
@@ -398,36 +446,66 @@ class AICardSynthesizer:
         fallback_reason = "endpoint_unconfigured"
         error_code: str | None = None
 
-        # 1. If Ollama Cloud model is explicitly requested (e.g. glm-5.3-flash, deepseek-v4.1-flash)
-        if requested_cloud and requested_cloud.lower() not in ("local_rule", "off", "none", "local"):
-            try:
-                prompt = build_ai_card_generation_prompt(text, domain_mode=domain_mode, max_cards=max_cards)
-                raw_resp = self._call_ollama_cloud_chat(
-                    model=requested_cloud,
-                    system_prompt="당신은 학습 노트에서 핵심 플래시카드를 생성하는 전문가입니다. JSON 배열 또는 {\"cards\": [...]} 형식으로 응답하세요.",
-                    user_prompt=prompt,
+        # 1. If Ollama Cloud model is requested (or 'auto'/'smart'), route via resolve_smart_ai_engine with fallback chain
+        if requested_cloud and requested_cloud.lower() not in ("local_rule", "off", "none", "local", "offline"):
+            route = resolve_smart_ai_engine(
+                task_type="card_generate",
+                offline_only=False,
+                manual_override=None if requested_cloud.lower() in ("auto", "smart") else requested_cloud,
+            )
+            if not route["ok"] or route["status"] == "BLOCKED_MODEL":
+                return {
+                    "engine": "blocked",
+                    "provider": "blocked_model_policy",
+                    "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                    "fallback_reason": "blocked_model",
+                    "error_code": "BLOCKED_MODEL",
+                    "cards": [],
+                }
+            cand_model = str(route["selected_model"])
+            failed_models: List[str] = []
+            attempted_models: List[str] = []
+            prompt = build_ai_card_generation_prompt(text, domain_mode=domain_mode, max_cards=max_cards)
+            while cand_model and cand_model != "local_rule":
+                attempted_models.append(cand_model)
+                try:
+                    raw_resp = self._call_ollama_cloud_chat(
+                        model=cand_model,
+                        system_prompt="당신은 학습 노트에서 핵심 플래시카드를 생성하는 전문가입니다. JSON 배열 또는 {\"cards\": [...]} 형식으로 응답하세요.",
+                        user_prompt=prompt,
+                    )
+                    specs = parse_ai_generated_cards(
+                        text,
+                        raw_resp,
+                        domain_mode=domain_mode,
+                        max_cards=max_cards,
+                    )
+                    if specs:
+                        return {
+                            "engine": f"ollama_cloud:{cand_model}",
+                            "provider": f"ollama_cloud:{cand_model}",
+                            "ollama_cloud_model": cand_model,
+                            "ollama_cloud_used": True,
+                            "attempted_models": attempted_models,
+                            "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+                            "fallback_reason": None if len(attempted_models) == 1 else f"recovered_via:{cand_model}",
+                            "error_code": None,
+                            "cards": [self._spec_to_dict(s) for s in specs[:max_cards]],
+                        }
+                    fallback_reason = "empty_ollama_cloud_output"
+                except Exception as exc:
+                    fallback_reason = "ollama_cloud_error"
+                    error_code = type(exc).__name__
+
+                failed_models.append(cand_model)
+                next_route = resolve_smart_ai_engine(
+                    task_type="card_generate",
+                    offline_only=False,
+                    failed_models=failed_models,
                 )
-                specs = parse_ai_generated_cards(
-                    text,
-                    raw_resp,
-                    domain_mode=domain_mode,
-                    max_cards=max_cards,
-                )
-                if specs:
-                    return {
-                        "engine": f"ollama_cloud:{requested_cloud}",
-                        "provider": f"ollama_cloud:{requested_cloud}",
-                        "ollama_cloud_model": requested_cloud,
-                        "ollama_cloud_used": True,
-                        "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
-                        "fallback_reason": None,
-                        "error_code": None,
-                        "cards": [self._spec_to_dict(s) for s in specs[:max_cards]],
-                    }
-                fallback_reason = "empty_ollama_cloud_output"
-            except Exception as exc:
-                fallback_reason = "ollama_cloud_error"
-                error_code = type(exc).__name__
+                cand_model = str(next_route.get("selected_model") or "local_rule")
+                if cand_model in failed_models:
+                    break
 
         # 2. Custom OpenAI-compatible endpoint if configured
         if self.endpoint_url:

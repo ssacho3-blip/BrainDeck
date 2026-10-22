@@ -504,6 +504,7 @@
     const card = currentCard();
     state.isRevealed = false;
     state.hintLevel = 0;
+    state.cardShownAtMs = Date.now();
     state.currentEvidence = {
       isRevealed: false,
       hintStep: 0,
@@ -792,9 +793,14 @@
       delete state.sessionWrongCardMap[cid];
     }
 
+    const rtMs = state.cardShownAtMs ? Math.max(0, Date.now() - state.cardShownAtMs) : null;
     const res = state.isCramSandbox
       ? { ok: true, standalone: true, card_id: card.card_id, rating: safeRating, scheduled_label: "CRAM 무오염 (FSRS 유지)", memory: { stability: card.stability } }
-      : await apiPost("/api/review", { card_id: card.card_id, rating: safeRating });
+      : await apiPost("/api/review", {
+          card_id: card.card_id,
+          rating: safeRating,
+          response_time_ms: rtMs,
+        });
     if (res && res.ok) {
       const stab = (res.memory && res.memory.stability) ?? res.stability ?? card.stability ?? 0;
       const nextLbl = state.isCramSandbox
@@ -1436,18 +1442,22 @@
         ollama_cloud_model: ollamaModel,
       });
       if (res && res.ok) {
-        const providerBadge = res.ollama_cloud_used
-          ? `☁️ Ollama Cloud (${res.ollama_cloud_model})`
-          : res.provider === "llm"
-          ? `☁️ 클라우드 생성 (${res.engine})`
-          : `⚡ 초고속 추출 (${res.ollama_cloud_model || "local"})`;
+        const aiDecision =
+          vm && typeof vm.resolveSmartAiEngine === "function"
+            ? vm.resolveSmartAiEngine({
+                taskType: "card_generate",
+                manualOverride: res.ollama_cloud_model || ollamaModel,
+                offlineOnly: !res.ollama_cloud_used && res.provider !== "llm",
+              })
+            : { ui_label: res.ollama_cloud_used ? "✨ 스마트 자동 생성" : "⚡ 오프라인 빠른 생성" };
+        const providerBadge = aiDecision.ui_label || "✨ 스마트 자동 생성";
         el("ai-gen-status").textContent = `✅ ${res.generated_count}장 생성 및 저장 완료! [${providerBadge} · 난이도 ${diffLevel.toUpperCase()} · ${res.latency_ms || 0}ms]`;
         el("ai-raw-text").value = "";
         await refreshDashboardAndQueue();
       }
     });
 
-    // Photo & PDF Auto-Deck Builder events (with Ollama Cloud Model Integration)
+    // Photo & PDF Auto-Deck Builder events (with Smart AI Engine Policy Router)
     const dropzone = el("doc-dropzone");
     const fileInput = el("doc-file-input");
 
@@ -1460,7 +1470,15 @@
       banner.style.display = "block";
       banner.style.borderColor = "var(--accent)";
       banner.style.color = "var(--text)";
-      const modelTagLabel = ollamaModel !== "local_rule" ? `☁️ Ollama Cloud (${ollamaModel})` : "⚡ 기기 내장 엔진";
+      const docEngineDecision =
+        vm && typeof vm.resolveSmartAiEngine === "function"
+          ? vm.resolveSmartAiEngine({
+              taskType: "ocr_extract",
+              manualOverride: ollamaModel,
+              offlineOnly: ollamaModel === "local_rule",
+            })
+          : { ui_label: ollamaModel !== "local_rule" ? "✨ 스마트 자동 생성" : "⚡ 오프라인 빠른 생성" };
+      const modelTagLabel = docEngineDecision.ui_label || "✨ 스마트 자동 생성";
       banner.textContent = `⏳ '${file.name}' (${(file.size / 1024).toFixed(1)}KB) ${modelTagLabel} 분석 및 카드 생성 중...`;
       previewContainer.style.display = "none";
 
@@ -1812,6 +1830,11 @@
 
     const comboListEl = el("combined-scope-list");
     function renderCombinedScopesList() {
+      const btnCombinedSeg = el("btn-curr-seg-combined");
+      if (btnCombinedSeg && vm && typeof vm.resolveCurriculumSegmentState === "function") {
+        const segState = vm.resolveCurriculumSegmentState("textbook", (state.combinedExamScopes || []).length);
+        btnCombinedSeg.textContent = segState.combined_tab_label;
+      }
       if (!comboListEl) return;
       comboListEl.textContent = "";
       if (!state.combinedExamScopes.length) {
@@ -2181,6 +2204,7 @@
 
         const actBtn = document.createElement("button");
         actBtn.type = "button";
+        actBtn.setAttribute("data-buy-pack", cardVm.packId);
         actBtn.className = cardVm.unlocked ? "" : "btn-primary";
         actBtn.style.cssText = "padding:6px 12px;font-size:0.78rem;";
         actBtn.textContent = cardVm.unlocked ? "✅ 장착됨 · 이 덱으로 바로 학습" : cardVm.priceLabel;
@@ -2199,7 +2223,7 @@
               ? ` ('${deckInfo.deck_name}' 덱으로 즉시 이동했습니다)`
               : "";
             if (statusMsgEl) {
-              statusMsgEl.textContent = `🎉 '${purchaseRes.title}' 준비 완료!${deckMsg}`;
+              statusMsgEl.textContent = `🎉 '${purchaseRes.title}' 구매 및 마운트 완료!${deckMsg}`;
             }
             if (deckInfo && deckInfo.deck_id) {
               state.selectedDeckId = String(deckInfo.deck_id);
@@ -2210,7 +2234,7 @@
             await syncOfflineVault(false);
             if (deckInfo && deckInfo.deck_id) {
               switchTabPage("study");
-              showUxToast(`🎉 '${purchaseRes.title}' 바로 학습을 시작합니다!`, "emerald");
+              showUxToast(`🎉 '${purchaseRes.title}' 구매 및 마운트 완료! 바로 학습을 시작합니다!`, "emerald");
             }
           }
         });
@@ -2570,12 +2594,91 @@
           btnCramSandbox.classList.remove("btn-primary");
           showUxToast("📚 정규 FSRS 학습 모드로 복귀했습니다.", "accent");
         }
+        syncStudyToolsSummaryBadge();
       });
     }
+
+    // Contract C1: Study Tools & Filter Progressive Disclosure Drawer
+    function syncStudyToolsSummaryBadge() {
+      const badgeEl = el("active-study-filter-summary");
+      if (!badgeEl || !vm || typeof vm.computeStudyToolsSummary !== "function") return;
+      const summary = vm.computeStudyToolsSummary({
+        studyFilter: state.studyFilterMode || "all",
+        qtypeFilter: state.questionTypeFilter || "all",
+        cramMode: Boolean(state.isCramSandbox),
+      });
+      if (summary.is_default) {
+        badgeEl.style.display = "none";
+        badgeEl.textContent = "";
+      } else {
+        badgeEl.style.display = "inline-flex";
+        badgeEl.textContent = summary.summary_badge_text;
+      }
+    }
+
+    const btnToggleStudyTools = el("btn-toggle-study-tools");
+    const studyToolsDrawer = el("study-tools-drawer");
+    if (btnToggleStudyTools && studyToolsDrawer) {
+      btnToggleStudyTools.addEventListener("click", () => {
+        const isOpen = studyToolsDrawer.style.display !== "none";
+        const nextOpen = !isOpen;
+        studyToolsDrawer.style.display = nextOpen ? "block" : "none";
+        btnToggleStudyTools.setAttribute("aria-expanded", nextOpen ? "true" : "false");
+        if (nextOpen) {
+          btnToggleStudyTools.classList.add("btn-primary");
+        } else {
+          btnToggleStudyTools.classList.remove("btn-primary");
+        }
+        syncStudyToolsSummaryBadge();
+      });
+    }
+
+    document.querySelectorAll(".study-filter-btn, .study-qtype-btn").forEach((b) => {
+      b.addEventListener("click", syncStudyToolsSummaryBadge);
+    });
+
+    // Contract C3: 3-Segment Switcher in Curriculum Tab (textbook | collection | combined)
+    function switchCurriculumSegment(seg) {
+      const stateObj =
+        vm && typeof vm.resolveCurriculumSegmentState === "function"
+          ? vm.resolveCurriculumSegmentState(seg, (state.combinedExamScopes || []).length)
+          : {
+              active_segment: seg || "textbook",
+              combined_tab_label: "🎯 시험범위 조합",
+              visible_panels: {
+                textbook: seg === "textbook",
+                collection: seg === "collection",
+                combined: seg === "combined",
+              },
+            };
+      document.querySelectorAll(".curr-seg-btn").forEach((b) => {
+        const isTarget = b.getAttribute("data-curr-seg") === stateObj.active_segment;
+        b.setAttribute("aria-selected", isTarget ? "true" : "false");
+        if (isTarget) b.classList.add("btn-primary");
+        else b.classList.remove("btn-primary");
+      });
+      const btnCombinedSeg = el("btn-curr-seg-combined");
+      if (btnCombinedSeg) {
+        btnCombinedSeg.textContent = stateObj.combined_tab_label;
+      }
+      ["textbook", "collection", "combined"].forEach((id) => {
+        const panelEl = el(`curr-seg-${id}`);
+        if (panelEl) {
+          panelEl.style.display = stateObj.visible_panels[id] ? "block" : "none";
+        }
+      });
+    }
+
+    document.querySelectorAll(".curr-seg-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        switchCurriculumSegment(btn.getAttribute("data-curr-seg") || "textbook");
+      });
+    });
 
     loadBrainPackStoreAndBind();
     loadCatalogAndBind();
     refreshDashboardAndQueue();
     syncOfflineVault(false);
+    syncStudyToolsSummaryBadge();
   });
 })();
