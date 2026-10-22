@@ -171,6 +171,25 @@ interface AnkiStudioDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertRevlog(revlog: RevlogEntity): Long
 
+    @Query(
+        """
+        UPDATE cards
+        SET state = 'new',
+            queue = 0,
+            quizStage = 0,
+            consecutiveSuccesses = 0,
+            stability = 1.2,
+            difficulty = 5.0,
+            dueEpochSec = :nowEpochSec,
+            lastReviewEpochSec = NULL,
+            reps = 0,
+            lapses = 0,
+            scheduledDays = 0.0
+        WHERE (:deckId IS NULL OR deckId = :deckId)
+        """
+    )
+    suspend fun resetCardsProgress(nowEpochSec: Long, deckId: Long? = null): Int
+
     @Transaction
     suspend fun recordCardReview(updatedCard: CardEntity, revlog: RevlogEntity) {
         updateCard(updatedCard)

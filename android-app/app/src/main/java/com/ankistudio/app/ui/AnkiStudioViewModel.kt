@@ -653,6 +653,28 @@ class AnkiStudioViewModel(
         }
     }
 
+    fun resetStudyProgress() {
+        val targetDeckId = _uiState.value.selectedDeckId
+        viewModelScope.launch {
+            val nowSec = System.currentTimeMillis() / 1000L
+            val resetCount = dao.resetCardsProgress(nowEpochSec = nowSec, deckId = targetDeckId)
+            lastUndoSnapshot = null
+            _uiState.update {
+                it.copy(
+                    studyFilterMode = "all",
+                    questionTypeFilter = "all",
+                    sessionWrongCards = emptyList(),
+                    markedCardIds = emptySet(),
+                    buriedCardIds = emptySet(),
+                    canUndoLastReview = false,
+                    statusBannerMessage = "🔄 학습 초기화 완료: ${resetCount}장의 카드가 초기 상태(새 카드 1번)로 복원되었습니다!",
+                    isErrorBanner = false
+                )
+            }
+            refreshWorkspace(deckId = targetDeckId)
+        }
+    }
+
     fun purchaseTop3Bundle() {
         val lockedPaid = BrainPackStoreCatalog.products.filter { !it.isFreeStarter && it.packId !in _uiState.value.unlockedPackIds }
         val top3 = lockedPaid.take(3)

@@ -1,5 +1,5 @@
 /**
- * Client Controller for Anki Studio 2.0 (MVVM Binding + Web Speech TTS + AI Recall).
+ * Client Controller for BrainDeck 2.0 (MVVM Binding + Web Speech TTS + Smart Recall).
  */
 (function () {
   "use strict";
@@ -263,6 +263,12 @@
         return standaloneEngine.undoLastReview();
       }
       return { ok: false, standalone: true, error: "되돌리기 미지원" };
+    }
+    if (path.startsWith("/api/reset") || path.startsWith("/api/study/reset") || path.startsWith("/api/review/reset")) {
+      if (typeof standaloneEngine.resetStudyProgress === "function") {
+        return standaloneEngine.resetStudyProgress(p);
+      }
+      return { ok: true, standalone: true, reset_count: 0 };
     }
     if (path.startsWith("/api/review")) {
       return standaloneEngine.submitReview(p);
@@ -718,6 +724,41 @@
     }
   }
 
+  async function resetStudyProgress() {
+    const deckIdParam = state.selectedDeckId ? Number(state.selectedDeckId) || state.selectedDeckId : null;
+    const res = await apiPost("/api/reset", { deck_id: deckIdParam });
+    if (!res || !res.ok) {
+      const errMsg = (res && (res.detail || res.error)) || "초기화 요청을 처리할 수 없습니다.";
+      showUxToast(`⚠️ 학습 초기화 실패: ${errMsg}`, "rose");
+      return;
+    }
+    if (!res.standalone && standaloneEngine && typeof standaloneEngine.resetStudyProgress === "function") {
+      standaloneEngine.resetStudyProgress({ deck_id: deckIdParam });
+    }
+    state.sessionWrongCardIds = [];
+    state.sessionWrongCardMap = {};
+    state.buriedCardIds = [];
+    state.markedCardIds = [];
+    state.studyFilterMode = "all";
+    state.questionTypeFilter = "all";
+    state.currentIndex = 0;
+    state.isRevealed = false;
+    document.querySelectorAll(".study-filter-btn").forEach((b) => {
+      if (b.getAttribute("data-filter") === "all") b.classList.add("btn-primary");
+      else b.classList.remove("btn-primary");
+    });
+    document.querySelectorAll(".study-qtype-btn").forEach((b) => {
+      if (b.getAttribute("data-qtype") === "all") b.classList.add("btn-primary");
+      else b.classList.remove("btn-primary");
+    });
+    await refreshDashboardAndQueue();
+    const count = Number(res.reset_count ?? res.reset_cards ?? 0);
+    showUxToast(
+      `🔄 학습 초기화 완료: ${count}장의 카드가 초기 상태(새 카드 1번)로 복원되었습니다!`,
+      "emerald"
+    );
+  }
+
   async function submitRating(rating) {
     const card = currentCard();
     if (!card) return;
@@ -1140,6 +1181,12 @@
     });
     const btnUndo = el("btn-undo-review");
     if (btnUndo) btnUndo.addEventListener("click", undoLastReview);
+    const btnResetStudy = el("btn-reset-study");
+    if (btnResetStudy) btnResetStudy.addEventListener("click", resetStudyProgress);
+    const btnResetArena = el("btn-reset-card-arena");
+    if (btnResetArena) btnResetArena.addEventListener("click", resetStudyProgress);
+    const btnResetPostSession = el("btn-reset-post-session");
+    if (btnResetPostSession) btnResetPostSession.addEventListener("click", resetStudyProgress);
     el("btn-hint").addEventListener("click", requestSocraticHint);
     el("btn-decompose").addEventListener("click", decomposeCurrentLeech);
     el("btn-tts").addEventListener("click", speakCurrentCard);
@@ -1226,7 +1273,7 @@
       });
     }
 
-    // Anki Card Actions: Mark (Star), Bury Today, Suspend
+    // Card Actions: Mark (Star), Bury Today, Suspend
     const btnMarkCard = el("btn-mark-card");
     if (btnMarkCard) {
       btnMarkCard.addEventListener("click", () => {

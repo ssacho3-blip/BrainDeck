@@ -158,6 +158,10 @@ class AnkiStudioService:
         """Revert the most recent review (`#btn-undo-review` / shortcut `Z`)."""
         return self.store.undo_last_review()
 
+    def reset_study_progress(self, deck_id: Optional[int] = None) -> Dict[str, Any]:
+        """Reset all cards in the selected deck (or all decks) back to initial unstudied state (`#btn-reset-study`)."""
+        return self.store.reset_study_progress(deck_id=deck_id)
+
     def set_profile_age_tier(self, age_tier: str, profile_id: int = 1) -> Dict[str, Any]:
         """Persist learner profile `age_tier` and return corresponding UI/UX tokens."""
         prof = self.ledger.update_profile_age_tier(age_tier=age_tier, profile_id=profile_id)
@@ -1400,6 +1404,10 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             if path.startswith("/download/") and path.endswith(".apk"):
                 root_dir = Path(__file__).resolve().parents[3]
                 candidates = [
+                    root_dir / "dist" / "BrainDeck-v5.7.apk",
+                    root_dir / "dist" / "BrainDeck-v5.6.apk",
+                    root_dir / "dist" / "BrainDeck-v5.5.apk",
+                    root_dir / "dist" / "BrainDeck-v5.4.apk",
                     root_dir / "dist" / "BrainDeck-v5.4-Android.apk",
                     root_dir / "dist" / "BrainDeck-v5.3-Android.apk",
                     root_dir / "dist" / "BrainDeck-v5.2-Android.apk",
@@ -1413,7 +1421,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 apk_size = apk_path.stat().st_size
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/vnd.android.package-archive")
-                self.send_header("Content-Disposition", 'attachment; filename="BrainDeck-v5.4-TDD-ExamScope.apk"')
+                self.send_header("Content-Disposition", f'attachment; filename="{apk_path.name}"')
                 self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
                 self.send_header("Content-Length", str(apk_size))
@@ -1528,6 +1536,21 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     res = svc.undo_review()
                     status_code = 200 if res.get("ok") else 409
                     self._send_json(res, status=status_code)
+                    return
+
+                if path in ("/api/reset", "/api/study/reset", "/api/review/reset"):
+                    raw_deck = body.get("deck_id")
+                    if raw_deck in (None, "", "all"):
+                        deck_id = None
+                    elif isinstance(raw_deck, bool):
+                        raise ValueError("Invalid deck_id: boolean not allowed")
+                    else:
+                        s_deck = str(raw_deck).strip()
+                        if not s_deck.isdigit() or int(s_deck) <= 0:
+                            raise ValueError(f"Invalid deck_id: {raw_deck!r}")
+                        deck_id = int(s_deck)
+                    res = svc.reset_study_progress(deck_id=deck_id)
+                    self._send_json(res)
                     return
 
                 if path == "/api/cards/suspend":

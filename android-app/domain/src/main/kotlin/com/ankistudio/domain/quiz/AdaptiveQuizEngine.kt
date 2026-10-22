@@ -980,6 +980,7 @@ object AdaptiveQuizEngine {
             "동사원형" in target ||
             "과거분사" in target ||
             "현재분사" in target ||
+            "현재완료" in target ||
             "형용사 보어" in target ||
             "관계대명사" in target ||
             "현재진행형" in target
@@ -1049,10 +1050,12 @@ object AdaptiveQuizEngine {
 
         val scienceKeywords = listOf(
             "결합", "에너지", "트랜잭션", "헌법", "법칙", "미토콘드리아",
-            "교착상태", "계층", "정규화", "세포", "염색체", "전자쌍"
+            "교착상태", "계층", "정규화", "세포", "염색체", "전자쌍",
+            "피타고라스", "방정식", "삼각함수", "판별식", "수학 공식", "등차수열"
         )
         if (
             "sci" in tagStr ||
+            "math" in tagStr ||
             "law" in tagStr ||
             "cert" in tagStr ||
             scienceKeywords.any { it in combinedLower }

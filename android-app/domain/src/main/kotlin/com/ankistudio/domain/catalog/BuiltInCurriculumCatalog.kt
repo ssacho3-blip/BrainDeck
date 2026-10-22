@@ -295,7 +295,7 @@ object BuiltInCurriculumCatalog {
         ),
         CollectionCatalogItem(
             collectionId = "moe-hanja-1800:middle",
-            title = "漢字 교육부 중학 기초한자 900 핵심",
+            title = "漢字 교육부 한문 교육용 기초한자 1,800 (중학 900·고교 900 핵심)",
             category = "language",
             ageRecommendation = "teen_to_adult",
             cards = listOf(
@@ -304,7 +304,13 @@ object BuiltInCurriculumCatalog {
                 card("校", "학교 교 (부수: 木 · 10획)", "moe_hanja_mid"),
                 card("民", "백성 민 (부수: 氏 · 5획)", "moe_hanja_mid"),
                 card("國", "나라 국 (부수: 囗 · 11획)", "moe_hanja_mid"),
-                card("道", "길 도 (부수: 辵 · 12획)", "moe_hanja_mid")
+                card("道", "길 도 (부수: 辵 · 12획)", "moe_hanja_mid"),
+                card("愛", "사랑 애 (부수: 心 · 13획)", "moe_hanja_mid"),
+                card("孝", "효도 효 (부수: 子 · 7획)", "moe_hanja_mid"),
+                card("信", "믿을 신 (부수: 人 · 9획)", "moe_hanja_mid"),
+                card("禮", "예도 례(예) (부수: 示 · 18획)", "moe_hanja_mid"),
+                card("智", "지혜 지 (부수: 日 · 12획)", "moe_hanja_mid"),
+                card("平和", "평화 (平 평평할 평 · 和 화할 화)", "moe_hanja_mid")
             )
         ),
         CollectionCatalogItem(
@@ -320,15 +326,105 @@ object BuiltInCurriculumCatalog {
             )
         ),
         CollectionCatalogItem(
-            collectionId = "moe-eng:elementary",
-            title = "🔤 교육부 고시 초등 필수 영단어",
+            collectionId = "moe-eng:elem-3-4",
+            title = "🌱 교육부 고시 초등 3~4학년 기초 영단어 (생활·가족·학교)",
             category = "language",
             ageRecommendation = "junior",
             cards = listOf(
-                card("library", "도서관", "moe_elem_eng"),
-                card("hospital", "병원", "moe_elem_eng"),
-                card("weather", "날씨", "moe_elem_eng"),
-                card("tomorrow", "내일", "moe_elem_eng")
+                card("apple", "사과 (명사)", "moe_elem_g34"),
+                card("family", "가족 (명사)", "moe_elem_g34"),
+                card("friend", "친구 (명사)", "moe_elem_g34"),
+                card("school", "학교 (명사)", "moe_elem_g34"),
+                card("teacher", "선생님 (명사)", "moe_elem_g34"),
+                card("morning", "아침 (명사)", "moe_elem_g34"),
+                card("water", "물 (명사)", "moe_elem_g34"),
+                card("color", "색깔 (명사)", "moe_elem_g34"),
+                card("animal", "동물 (명사)", "moe_elem_g34"),
+                card("music", "음악 (명사)", "moe_elem_g34"),
+                card("happy", "행복한, 기쁜 (형용사)", "moe_elem_g34"),
+                card("listen", "(귀 기울여) 듣다 (동사)", "moe_elem_g34")
+            )
+        ),
+        CollectionCatalogItem(
+            collectionId = "moe-eng:elementary",
+            title = "🔤 교육부 고시 초등 5~6학년 필수 영단어 800 핵심",
+            category = "language",
+            ageRecommendation = "junior",
+            cards = listOf(
+                card("library", "도서관 (명사)", "moe_elem_eng"),
+                card("hospital", "병원 (명사)", "moe_elem_eng"),
+                card("weather", "날씨 (명사)", "moe_elem_eng"),
+                card("tomorrow", "내일 (명사·부사)", "moe_elem_eng"),
+                card("yesterday", "어제 (명사·부사)", "moe_elem_eng"),
+                card("breakfast", "아침 식사 (명사)", "moe_elem_eng"),
+                card("exercise", "운동; 운동하다 (명사·동사)", "moe_elem_eng"),
+                card("vacation", "방학, 휴가 (명사)", "moe_elem_eng"),
+                card("museum", "박물관, 미술관 (명사)", "moe_elem_eng"),
+                card("science", "과학 (명사)", "moe_elem_eng"),
+                card("different", "다른 (형용사)", "moe_elem_eng"),
+                card("important", "중요한 (형용사)", "moe_elem_eng")
+            )
+        ),
+        CollectionCatalogItem(
+            collectionId = "moe-eng:middle-1200",
+            title = "📘 교육부 고시 중학교 1~3학년 필수 영단어 1,200 & 핵심 문법",
+            category = "language",
+            ageRecommendation = "teen",
+            cards = listOf(
+                card("environment", "환경 (명사)", "moe_mid_eng"),
+                card("communication", "의사소통, 통신 (명사)", "moe_mid_eng"),
+                card("opportunity", "기회 (명사)", "moe_mid_eng"),
+                card("experience", "경험; 경험하다 (명사·동사)", "moe_mid_eng"),
+                card("government", "정부 (명사)", "moe_mid_eng"),
+                card("relationship", "관계 (명사)", "moe_mid_eng"),
+                card("independent", "독립적인, 자립심이 강한 (형용사)", "moe_mid_eng"),
+                card("responsible", "책임이 있는 (형용사)", "moe_mid_eng"),
+                card("participate", "참여하다, 참가하다 (동사)", "moe_mid_eng"),
+                card("appreciate", "감사하다, 진가를 인정하다 (동사)", "moe_mid_eng"),
+                card("[중학 핵심문법] 과거에 시작된 동작·상태가 현재까지 영향을 미칠 때(경험·계속·완료·결과) 쓰는 시제 형태는?", "현재완료 (have / has + 과거분사 p.p.)", "role:key_grammar"),
+                card("[중학 핵심문법] 선행사가 사람이고 관계절 안에서 주어 역할을 할 때 쓰는 주격 관계대명사는?", "관계대명사 who (또는 that)", "role:key_grammar")
+            )
+        ),
+        CollectionCatalogItem(
+            collectionId = "moe-eng:high-csat",
+            title = "🎓 교육부 고시 고등학교·수능 필수 영단어 1,800 (학술·추상 어휘)",
+            category = "language",
+            ageRecommendation = "teen_to_adult",
+            cards = listOf(
+                card("sustainable", "지속 가능한 (형용사)", "moe_high_eng"),
+                card("perspective", "관점, 시각, 원근법 (명사)", "moe_high_eng"),
+                card("consequence", "결과, 중요성 (명사)", "moe_high_eng"),
+                card("inevitable", "불가피한, 필연적인 (형용사)", "moe_high_eng"),
+                card("phenomenon", "현상 (명사, 복수형 phenomena)", "moe_high_eng"),
+                card("hypothesis", "가설, 가정 (명사)", "moe_high_eng"),
+                card("simultaneously", "동시에 (부사)", "moe_high_eng"),
+                card("acknowledge", "인정하다, 감사를 표하다 (동사)", "moe_high_eng"),
+                card("controversy", "논란, 논쟁 (명사)", "moe_high_eng"),
+                card("predominant", "지배적인, 두드러진 (형용사)", "moe_high_eng")
+            )
+        ),
+        CollectionCatalogItem(
+            collectionId = "moe-kor:orthography-lit",
+            title = "🇰🇷 교육부 국어과 필수 어문규정(맞춤법·표준어) 및 문학 개념어",
+            category = "language",
+            ageRecommendation = "teen_to_adult",
+            cards = listOf(
+                card("✏️ [한글 맞춤법] '며칠 동안'과 '몇 일 동안' 중 어법에 맞는 표준 표기는?", "며칠 동안\n💡 해설: 어원이 분명하지 아니한 것은 원형을 밝히어 적지 않습니다.", "dictation_kor"),
+                card("✏️ [한글 맞춤법] '금세(금시에)'와 '금새' 중 '지금 바로'를 뜻하는 올바른 표기는?", "금세\n💡 해설: '금시에'가 줄어든 말은 '금세'가 표준 표기입니다.", "dictation_kor"),
+                card("✏️ [한글 맞춤법] '어떻게 해'가 줄어든 말로 '어떡해'와 '어떻해' 중 올바른 표기는?", "어떡해\n💡 해설: '어떻게 해'가 줄어든 말은 '어떡해'입니다.", "dictation_kor"),
+                card("✏️ [문학 개념어] 시나 소설에서 추상적인 관념이나 정서를 감각적(시각·청각 등)인 구체적 사물로 형상화하는 표현 원리는?", "심상 (이미지, Imagery) · 객관적 상관물\n💡 해설: 정서를 간접적으로 환기하는 매개물을 객관적 상관물이라 합니다.", "dictation_kor")
+            )
+        ),
+        CollectionCatalogItem(
+            collectionId = "moe-math:core-formulas",
+            title = "📐 교육부 수학과 학년별 필수 공식·정리 마스터",
+            category = "engineering",
+            ageRecommendation = "teen_to_adult",
+            cards = listOf(
+                card("🔬 [중학 수학 공식] 직각삼각형에서 직각을 낀 두 변의 길이를 a, b라 하고 빗변의 길이를 c라 할 때 성립하는 피타고라스 정리 공식은?", "a² + b² = c²\n💡 해설: 빗변의 길이의 제곱은 다른 두 변의 길이의 제곱의 합과 같습니다.", "sci_math"),
+                card("🔬 [고교 수학 공식] 이차방정식 ax² + bx + c = 0 (a ≠ 0)의 실근·허근 개수를 판별하는 판별식 D의 공식은?", "D = b² - 4ac\n💡 해설: D > 0 서로 다른 두 실근, D = 0 중근, D < 0 서로 다른 두 허근.", "sci_math"),
+                card("🔬 [고교 수학 공식] 임의의 각 θ에 대하여 항상 성립하는 삼각함수 사이의 기본 제곱 관계식은?", "sin²θ + cos²θ = 1\n💡 해설: 단위원(x² + y² = 1) 위의 점에서 유도됩니다.", "sci_math"),
+                card("🔬 [고교 수학 공식] 첫째항이 a, 공차가 d인 등차수열의 일반항 aₙ 공식은?", "aₙ = a + (n - 1)d\n💡 해설: 첫째항에 공차 d를 (n-1)번 더한 값입니다.", "sci_math")
             )
         ),
         CollectionCatalogItem(

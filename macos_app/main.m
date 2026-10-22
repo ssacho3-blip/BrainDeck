@@ -19,7 +19,7 @@
                                               styleMask:style
                                                 backing:NSBackingStoreBuffered
                                                   defer:NO];
-    [self.window setTitle:@"Anki Studio 2.0 — FSRS-5 & AI Active Recall Studio"];
+    [self.window setTitle:@"BrainDeck — FSRS-5 & Active Recall Studio"];
     [self.window center];
 
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];

@@ -1334,6 +1334,8 @@ _GRAMMAR_KEYWORDS: Tuple[str, ...] = (
     "동사원형",
     "현재진행형",
     "과거시제",
+    "현재완료",
+    "과거분사",
     "수일치",
     "to부정사",
     "동명사",
@@ -1467,9 +1469,10 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
             "badge_label": "🏛️ 역사 핵심 개념",
         }
 
-    # 5. Science / Law / IT check
+    # 5. Science / Math / Law / IT check
     if (
         "sci" in tags_str
+        or "math" in tags_str
         or "law" in tags_str
         or "cert" in tags_str
         or any(
@@ -1489,6 +1492,14 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
                 "전자쌍",
                 "양이온",
                 "음이온",
+                "피타고라스",
+                "방정식",
+                "삼각함수",
+                "판별식",
+                "수학 공식",
+                "등차수열",
+                "해령",
+                "열곡대",
             )
         )
     ):

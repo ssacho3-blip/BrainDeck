@@ -709,6 +709,60 @@ class AnkiStudioStore:
                 "restored_stability": float(u["stability_before"]),
             }
 
+    def reset_study_progress(self, deck_id: Optional[int] = None) -> Dict[str, Any]:
+        """Atomically reset study progress (`state='new', reps=0, lapses=0, stability=1.2, difficulty=5.0, due_at=now`) for a deck or all decks."""
+        now_iso = _utc_now_iso()
+        with self._write_tx() as conn:
+            if deck_id is not None:
+                target_deck = int(deck_id)
+                rev_cur = conn.execute(
+                    "DELETE FROM revlog WHERE card_id IN (SELECT card_id FROM cards WHERE deck_id = ?)",
+                    (target_deck,),
+                )
+                conn.execute(
+                    "DELETE FROM review_undo_journal WHERE card_id IN (SELECT card_id FROM cards WHERE deck_id = ?)",
+                    (target_deck,),
+                )
+                card_cur = conn.execute(
+                    """
+                    UPDATE cards
+                    SET state = 'new',
+                        difficulty = 5.0,
+                        stability = 1.2,
+                        reps = 0,
+                        lapses = 0,
+                        due_at = ?,
+                        last_review_at = NULL
+                    WHERE deck_id = ? AND state != 'suspended'
+                    """,
+                    (now_iso, target_deck),
+                )
+            else:
+                rev_cur = conn.execute("DELETE FROM revlog")
+                conn.execute("DELETE FROM review_undo_journal")
+                card_cur = conn.execute(
+                    """
+                    UPDATE cards
+                    SET state = 'new',
+                        difficulty = 5.0,
+                        stability = 1.2,
+                        reps = 0,
+                        lapses = 0,
+                        due_at = ?,
+                        last_review_at = NULL
+                    WHERE state != 'suspended'
+                    """,
+                    (now_iso,),
+                )
+            return {
+                "ok": True,
+                "deck_id": int(deck_id) if deck_id is not None else None,
+                "reset_cards": int(card_cur.rowcount),
+                "reset_count": int(card_cur.rowcount),
+                "cleared_reviews": int(rev_cur.rowcount),
+                "due_at": now_iso,
+            }
+
     def decompress_backlog(
         self,
         deck_id: Optional[int] = None,

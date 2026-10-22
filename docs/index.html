@@ -398,6 +398,9 @@
         <button id="btn-undo-review" type="button" style="padding:7px 11px;font-size:0.78rem;" title="방금 평가 되돌리기 (Z)">
           ↩️ 취소
         </button>
+        <button id="btn-reset-study" type="button" style="padding:7px 11px;font-size:0.78rem;background:#fff0f0;color:#be123c;border-color:#fecdd3;" title="현재 덱 학습 진도 및 복습 상태 처음부터 초기화">
+          🔄 초기화
+        </button>
       </div>
     </header>
 
@@ -519,6 +522,7 @@
                 <button id="btn-mark-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="중요 별표 표시">☆ 별표</button>
                 <button id="btn-bury-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="오늘 하루 숨기기">💤 숨김</button>
                 <button id="btn-suspend-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="카드 일시 정지">⏸️ 정지</button>
+                <button id="btn-reset-card-arena" type="button" style="padding:4px 9px;font-size:0.74rem;color:#be123c;border-color:#fecdd3;background:#fff0f0;" title="현재 덱 처음부터 초기화">🔄 초기화</button>
               </div>
             </div>
             <div class="card-question" id="card-question">오늘 카드를 모두 끝냈어요! 🎉</div>
@@ -529,9 +533,14 @@
             <!-- Post-Session Wrong/Unknown Retry Box -->
             <div id="post-session-retry-box" style="display:none;margin-top:14px;padding:16px;border-radius:16px;background:#fff0f0;text-align:center;">
               <div id="post-session-summary" style="font-size:0.9rem;font-weight:700;color:#be123c;margin-bottom:10px;"></div>
-              <button id="btn-retry-wrong-now" type="button" class="btn-primary" style="background:#be123c;border-color:#be123c;">
-                🔥 틀린·모르는 문제만 다시 복습하기
-              </button>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                <button id="btn-retry-wrong-now" type="button" class="btn-primary" style="background:#be123c;border-color:#be123c;">
+                  🔥 틀린·모르는 문제만 다시 복습하기
+                </button>
+                <button id="btn-reset-post-session" type="button" style="background:#ffffff;color:#be123c;border-color:#fecdd3;">
+                  🔄 전체 카드 처음부터 다시 학습 (초기화)
+                </button>
+              </div>
             </div>
           </div>
 

@@ -40,6 +40,7 @@ import uuid
 
 from anki_studio.domain.adaptive_quiz import preserve_cjk_compat_before_nfc
 from anki_studio.domain.fsrs_math import extract_cloze_ordinals
+from anki_studio.domain.moe_curriculum_corpus import build_tier_r_moe_collections
 
 
 ALLOWED_SOURCE_LICENSES: frozenset[str] = frozenset(
@@ -3149,6 +3150,7 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
                 ("cert:db_index_btree", "fact_item", "💻 [정보처리기사 · DB] 루트·브랜치·리프 노드가 균형을 유지하며 탐색 성능을 O(log N)으로 높이는 대표적인 DB 인덱스 자료구조는?", "B-Tree 인덱스 (Balanced Tree Index, O(log N) 탐색)", {"expression": "B-Tree Index", "senses": [{"id": "s1", "gloss_ko": "B-Tree 인덱스 (O(log N) 균형 탐색 트리)"}], "lv1_front": "🌱 [Lv.1 IT 기초] 루트·브랜치·리프 노드가 균형을 유지하며 O(log N) 탐색을 제공하는 DB 기본 인덱스 구조는?", "lv1_back": "B-Tree 인덱스 (또는 B+Tree 인덱스)", "lv2_front": "📘 [Lv.2 IT 빈칸] {{c1::B-Tree::자료구조}} 인덱스는 균형 트리를 유지하여 평균 및 최악 탐색 시간복잡도 {{c2::O(log N)::시간복잡도}}을 보장한다.", "lv2_back": "B-Tree · O(log N)", "lv3_front": "🔥 [Lv.3 IT 심화] 데이터베이스에서 B-Tree 인덱스를 사용하는 이유와 탐색 시간복잡도를 쓰시오.", "lv3_back": "루트·브랜치·리프 노드의 균형을 유지해 전체 테이블 스캔(O(N)) 없이 O(log N) 시간복잡도로 고속 조회·범위 검색을 수행하기 위해", "target_answer": "B-Tree 인덱스 (O(log N))"}),
             ],
         ),
+        **build_tier_r_moe_collections(),
     }
 
     for col_id, (level_label, entries) in balanced_collections.items():
@@ -3214,6 +3216,11 @@ def ensure_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
                     "SELECT facet_json FROM ref_entries WHERE entry_key = 'grammar:mid1_u1_be_verb'"
                 ).fetchone()
                 if g_row is None or '"lv1_front"' not in str(g_row["facet_json"]):
+                    return None
+                moe_cnt = conn.execute(
+                    "SELECT COUNT(*) FROM ref_collections WHERE collection_id = 'moe-eng:elem-3-4'"
+                ).fetchone()[0]
+                if int(moe_cnt) < 1:
                     return None
                 meta = dict(meta_row)
                 meta["file_sha256"] = hashlib.sha256(candidate_path.read_bytes()).hexdigest()

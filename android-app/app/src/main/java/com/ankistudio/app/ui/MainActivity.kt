@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     onSelectDeckForStudy = viewModel::selectDeckForStudy,
                     onSelectAgeTier = viewModel::selectAgeTier,
                     onUndoLastReview = viewModel::undoLastReview,
+                    onResetStudyProgress = viewModel::resetStudyProgress,
                     onToggleQuizMode = viewModel::toggleQuizMode,
                     onSetStudyFilterMode = viewModel::setStudyFilterMode,
                     onSetQuestionTypeFilter = viewModel::setQuestionTypeFilter,
@@ -261,6 +262,7 @@ fun AnkiStudioScreen(
     onSelectDeckForStudy: (Long?) -> Unit = {},
     onSelectAgeTier: (String) -> Unit = {},
     onUndoLastReview: () -> Unit = {},
+    onResetStudyProgress: () -> Unit = {},
     onToggleQuizMode: () -> Unit = {},
     onSetStudyFilterMode: (String) -> Unit = {},
     onSetQuestionTypeFilter: (String) -> Unit = {},
@@ -398,6 +400,12 @@ fun AnkiStudioScreen(
                         ) {
                             Text("↩️ 되돌리기", fontSize = 12.sp, color = TextSecondary)
                         }
+                    }
+                    OutlinedButton(
+                        onClick = onResetStudyProgress,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("🔄 초기화", fontSize = 12.sp, color = CoralRed)
                     }
                 }
             }
