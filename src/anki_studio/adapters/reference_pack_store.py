@@ -3222,6 +3222,11 @@ def ensure_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
                 ).fetchone()[0]
                 if int(moe_cnt) < 1:
                     return None
+                math_entry_cnt = conn.execute(
+                    "SELECT COUNT(*) FROM ref_collections WHERE collection_id = 'moe-math:core-formulas'"
+                ).fetchone()[0]
+                if int(math_entry_cnt) < 7:
+                    return None
                 meta = dict(meta_row)
                 meta["file_sha256"] = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
                 meta["rebuilt"] = False

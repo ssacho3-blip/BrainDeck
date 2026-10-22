@@ -226,22 +226,11 @@
       return standaloneEngine.getCatalog();
     }
     if (path.startsWith("/api/store/packs")) {
-      return {
-        ok: true,
-        standalone: true,
-        packs: [
-          {
-            pack_id: "starter_k12_free",
-            title: "중등 영어·역사·고1 과학 & 어문회 한자 올인원 팩",
-            subtitle: "아이폰·아이패드·웹 기본 내장 완료 (즉시 사용 가능)",
-            category: "starter_free",
-            price_krw: 0,
-            unlocked: true,
-            estimated_cards: 120,
-            sample_cards: [{ front: "introduce", back: "소개하다" }],
-          },
-        ],
-      };
+      if (typeof standaloneEngine.getStorePacks === "function") {
+        const qIdx = path.indexOf("?");
+        const qs = qIdx >= 0 ? new URLSearchParams(path.slice(qIdx + 1)) : new URLSearchParams();
+        return standaloneEngine.getStorePacks(qs.get("category") || "all");
+      }
     }
     if (path.startsWith("/api/bundle/offline-snapshot")) {
       return {
@@ -249,6 +238,7 @@
         standalone: true,
         status: fallbackStandaloneGet("/api/status"),
         due: fallbackStandaloneGet("/api/due"),
+        store: fallbackStandaloneGet("/api/store/packs"),
         catalog: standaloneEngine.getCatalog(),
       };
     }
@@ -276,6 +266,21 @@
     if (path.startsWith("/api/decks/batch-save")) {
       if (typeof standaloneEngine.batchSaveDeck === "function") {
         return standaloneEngine.batchSaveDeck(p);
+      }
+    }
+    if (path.startsWith("/api/store/purchase-bundle")) {
+      if (typeof standaloneEngine.purchaseStoreBundle === "function") {
+        return standaloneEngine.purchaseStoreBundle(p);
+      }
+    }
+    if (path.startsWith("/api/store/purchase")) {
+      if (typeof standaloneEngine.purchaseStorePack === "function") {
+        return standaloneEngine.purchaseStorePack(p);
+      }
+    }
+    if (path.startsWith("/api/store/refund")) {
+      if (typeof standaloneEngine.refundStorePack === "function") {
+        return standaloneEngine.refundStorePack(p);
       }
     }
     if (path.startsWith("/api/catalog/exam-scope") || path.startsWith("/api/catalog/generate-exam-scope-deck")) {

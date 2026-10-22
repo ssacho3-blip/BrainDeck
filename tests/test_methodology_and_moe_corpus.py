@@ -110,6 +110,13 @@ def test_layer1_moe_curriculum_corpus_completeness_and_spoiler_free_invariants()
         assert len(col["items"]) >= 5
 
     # Verify Tier R reference pack builder integrates all 9 MOE collections into SQLite
+    # AND all 9 MOE collections are exposed in the BrainPack Store (`pack.moe.*`) for purchase/mounting
+    from anki_studio.domain.pack_store import list_store_catalog
+
+    moe_store_res = list_store_catalog(unlocked_pack_ids=(), category_filter="moe_curriculum")
+    assert len(moe_store_res["packs"]) == 9
+    assert {p["primary_ref_id"] for p in moe_store_res["packs"]} == required_ids
+
     with tempfile.TemporaryDirectory() as tmpdir:
         pack_path = Path(tmpdir) / "ref_moe_test.sqlite3"
         ensure_starter_k12_and_exam_pack(pack_path)
@@ -121,17 +128,18 @@ def test_layer1_moe_curriculum_corpus_completeness_and_spoiler_free_invariants()
             db_path=Path(tmpdir) / "user_moe_test.sqlite3",
             seed_defaults=False,
         )
-        # Unlock khist & sci packs so all 9 collections can be materialized
-        svc.purchase_store_pack(
-            pack_id="pack.exam.khist_master",
-            auto_create_deck=False,
-            payment_token="BDPAY-pack.exam.khist_master",
-        )
-        svc.purchase_store_pack(
-            pack_id="pack.high1.sci.visang.full",
-            auto_create_deck=False,
-            payment_token="BDPAY-pack.high1.sci.visang.full",
-        )
+        # Purchase all 9 MOE store packs and verify each mounts a study deck cleanly
+        for moe_pack in moe_store_res["packs"]:
+            pid = moe_pack["pack_id"]
+            pur = svc.purchase_store_pack(
+                pack_id=pid,
+                auto_create_deck=True,
+                payment_token=f"BDPAY-{pid}",
+            )
+            assert pur["ok"] is True
+            assert pur["mounted_deck"] is not None
+            assert pur["mounted_deck"]["saved_count"] >= 3
+
         for cid in required_ids:
             built = svc.generate_collection_deck(collection_id=cid, difficulty_level="standard")
             assert built["ok"] is True, f"Collection {cid} failed: {built}"
@@ -314,6 +322,20 @@ def test_layer4_tri_engine_parity_js_standalone_moe_and_reset() -> None:
       throw new Error("Card not restored to new state: " + JSON.stringify(dueAfter.cards[0]));
     }}
 
+    // Verify BrainPack Store (구매) includes all 9 MOE collections in standaloneEngine
+    const moeStore = engine.getStorePacks("moe_curriculum");
+    if (!moeStore || !moeStore.packs || moeStore.packs.length !== 9) {{
+      throw new Error("Expected 9 moe_curriculum store packs in standaloneEngine, got " + JSON.stringify(moeStore));
+    }}
+    const buyMath = engine.purchaseStorePack({{
+      pack_id: "pack.moe.math.core_formula",
+      auto_create_deck: true,
+      payment_token: "BDPAY-MATH-TEST"
+    }});
+    if (!buyMath.ok || !buyMath.mounted_deck || buyMath.mounted_deck.saved_count < 5) {{
+      throw new Error("Failed purchasing pack.moe.math.core_formula in standaloneEngine: " + JSON.stringify(buyMath));
+    }}
+
     // Verify math & grammar classification parity
     const mathType = vm.classifyCardQuestionType({{
       front_text: "🔬 [중학 수학 공식] 피타고라스 정리 공식은?",
@@ -387,6 +409,33 @@ def test_layer4_android_kotlin_moe_and_reset_contracts() -> None:
     ).read_text(encoding="utf-8")
     assert "🔄 초기화" in main_kt
     assert "onResetStudyProgress" in main_kt
+    assert '"moe_curriculum" to "📚 교육부 필수(9종)"' in main_kt
+
+    store_kt = (
+        REPO_ROOT
+        / "android-app"
+        / "domain"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "ankistudio"
+        / "domain"
+        / "catalog"
+        / "BrainPackStoreCatalog.kt"
+    ).read_text(encoding="utf-8")
+    for pid in (
+        "pack.moe.eng.elem34",
+        "pack.moe.eng.elem56",
+        "pack.moe.eng.mid1200",
+        "pack.moe.eng.high_csat",
+        "pack.moe.kor.orthography_lit",
+        "pack.moe.hanja.mid1800",
+        "pack.moe.hist.essential",
+        "pack.moe.sci.core_formula",
+        "pack.moe.math.core_formula",
+    ):
+        assert pid in store_kt, f"Missing {pid} in Android BrainPackStoreCatalog.kt"
 
 
 def test_docs_have_zero_anki_strings() -> None:
@@ -465,6 +514,18 @@ def test_layer5_real_playwright_browser_e2e_reset_and_moe_journey() -> None:
                 assert restored_new_text == initial_new_text
                 toast_text = page.locator("#ux-toast-banner").inner_text()
                 assert "학습 초기화 완료" in toast_text
+
+                # Navigate to 🛒 스토어 tab and filter by 📚 교육부 필수(9종)
+                page.locator('button[data-tab="store"]').click()
+                page.wait_for_selector('#store-category-tabs button[data-cat="moe_curriculum"]')
+                page.locator('#store-category-tabs button[data-cat="moe_curriculum"]').click()
+                page.wait_for_timeout(350)
+                moe_buy_btn = page.locator('button[data-buy-pack="pack.moe.math.core_formula"]')
+                assert moe_buy_btn.is_visible()
+                moe_buy_btn.click()
+                page.wait_for_timeout(450)
+                store_toast = page.locator("#ux-toast-banner").inner_text()
+                assert "구매" in store_toast or "마운트" in store_toast
 
                 browser.close()
         finally:

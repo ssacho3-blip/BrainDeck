@@ -33,15 +33,23 @@ class BrainPackStoreCatalogTest {
     }
 
     @Test
-    fun `filterCatalog returns category-matched BrainPacks`() {
+    fun `filterCatalog returns category-matched BrainPacks including 9 MOE packs`() {
         val allPacks = BrainPackStoreCatalog.filterCatalog("all")
-        assertEquals(9, allPacks.size)
+        assertEquals(18, allPacks.size)
+
+        val moePacks = BrainPackStoreCatalog.filterCatalog("moe_curriculum")
+        assertEquals(9, moePacks.size)
+        assertTrue(moePacks.all { it.packId.startsWith("pack.moe.") })
 
         val textbooks = BrainPackStoreCatalog.filterCatalog("k12_textbook")
-        assertEquals(4, textbooks.size)
+        assertEquals(11, textbooks.size)
 
         val product = BrainPackStoreCatalog.getProductById("pack.exam.hanja_master")
         assertNotNull(product)
         assertEquals(1500, product?.priceKrw)
+
+        val mathPack = BrainPackStoreCatalog.getProductById("pack.moe.math.core_formula")
+        assertNotNull(mathPack)
+        assertEquals(990, mathPack?.priceKrw)
     }
 }

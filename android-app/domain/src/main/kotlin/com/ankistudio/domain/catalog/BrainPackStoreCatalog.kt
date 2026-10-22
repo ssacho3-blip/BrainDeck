@@ -55,7 +55,13 @@ object BrainPackStoreCatalog {
             coveredRefIds = listOf(
                 "hanja-grade:8geup",
                 "ko-dictation:grade1-2",
-                "moe-eng:elementary"
+                "moe-eng:elem-3-4",
+                "moe-eng:elementary",
+                "moe-eng:middle-1200",
+                "moe-eng:high-csat",
+                "moe-kor:orthography-lit",
+                "moe-hanja-1800:middle",
+                "moe-math:core-formulas"
             ),
             estimatedCardCount = 20,
             badgeLabel = "무료 기본 탑재",
@@ -67,6 +73,213 @@ object BrainPackStoreCatalog {
             sampleCards = listOf(
                 SampleCardPreview("韓", "나라 한 (부수: 韋 · 17획)", "hanja_8geup"),
                 SampleCardPreview("무궁화 꽃이 활짝 피었습니다", "초등 받아쓰기 (받침·쌍자음 연습)", "dictation")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.eng.elem34",
+            title = "📘 [교육부 1 · 초등 3~4] 초등 3~4학년 기초 필수 영단어 브레인팩",
+            subtitle = "2022 개정 교육과정 초등 3~4학년군 기본 어휘표 · 생활·학교·자연·동작 필수 영단어",
+            category = "k12_textbook",
+            ageTier = "junior",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-eng:elem-3-4",
+            coveredRefIds = listOf("moe-eng:elem-3-4"),
+            estimatedCardCount = 36,
+            badgeLabel = "교육부 초등 3~4",
+            features = listOf(
+                "교육부 2022 개정 초등 3~4학년 기초 필수 영단어(morning, weather, borrow 등) 완비",
+                "Lv.1 기초 뜻 인지 · Lv.2 문맥 빈칸 · Lv.3 스펠링 인출 3단계 구성",
+                "초등 눈높이 4지선다 퀴즈 및 예문 해설 기본 탑재"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("weather", "날씨 — How is the weather today?", "초등 3~4"),
+                SampleCardPreview("borrow", "빌리다 — May I borrow your pencil?", "초등 3~4")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.eng.elem56",
+            title = "📘 [교육부 2 · 초등 5~6] 초등 5~6학년 필수 영단어 800 핵심 브레인팩",
+            subtitle = "2022 개정 교육과정 초등 5~6학년군 필수 영단어 800 핵심 어휘 & 의사소통 표현",
+            category = "k12_textbook",
+            ageTier = "junior",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-eng:elementary",
+            coveredRefIds = listOf("moe-eng:elementary"),
+            estimatedCardCount = 36,
+            badgeLabel = "교육부 초등 5~6",
+            features = listOf(
+                "초등 고학년 필수 영단어 800 핵심(library, museum, vacation, between 등) 수록",
+                "중학교 입학 전 반드시 마스터해야 할 핵심 동사·전치사·형용사 정리",
+                "품사 노이즈 없는 깔끔한 4지선다 보기 & 상세 예문 해설"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("museum", "박물관, 미술관 — We visited the science museum.", "초등 5~6"),
+                SampleCardPreview("between", "(둘) 사이에 — between A and B", "초등 5~6")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.eng.mid1200",
+            title = "📘 [교육부 3 · 중학교] 중학교 1~3학년 필수 영단어 1,200 & 내신 8대 핵심 영문법 브레인팩",
+            subtitle = "2022 개정 중학 필수 영단어 1,200 핵심 + 현재완료·관계대명사·감각동사 등 내신 8대 영문법",
+            category = "k12_textbook",
+            ageTier = "teen",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-eng:middle-1200",
+            coveredRefIds = listOf("moe-eng:middle-1200"),
+            estimatedCardCount = 36,
+            badgeLabel = "교육부 중학 영단어·문법",
+            features = listOf(
+                "중학교 1~3학년 필수 영단어 1,200 핵심 어휘(environment, persuade, opportunity 등) 총정리",
+                "중학 내신 시험 최빈출 8대 핵심 영문법(감각동사+형용사, 현재완료, 관계대명사 등) 동시 수록",
+                "단어 뜻 문제와 영문법 문제를 자동 분리하는 무오염 4지선다"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("persuade", "설득하다 — persuade + 목적어 + to부정사", "중학 1,200"),
+                SampleCardPreview("[중학 핵심문법] 감각동사(look/smell/taste) 뒤 보어 품사는?", "형용사 (부사 -ly 불가)", "중학 영문법")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.eng.high_csat",
+            title = "🎓 [교육부 4 · 고교·수능] 고등학교·수능 필수 학술 어휘 브레인팩",
+            subtitle = "2022 개정 고등학교 공통영어 및 평가원 모의고사·수능 최빈출 추상·학술 어휘",
+            category = "k12_textbook",
+            ageTier = "teen",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-eng:high-csat",
+            coveredRefIds = listOf("moe-eng:high-csat"),
+            estimatedCardCount = 30,
+            badgeLabel = "교육부 고교·수능",
+            features = listOf(
+                "수능 빈칸추론·순서배열 지문 핵심 학술 어휘(hypothesis, empirical, correlation, cognitive 등)",
+                "파생어·반의어(intrinsic ↔ extrinsic, undermine ↔ reinforce) 비교 해설 탑재",
+                "고등 내신 서술형 대비 Lv.3 역방향 스펠링 인출 지원"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("empirical", "경험적인, 실증적인 (↔ theoretical 이론적인)", "수능 학술"),
+                SampleCardPreview("correlation", "상관관계, 연관성", "수능 학술")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.kor.orthography_lit",
+            title = "🇰🇷 [교육부 5 · 국어] 초·중·고 국어 한글 맞춤법·표준어 규정 & 필수 문학 개념어 브레인팩",
+            subtitle = "자주 틀리는 한글 맞춤법(며칠/금세/되·돼/로서·로써) & 내신·수능 필수 문학 개념어",
+            category = "k12_textbook",
+            ageTier = "all",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-kor:orthography-lit",
+            coveredRefIds = listOf("moe-kor:orthography-lit"),
+            estimatedCardCount = 24,
+            badgeLabel = "교육부 국어·문학",
+            features = listOf(
+                "국립국어원 한글 맞춤법·표준어 규정 최빈출 혼동 어휘(며칠, 금세, 돼/되, 로서/로써) 명쾌 정리",
+                "중·고교 국어 내신 및 수능 필수 문학 개념어(역설법, 반어법, 객관적 상관물, 감정이입) 수록",
+                "조항 근거 및 대표 문학 작품(유치환 〈깃발〉, 〈황조가〉 등) 예시 해설"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("'오늘이 몇 월 [ ___ ]이지?' 바른 맞춤법 표기는?", "며칠 ('몇일'은 틀린 표기 · 한글 맞춤법 제27항)", "한글 맞춤법"),
+                SampleCardPreview("'이것은 소리 없는 아우성'처럼 모순 속에 진리를 담는 기법은?", "역설법 (Paradox)", "문학 개념어")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.hanja.mid1800",
+            title = "漢字 [교육부 6 · 한문] 중·고교 한문 교육부 기초한자 1,800 핵심 브레인팩",
+            subtitle = "교육부 고시 한문 교육용 기초한자 1,800자 핵심(중등 900·고등 900) & 교과서 필수 성어",
+            category = "hanja_history",
+            ageTier = "all",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-hanja-1800:middle",
+            coveredRefIds = listOf("moe-hanja-1800:middle"),
+            estimatedCardCount = 30,
+            badgeLabel = "교육부 한자 1,800",
+            features = listOf(
+                "교육부 고시 중학교 900자·고등학교 900자 핵심 한자 훈음·부수·획수 수록",
+                "교과서 필수 사자성어(온고지신 溫故知新, 견리사의 見利思義 등) 출전과 속뜻 정리",
+                "한자 훈음 전용 4지선다 보기 구성으로 타 과목 보기 혼입 0%"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("仁 · 義 · 禮 · 智 · 信", "어질 인 · 옳을 의 · 예도 예 · 지혜 지 · 믿을 신", "기초한자 1800"),
+                SampleCardPreview("溫故知新 (온고지신)", "옛것을 익히고 그것을 미루어 새것을 안다", "한문 성어")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.hist.essential",
+            title = "🏛️ [교육부 7 · 한국사] 한국사 시대별 필수 연표·사건 브레인팩",
+            subtitle = "2022 개정 초·중·고 한국사 시대별 필수 연표·조약·개혁·유네스코 세계유산 총정리",
+            category = "hanja_history",
+            ageTier = "all",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "khist:essential",
+            coveredRefIds = listOf("khist:essential"),
+            estimatedCardCount = 30,
+            badgeLabel = "교육부 한국사 연표",
+            features = listOf(
+                "고조선 8조법부터 훈민정음·경국대전·대동법·강화도 조약·갑신정변·동학농민운동·임시정부까지 핵심 총망라",
+                "사건 연도·핵심 키워드·역사적 의의를 함께 익히는 입체 해설",
+                "한국사 전용 오답 풀(Pool) 적용으로 실전형 4지선다 제공"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("1876년 체결된 조선 최초의 근대적 조약이자 불평등 조약은?", "강화도 조약 (조일수호조규)", "한국사 연표"),
+                SampleCardPreview("광해군 때 시행되어 집집마다 특산물 대신 토지 결수로 쌀·베·동전을 납부한 법은?", "대동법 (공인 등장)", "한국사 제도")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.sci.core_formula",
+            title = "🔬 [교육부 8 · 과학] 과학 물리·화학·생명·지구과학 핵심 법칙·공식 브레인팩",
+            subtitle = "중·고등학교 과학 4대 영역(물리·화학·생명·지구과학) 필수 법칙·화학결합·공식 마스터",
+            category = "k12_textbook",
+            ageTier = "teen",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "sci-element-formula:core",
+            coveredRefIds = listOf("sci-element-formula:core"),
+            estimatedCardCount = 24,
+            badgeLabel = "교육부 과학 법칙·공식",
+            features = listOf(
+                "물리(옴의 법칙 V=IR, 뉴턴 가속도 법칙 F=ma) · 화학(공유결합·이온결합) 필수 개념 수록",
+                "생명과학(미토콘드리아 ATP 세포호흡) · 지구과학(판구조론 발산형·수렴형 경계) 핵심 정리",
+                "단위·공식 기호까지 정확하게 점검하는 과학 전용 퀴즈"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("뉴턴 운동 제2법칙(가속도 법칙) 공식은?", "F = m × a (알짜힘 = 질량 × 가속도)", "물리 법칙"),
+                SampleCardPreview("세포 호흡을 통해 ATP 에너지를 합성하는 세포 소기관은?", "미토콘드리아", "생명과학")
+            )
+        ),
+        BrainPackProduct(
+            packId = "pack.moe.math.core_formula",
+            title = "📐 [교육부 9 · 수학] 수학 중·고교 필수 공식 (피타고라스·근의 공식·삼각함수·등차수열·미분계수) 브레인팩",
+            subtitle = "중·고등학교 수학과 대수·기하·삼각함수·수열·미적분 핵심 공식 완벽 암기",
+            category = "k12_textbook",
+            ageTier = "teen",
+            priceKrw = 990,
+            isFreeStarter = false,
+            linkKind = "collection",
+            primaryRefId = "moe-math:core-formulas",
+            coveredRefIds = listOf("moe-math:core-formulas"),
+            estimatedCardCount = 28,
+            badgeLabel = "교육부 수학 필수공식",
+            features = listOf(
+                "피타고라스 정리(a²+b²=c²), 이차방정식 근의 공식·판별식(D=b²-4ac), 근과 계수의 관계 수록",
+                "삼각함수 제곱 공식(sin²θ+cos²θ=1), 원의 방정식, 등차수열 일반항(a+(n-1)d), 미분계수 정의 완비",
+                "공식 유도 원리와 대표 예제 팁이 포함된 해설 제공"
+            ),
+            sampleCards = listOf(
+                SampleCardPreview("이차방정식 ax² + bx + c = 0 의 근의 공식은?", "x = (-b ± √(b² - 4ac)) / 2a", "수학 공식"),
+                SampleCardPreview("첫째항 a, 공차 d인 등차수열의 일반항 aₙ과 미분계수 f'(a)는?", "aₙ = a + (n - 1)d · f'(a) = lim(h→0)[f(a+h)-f(a)]/h", "수열·미분")
             )
         ),
         BrainPackProduct(
@@ -279,7 +492,11 @@ object BrainPackStoreCatalog {
         val cat = categoryFilter?.trim()?.lowercase().orEmpty()
         val age = ageTierFilter?.trim()?.lowercase().orEmpty()
         return products.filter { p ->
-            val catOk = cat.isEmpty() || cat == "all" || p.category == cat
+            val catOk = when {
+                cat.isEmpty() || cat == "all" -> true
+                cat == "moe_curriculum" -> p.packId.startsWith("pack.moe.")
+                else -> p.category == cat
+            }
             val ageOk = age.isEmpty() || age == "all" || p.ageTier == "all" || p.ageTier == age
             catOk && ageOk
         }

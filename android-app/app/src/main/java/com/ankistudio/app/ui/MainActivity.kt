@@ -2058,8 +2058,9 @@ private fun StoreTabScreen(
             ) {
                 val storeTabs = listOf(
                     "all" to "전체",
+                    "moe_curriculum" to "📚 교육부 필수(9종)",
                     "starter_free" to "🎁 무료",
-                    "k12_textbook" to "🏫 교과서",
+                    "k12_textbook" to "🏫 교과서·학령",
                     "hanja_history" to "漢字 한자·역사",
                     "language_exam" to "🗣️ 어학",
                     "pro_cert" to "⚖️ 자격증"

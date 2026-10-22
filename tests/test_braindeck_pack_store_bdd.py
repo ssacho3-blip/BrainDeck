@@ -43,10 +43,11 @@ def test_pack_store_domain_has_zero_external_io_imports() -> None:
 @pytest.mark.parametrize(
     "category_filter,expected_min",
     [
-        ("all", 9),
+        ("all", 18),
+        ("moe_curriculum", 9),
         ("starter_free", 1),
-        ("k12_textbook", 4),
-        ("hanja_history", 2),
+        ("k12_textbook", 11),
+        ("hanja_history", 4),
         ("language_exam", 1),
         ("pro_cert", 1),
     ],
