@@ -164,10 +164,13 @@ class AICardSynthesizer:
             "format": "json",
             "options": {"temperature": 0.2},
         }
-        eff_timeout = float(timeout_sec or self.timeout_sec)
+        eff_timeout = float(timeout_sec or max(self.timeout_sec, 45.0))
 
         if self._ollama_http_sender is not None:
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "ollama-python/0.4.0 (BrainDeck/5.6)",
+            }
             if keys:
                 headers["Authorization"] = f"Bearer {keys[0]}"
             return self._ollama_http_sender(url, payload_dict, headers, eff_timeout)
@@ -177,7 +180,7 @@ class AICardSynthesizer:
 
         last_exc: Exception | None = None
         data_bytes = json.dumps(payload_dict).encode("utf-8")
-        for key in keys[:2]:
+        for key in keys[:3]:
             try:
                 req = urllib.request.Request(
                     url,
@@ -185,13 +188,19 @@ class AICardSynthesizer:
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "User-Agent": "ollama-python/0.4.0 (BrainDeck/5.6)",
                     },
                     method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=eff_timeout) as resp:
                     raw_body = json.loads(resp.read().decode("utf-8"))
                     if isinstance(raw_body.get("message"), dict):
-                        return str(raw_body["message"].get("content") or "")
+                        msg_obj = raw_body["message"]
+                        content_str = str(msg_obj.get("content") or "").strip()
+                        if not content_str and msg_obj.get("thinking"):
+                            content_str = str(msg_obj.get("thinking") or "").strip()
+                        return content_str
                     if isinstance(raw_body.get("choices"), list) and raw_body["choices"]:
                         return str(raw_body["choices"][0].get("message", {}).get("content") or "")
                     return ""
@@ -276,7 +285,11 @@ class AICardSynthesizer:
                 user_prompt=user_prompt,
             )
             cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content.strip(), flags=re.IGNORECASE)
-            parsed = json.loads(cleaned)
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError:
+                m_obj = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", cleaned)
+                parsed = json.loads(m_obj.group(1)) if m_obj else {}
             raw_items = parsed.get("cards") if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
             cloud_cards: List[Dict[str, Any]] = []
             if isinstance(raw_items, list):

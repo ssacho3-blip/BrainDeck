@@ -51,6 +51,7 @@ from anki_studio.domain.pack_store import (
     validate_store_purchase,
 )
 from anki_studio.domain.rea_v56 import (
+    _clean_concise_choice_answer,
     build_type_matched_quiz_options,
     classify_card_question_type,
 )
@@ -1157,7 +1158,11 @@ class AnkiStudioService:
 
         front_str = str(target["front_text"] or "").strip()
         raw_back = str(target["back_text"] or "").strip()
-        target_ans = str(target.get("target_answer") or "").strip() or extract_clean_target_answer(front_str, raw_back)
+        target_ans = _clean_concise_choice_answer(
+            front_str,
+            raw_back,
+            str(target.get("target_answer") or ""),
+        )
         target_qtype = classify_card_question_type(target)
         target_facet_key = str(target_qtype["facet_key"])
 
@@ -1221,9 +1226,10 @@ class AnkiStudioService:
                 other_qtype = classify_card_question_type(other)
                 if str(other_qtype["facet_key"]) != target_facet_key:
                     continue
-                other_ans = str(other.get("target_answer") or "").strip() or extract_clean_target_answer(
+                other_ans = _clean_concise_choice_answer(
                     str(other.get("front_text") or ""),
                     str(other.get("back_text") or ""),
+                    str(other.get("target_answer") or ""),
                 )
                 if not other_ans:
                     continue

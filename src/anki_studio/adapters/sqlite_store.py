@@ -489,7 +489,13 @@ class AnkiStudioStore:
                             for m in re.findall(r"\{\{c\d+::([^}:]+)(?:::[^}]+)?\}\}", str(item["front_text"]))
                             if m.strip()
                         ]
-                    item["target_answer"] = " · ".join(dict.fromkeys(ord_targets)) if ord_targets else str(item["back_text"] or "").strip()
+                    if ord_targets:
+                        item["target_answer"] = " · ".join(dict.fromkeys(ord_targets))
+                    else:
+                        item["target_answer"], _ = extract_clean_target_answer(
+                            str(item["front_text"] or ""),
+                            str(item["back_text"] or ""),
+                        )
                     item["extra_explanation"] = str(item["back_text"] or "").strip()
                     if item["back_text"]:
                         item["rendered_answer"] += f"\n\n💡 해설: {item['back_text']}"

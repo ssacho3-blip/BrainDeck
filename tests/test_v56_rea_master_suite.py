@@ -1064,5 +1064,51 @@ def test_t44_bdd_four_model_consensus_standalone_fsrs_undo_batch_save_and_fisher
     assert data["batchSavedCount"] == 1
     assert data["customFacet"] == "general_concept"
 
+    # 3. Verify 4-choice distractors never leak multiline `💡 해설:` even when explicit target_answer contains commentary
+    dirty_card_a = {
+        "card_id": 901,
+        "front_text": "Photosynthesis converts light energy in ____.",
+        "back_text": "chloroplasts\n\n💡 해설: 원문은 photosynthesis가 chloroplasts에서 일어난다고 설명한다.",
+        "target_answer": "chloroplasts\n\n💡 해설: 원문은 photosynthesis가 chloroplasts에서 일어난다고 설명한다.",
+        "tags": ["science", "eng"],
+    }
+    dirty_card_b = {
+        "card_id": 902,
+        "front_text": "Cellular respiration occurs in ____.",
+        "back_text": "mitochondria\n\n💡 해설: 세포 호흡은 미토콘드리아에서 일어난다.",
+        "target_answer": "mitochondria\n\n💡 해설: 세포 호흡은 미토콘드리아에서 일어난다.",
+        "tags": ["science", "eng"],
+    }
+    clean_quiz = build_type_matched_quiz_options(dirty_card_a, [dirty_card_a, dirty_card_b])
+    assert clean_quiz["target_answer"] == "chloroplasts"
+    assert "mitochondria" in clean_quiz["options"]
+    assert all("\n" not in opt and "💡" not in opt for opt in clean_quiz["options"])
+
+    # 4. Verify 1-3 word English vocab targets are isolated from multi-word English sentence definitions
+    word_card = {
+        "card_id": 903,
+        "front_text": "Homeostasis is a ____ biological process.",
+        "back_text": "self-regulating",
+        "tags": ["eng"],
+    }
+    sent_card = {
+        "card_id": 904,
+        "front_text": "What is homeostasis?",
+        "back_text": "A self-regulating biological process that maintains internal stability.",
+        "tags": ["eng"],
+    }
+    assert classify_card_question_type(word_card)["facet_key"] == "eng_vocab_word"
+    assert classify_card_question_type(sent_card)["facet_key"] == "general_concept"
+    word_quiz_2 = build_type_matched_quiz_options(word_card, [word_card, sent_card])
+    assert "A self-regulating biological process that maintains internal stability." not in word_quiz_2["options"]
+    assert all(len(opt.split()) <= 3 for opt in word_quiz_2["options"])
+
+    # 5. Verify ai_engine.py uses dedicated non-browser User-Agent and >=45s timeout for Ollama Cloud
+    ai_engine_src = (ROOT_DIR / "src" / "anki_studio" / "adapters" / "ai_engine.py").read_text(encoding="utf-8")
+    assert '"User-Agent": "ollama-python/0.4.0 (BrainDeck/5.6)"' in ai_engine_src
+    assert "max(self.timeout_sec, 45.0)" in ai_engine_src
+
+
+
 
 

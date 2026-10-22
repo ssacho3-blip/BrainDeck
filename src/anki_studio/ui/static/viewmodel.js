@@ -2132,7 +2132,11 @@
     const tagStr = (Array.isArray(rawTags) ? rawTags.join(" ") : String(rawTags)).toLowerCase();
 
     const hasCjk = /[\u4e00-\u9fff]/.test(front + " " + target);
-    const isAsciiTarget = Boolean(target) && /^[A-Za-z\s~'.,?!-]+$/.test(target) && /[A-Za-z]/.test(target);
+    const isAsciiAlpha = Boolean(target) && /^[A-Za-z\s~'.,?!-]+$/.test(target) && /[A-Za-z]/.test(target);
+    const isAsciiTarget =
+      isAsciiAlpha &&
+      target.split(/\s+/).filter(Boolean).length <= 3 &&
+      !target.endsWith(".");
 
     if (
       tagStr.includes("role:key_grammar") ||
@@ -2233,6 +2237,15 @@
         facet_key: "eng_vocab_word",
         badge_label: "🔤 영단어 스펠링·빈칸",
         short_label: "단어·어휘",
+      };
+    }
+
+    if (isAsciiAlpha) {
+      return {
+        category_key: "history_sci",
+        facet_key: "general_concept",
+        badge_label: "💡 핵심 개념·정의",
+        short_label: "역사·과학·전공",
       };
     }
 

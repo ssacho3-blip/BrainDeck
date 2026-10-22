@@ -104,10 +104,12 @@ def extract_clean_target_answer(
     raw_back = str(back_text or "").strip()
 
     if explicit_target and explicit_target.strip():
-        clean_t = _POS_TAG_SUFFIX_RE.sub("", explicit_target.strip()).strip()
+        exp_parts = _EXPLANATION_SPLIT_RE.split(explicit_target.strip(), maxsplit=1)
+        first_line_t = exp_parts[0].splitlines()[0].strip() if exp_parts[0] else ""
+        clean_t = _POS_TAG_SUFFIX_RE.sub("", first_line_t).strip()
         parts = _EXPLANATION_SPLIT_RE.split(raw_back, maxsplit=1)
-        extra = parts[1].strip() if len(parts) > 1 else ""
-        return (clean_t or explicit_target.strip(), extra)
+        extra = parts[1].strip() if len(parts) > 1 else (exp_parts[1].strip() if len(exp_parts) > 1 else "")
+        return (clean_t or first_line_t or explicit_target.strip(), extra)
 
     # 1. Raw Cloze tags `{{c1::answer::hint}}` in front_text
     cloze_matches = [m.strip() for m in _CLOZE_STRIP_PATTERN.findall(raw_front) if m.strip()]

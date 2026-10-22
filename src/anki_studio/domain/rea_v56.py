@@ -1349,8 +1349,8 @@ _GRAMMAR_KEYWORDS: Tuple[str, ...] = (
 
 
 def _clean_concise_choice_answer(front_text: str, back_text: str, explicit_target: str = "") -> str:
-    raw, _ = extract_clean_target_answer(front_text, back_text)
-    ans = (explicit_target or raw or back_text or "").strip()
+    raw, _ = extract_clean_target_answer(front_text, back_text, explicit_target=explicit_target or None)
+    ans = (raw or explicit_target or back_text or "").strip()
     ans = ans.splitlines()[0].strip() if ans else ""
     # Strip trailing POS tags like '(동사)', '(명사)', '(형용사)', '(부사)', '(숙어)', '(부수: ...)'
     ans = re.sub(
@@ -1455,12 +1455,19 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
         }
 
     # 6. English Vocabulary: distinguish English-word answer vs Korean-meaning answer vs General Korean Concept!
-    ans_is_ascii_english = bool(clean_ans) and all(ord(ch) < 128 for ch in clean_ans) and any("a" <= ch.lower() <= "z" for ch in clean_ans)
+    is_ascii_alpha = bool(clean_ans) and all(ord(ch) < 128 for ch in clean_ans) and any("a" <= ch.lower() <= "z" for ch in clean_ans)
+    ans_is_ascii_english = is_ascii_alpha and len(clean_ans.split()) <= 3 and not clean_ans.endswith(".")
     if ans_is_ascii_english:
         return {
             "facet_key": "eng_vocab_word",
             "category_key": "vocab",
             "badge_label": "🔠 영단어·빈칸 인출",
+        }
+    if is_ascii_alpha:
+        return {
+            "facet_key": "general_concept",
+            "category_key": "history_sci",
+            "badge_label": "💡 핵심 개념·정의",
         }
 
     front_Without_cloze = re.sub(r"\{\{c\d+::|::[^}]*\}\}|\}\}", " ", front)
