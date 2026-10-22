@@ -1,8 +1,9 @@
 {
-  "name": "Anki Studio 2.0 — AI 사진·PDF 자동 덱 & FSRS-5",
-  "short_name": "AnkiStudio",
-  "description": "사진(카메라 촬영/교재 스캔) 및 PDF를 넣으면 출처 검증된 암기 덱을 자동 생성하는 FSRS-5 액티브 리콜 앱",
-  "start_url": "/",
+  "name": "BrainDeck (브레인덱) — 스마트 암기 & 브레인팩 스토어",
+  "short_name": "BrainDeck",
+  "description": "내 프린트·사진·PDF는 무료로 찍어 올리고, 교과서 시험범위·급수한자·한국사·어학 마스터 브레인팩은 스토어에서 바로 꽂아 쓰는 올인원 스마트 암기 학습 어플",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#090d16",
   "theme_color": "#2563eb",

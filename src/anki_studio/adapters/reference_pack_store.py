@@ -523,6 +523,17 @@ CREATE TABLE IF NOT EXISTS graves (
     UNIQUE(entity_type, sync_id)
 );
 
+CREATE TABLE IF NOT EXISTS store_entitlements (
+    pack_id TEXT NOT NULL,
+    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES learner_profiles(profile_id) ON DELETE CASCADE,
+    price_paid_krw INTEGER NOT NULL DEFAULT 0 CHECK (price_paid_krw >= 0),
+    payment_channel TEXT NOT NULL DEFAULT 'braindeck_store',
+    receipt_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'refunded_frozen')),
+    purchased_at_epoch_sec INTEGER NOT NULL,
+    PRIMARY KEY (profile_id, pack_id)
+);
+
 CREATE TABLE IF NOT EXISTS installed_packs (
     pack_id TEXT NOT NULL,
     pack_version TEXT NOT NULL,
@@ -902,10 +913,14 @@ DEFAULT_SUBJECT_TAXONOMY: tuple[tuple[str, str | None, str], ...] = (
     ("k12_korean", None, "국어"),
     ("k12_math", None, "수학"),
     ("k12_social", None, "사회"),
+    ("social", "k12_social", "사회/역사"),
     ("k12_science", None, "과학"),
+    ("science", "k12_science", "통합과학"),
     ("language", None, "어학/외국어"),
+    ("english", "language", "영어"),
     ("hanja", None, "한자/어휘"),
     ("korean_history", None, "한국사"),
+    ("history", "k12_social", "역사"),
     ("law", None, "법학/공무원"),
     ("medical", None, "의학/간호"),
     ("engineering", None, "공학/반도체"),
@@ -1242,6 +1257,14 @@ class TierULedgerStore:
             conn = self._connect()
             try:
                 conn.executescript(TIER_U_V2_SCHEMA_SQL)
+                ent_cols = {
+                    str(r["name"])
+                    for r in conn.execute("PRAGMA table_info(store_entitlements)").fetchall()
+                }
+                if "status" not in ent_cols:
+                    conn.execute(
+                        "ALTER TABLE store_entitlements ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                    )
                 conn.execute("BEGIN IMMEDIATE")
                 for code, parent_code, label in DEFAULT_SUBJECT_TAXONOMY:
                     conn.execute(
@@ -1259,9 +1282,192 @@ class TierULedgerStore:
                     ) VALUES (1, 'profile-default-1', '기본 학습자', 'adult', '🧠', 'auto', 1, 1792483200)
                     """
                 )
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO store_entitlements (
+                        pack_id, profile_id, price_paid_krw, payment_channel,
+                        receipt_hash, purchased_at_epoch_sec
+                    ) VALUES ('pack.free.starter_k12', 1, 0, 'starter_default', 'free-starter-seed', 1792483200)
+                    """
+                )
                 conn.execute("COMMIT")
             finally:
                 conn.close()
+
+    def list_unlocked_pack_ids(self, profile_id: int = 1) -> list[str]:
+        """Return all active unlocked BrainPack IDs for a learner profile (excludes refunded_frozen, T31)."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT pack_id FROM store_entitlements WHERE profile_id = ? AND status = 'active' ORDER BY purchased_at_epoch_sec ASC",
+                (profile_id,),
+            ).fetchall()
+            unlocked = ["pack.free.starter_k12"]
+            for r in rows:
+                pid = str(r["pack_id"])
+                if pid not in unlocked:
+                    unlocked.append(pid)
+            return unlocked
+        finally:
+            conn.close()
+
+    def list_refunded_pack_ids(self, profile_id: int = 1) -> list[str]:
+        """Return all `refunded_frozen` BrainPack IDs for a learner profile (Invariant I-1 / AC-1)."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT pack_id FROM store_entitlements WHERE profile_id = ? AND status = 'refunded_frozen' ORDER BY purchased_at_epoch_sec ASC",
+                (profile_id,),
+            ).fetchall()
+            return [str(r["pack_id"]) for r in rows]
+        finally:
+            conn.close()
+
+    def get_profile_info(self, profile_id: int = 1) -> dict[str, Any]:
+        """Return learner profile metadata including age_tier and cloud_vision_locked (T19)."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM learner_profiles WHERE profile_id = ?",
+                (int(profile_id),),
+            ).fetchone()
+            if row is None:
+                return {
+                    "profile_id": int(profile_id),
+                    "age_tier": "adult",
+                    "cloud_vision_locked": True,
+                }
+            return {
+                "profile_id": int(row["profile_id"]),
+                "name": str(row["name"]),
+                "age_tier": str(row["age_tier"]),
+                "cloud_vision_locked": bool(row["cloud_vision_locked"]),
+            }
+        finally:
+            conn.close()
+
+    def update_profile_age_tier(
+        self,
+        *,
+        age_tier: str,
+        profile_id: int = 1,
+    ) -> dict[str, Any]:
+        """Update learner profile `age_tier` ('junior' | 'teen' | 'adult') and enforce Junior cloud lock (T19)."""
+        tier_norm = str(age_tier or "").strip().lower()
+        if tier_norm not in ("junior", "teen", "adult"):
+            raise ValueError(f"age_tier must be 'junior', 'teen', or 'adult'; got {age_tier!r}")
+        locked_val = 1 if tier_norm == "junior" else 0
+        with self._write_tx() as conn:
+            conn.execute(
+                """
+                UPDATE learner_profiles
+                SET age_tier = ?, cloud_vision_locked = ?
+                WHERE profile_id = ?
+                """,
+                (tier_norm, locked_val, int(profile_id)),
+            )
+        return self.get_profile_info(profile_id=profile_id)
+
+    def purchase_store_pack(
+        self,
+        *,
+        pack_id: str,
+        profile_id: int = 1,
+        price_paid_krw: int = 0,
+        payment_channel: str = "braindeck_store",
+    ) -> dict[str, Any]:
+        """Atomically record a BrainPack Store entitlement in `Tier U` SQLite (or reactivate a refunded_frozen pack)."""
+        now_sec = int(datetime.now(timezone.utc).timestamp())
+        receipt_hash = hashlib.sha256(
+            f"{profile_id}:{pack_id}:{payment_channel}:{now_sec}".encode("utf-8")
+        ).hexdigest()
+        with self._write_tx() as conn:
+            existing = conn.execute(
+                "SELECT * FROM store_entitlements WHERE profile_id = ? AND pack_id = ?",
+                (profile_id, pack_id),
+            ).fetchone()
+            if existing is not None and str(existing["status"]) == "active":
+                return {
+                    "ok": True,
+                    "pack_id": pack_id,
+                    "profile_id": profile_id,
+                    "already_purchased": True,
+                    "status": "active",
+                    "price_paid_krw": int(existing["price_paid_krw"]),
+                    "receipt_hash": str(existing["receipt_hash"]),
+                    "purchased_at_epoch_sec": int(existing["purchased_at_epoch_sec"]),
+                }
+            if existing is not None and str(existing["status"]) == "refunded_frozen":
+                conn.execute(
+                    """
+                    UPDATE store_entitlements
+                    SET status = 'active', price_paid_krw = ?, payment_channel = ?, receipt_hash = ?, purchased_at_epoch_sec = ?
+                    WHERE profile_id = ? AND pack_id = ?
+                    """,
+                    (max(0, int(price_paid_krw)), payment_channel, receipt_hash, now_sec, profile_id, pack_id),
+                )
+                return {
+                    "ok": True,
+                    "pack_id": pack_id,
+                    "profile_id": profile_id,
+                    "already_purchased": False,
+                    "reactivated_from_refund": True,
+                    "status": "active",
+                    "price_paid_krw": max(0, int(price_paid_krw)),
+                    "receipt_hash": receipt_hash,
+                    "purchased_at_epoch_sec": now_sec,
+                }
+            conn.execute(
+                """
+                INSERT INTO store_entitlements (
+                    pack_id, profile_id, price_paid_krw, payment_channel,
+                    receipt_hash, status, purchased_at_epoch_sec
+                ) VALUES (?, ?, ?, ?, ?, 'active', ?)
+                """,
+                (pack_id, profile_id, max(0, int(price_paid_krw)), payment_channel, receipt_hash, now_sec),
+            )
+            return {
+                "ok": True,
+                "pack_id": pack_id,
+                "profile_id": profile_id,
+                "already_purchased": False,
+                "status": "active",
+                "price_paid_krw": max(0, int(price_paid_krw)),
+                "receipt_hash": receipt_hash,
+                "purchased_at_epoch_sec": now_sec,
+            }
+
+    def freeze_refunded_pack(
+        self,
+        *,
+        pack_id: str,
+        profile_id: int = 1,
+    ) -> dict[str, Any]:
+        """Transition an entitlement to `refunded_frozen` (T31: preserve FSRS history, block new materialization)."""
+        if pack_id == "pack.free.starter_k12":
+            raise ValueError("Cannot refund the free starter pack")
+        with self._write_tx() as conn:
+            existing = conn.execute(
+                "SELECT * FROM store_entitlements WHERE profile_id = ? AND pack_id = ?",
+                (profile_id, pack_id),
+            ).fetchone()
+            if existing is None:
+                raise KeyError(f"Entitlement not found for pack_id={pack_id}")
+            already_frozen = str(existing["status"]) == "refunded_frozen"
+            if not already_frozen:
+                conn.execute(
+                    "UPDATE store_entitlements SET status = 'refunded_frozen' WHERE profile_id = ? AND pack_id = ?",
+                    (profile_id, pack_id),
+                )
+            return {
+                "ok": True,
+                "pack_id": pack_id,
+                "profile_id": profile_id,
+                "status": "refunded_frozen",
+                "already_frozen": already_frozen,
+                "refund_amount_krw": int(existing["price_paid_krw"]),
+                "fsrs_history_preserved": True,
+            }
 
     def create_profile(
         self,
@@ -1346,10 +1552,18 @@ class TierULedgerStore:
                 )
             conn.execute(
                 """
-                INSERT OR REPLACE INTO installed_packs (
+                INSERT INTO installed_packs (
                     pack_id, pack_version, file_sha256, content_sha256, local_path,
                     state, license_spdx, redistribution_allowed, installed_at_epoch_sec
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(pack_id, pack_version) DO UPDATE SET
+                    file_sha256 = excluded.file_sha256,
+                    content_sha256 = excluded.content_sha256,
+                    local_path = excluded.local_path,
+                    state = excluded.state,
+                    license_spdx = excluded.license_spdx,
+                    redistribution_allowed = excluded.redistribution_allowed,
+                    installed_at_epoch_sec = excluded.installed_at_epoch_sec
                 """,
                 (
                     pack_id,
@@ -1423,6 +1637,7 @@ class TierULedgerStore:
         textbook_id: str | None = None,
         curriculum_unit_id: str | None = None,
         textbook_page_no: int | None = None,
+        difficulty_level: str = "standard",
         now_sec: int = 1792483200,
     ) -> dict[str, Any]:
         entry_key = str(entry_row["entry_key"])
@@ -1432,6 +1647,10 @@ class TierULedgerStore:
         reading = str(entry_row["reading"] or "")
         ref_hash = str(entry_row["content_hash"])
         facet_raw = str(entry_row["facet_json"])
+        try:
+            facet_obj = json.loads(facet_raw) if facet_raw else {}
+        except Exception:
+            facet_obj = {}
 
         pattern_map = {
             "hanja_char": "hanja_char",
@@ -1445,8 +1664,31 @@ class TierULedgerStore:
             "element": "formula_law",
         }
         pattern = pattern_map.get(entry_type, "vocab_table")
-        front = headword
-        back = f"{gloss_ko} ({reading})" if reading else gloss_ko
+        default_front = str(facet_obj.get("clean_front") or headword)
+        default_back = f"{gloss_ko} ({reading})" if reading else gloss_ko
+        extra_context = str(facet_obj.get("extra_explanation") or "")
+
+        diff_norm = (difficulty_level or "standard").strip().lower()
+        if diff_norm == "lv1" and facet_obj.get("lv1_front") and facet_obj.get("lv1_back"):
+            front = str(facet_obj["lv1_front"])
+            back = str(facet_obj["lv1_back"])
+        elif diff_norm == "lv2" and facet_obj.get("lv2_front") and facet_obj.get("lv2_back"):
+            front = str(facet_obj["lv2_front"])
+            back = str(facet_obj["lv2_back"])
+        elif diff_norm == "lv3" and facet_obj.get("lv3_front") and facet_obj.get("lv3_back"):
+            front = str(facet_obj["lv3_front"])
+            back = str(facet_obj["lv3_back"])
+        else:
+            front = default_front
+            back = default_back
+
+        resolved_note_type = "cloze" if "{{c" in front else "basic"
+        tags_list = [entry_type, diff_norm]
+        if textbook_id:
+            tags_list.append(textbook_id)
+        if curriculum_unit_id:
+            tags_list.append(curriculum_unit_id)
+        tags_csv = ",".join(dict.fromkeys(t for t in tags_list if t))
 
         guid = hashlib.sha256(f"{deck_sync_id}||{pack_id}||{entry_key}".encode("utf-8")).hexdigest()[:16]
         content_hash = hashlib.sha256(f"{front}\0{back}\0{facet_raw}".encode("utf-8")).hexdigest()
@@ -1491,12 +1733,15 @@ class TierULedgerStore:
                 UPDATE notes
                 SET front = COALESCE(?, front),
                     back = COALESCE(?, back),
+                    note_type = ?,
+                    extra_context = ?,
+                    tags_csv = ?,
                     ref_pack_version = ?,
                     ref_content_hash = ?,
                     modified_at_epoch_ms = ?
                 WHERE id = ?
                 """,
-                (new_front, new_back, pack_version, ref_hash, now_sec * 1000, note_id),
+                (new_front, new_back, resolved_note_type, extra_context, tags_csv, pack_version, ref_hash, now_sec * 1000, note_id),
             )
             return {
                 "note_id": note_id,
@@ -1513,8 +1758,9 @@ class TierULedgerStore:
                 ref_pack_id, ref_entry_key, ref_pack_version, ref_content_hash,
                 note_type, pattern, front, back, fields_json, field_provenance_json,
                 textbook_id, curriculum_unit_id, textbook_page_no, export_restricted,
+                extra_context, tags_csv,
                 modified_at_epoch_ms, created_at_epoch_sec
-            ) VALUES (?, ?, ?, 'pack_materialized', ?, ?, ?, ?, 'basic', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, 'pack_materialized', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 guid,
@@ -1524,6 +1770,7 @@ class TierULedgerStore:
                 entry_key,
                 pack_version,
                 ref_hash,
+                resolved_note_type,
                 pattern,
                 front,
                 back,
@@ -1533,6 +1780,8 @@ class TierULedgerStore:
                 curriculum_unit_id,
                 textbook_page_no,
                 0 if redistribution_allowed else 1,
+                extra_context,
+                tags_csv,
                 now_sec * 1000,
                 now_sec,
             ),
@@ -1568,6 +1817,7 @@ class TierULedgerStore:
         pack_db_path: str | Path,
         daily_new_limit: int,
         as_of_date: str | None = None,
+        difficulty_level: str = "standard",
     ) -> list[dict[str, Any]]:
         """Materialize up to `daily_new_limit` cards from `Tier R` in one `BEGIN IMMEDIATE` transaction (T20)."""
         if daily_new_limit <= 0:
@@ -1616,10 +1866,13 @@ class TierULedgerStore:
                 ).fetchall()
 
                 max_ord_seen = next_ord - 1
-                for row in ref_rows:
+                for idx_row, row in enumerate(ref_rows):
                     if len(materialized) >= daily_new_limit:
                         break
                     max_ord_seen = int(row["ordinal"])
+                    eff_diff = difficulty_level
+                    if difficulty_level in ("mixed", "all"):
+                        eff_diff = ("lv1", "lv2", "lv3")[idx_row % 3]
                     item = self._materialize_ref_entry_into_tx(
                         conn,
                         deck_id=deck_id,
@@ -1628,6 +1881,7 @@ class TierULedgerStore:
                         pack_version=pack_version,
                         redistribution_allowed=redistribution_allowed,
                         entry_row=row,
+                        difficulty_level=eff_diff,
                         now_sec=now_sec,
                     )
                     if item["created_new"]:
@@ -1799,6 +2053,7 @@ class TierULedgerStore:
         pack_db_path: str | Path,
         as_of_date: str | None = None,
         materialize_now: bool = True,
+        difficulty_level: str = "standard",
     ) -> list[dict[str, Any]]:
         """Resolve `Tier R` pack entries + `Tier U` scanned textbook notes and reconcile `exam_scope_items` (T28).
 
@@ -1952,6 +2207,9 @@ class TierULedgerStore:
                     p_no = int(row["page_no"]) if row["page_no"] is not None else None
                     mat_note_id: int | None = None
                     if materialize_now:
+                        eff_diff = difficulty_level
+                        if difficulty_level in ("mixed", "all"):
+                            eff_diff = ("lv1", "lv2", "lv3")[(ordinal_counter - 1) % 3]
                         mat_info = self._materialize_ref_entry_into_tx(
                             conn,
                             deck_id=deck_id,
@@ -1963,6 +2221,7 @@ class TierULedgerStore:
                             textbook_id=textbook_id,
                             curriculum_unit_id=uid,
                             textbook_page_no=p_no,
+                            difficulty_level=eff_diff,
                             now_sec=now_sec,
                         )
                         mat_note_id = int(mat_info["note_id"])
@@ -2103,7 +2362,12 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
     - Priority #2: 한자 급수별 카드 컬렉션 (`hanja-grade:8geup` ~ `hanja-grade:3geup` + `moe-hanja-1800:middle`)
     - Priority #3: 전 연령·전 분야 골고루 스타터 컬렉션 (초등 받아쓰기, 초등 영단어, 한국사, 토익, JLPT, 사자성어, 헌법·법학, 과학 원소·공식, IT 자격증)
     """
-    builder = ReferencePackBuilder(db_path)
+    target_path = Path(db_path)
+    for suffix in ("", "-wal", "-shm"):
+        p = Path(f"{target_path}{suffix}")
+        if p.exists():
+            p.unlink()
+    builder = ReferencePackBuilder(target_path)
     builder.init_schema(
         pack_id="ko.k12.starter-bundle",
         pack_version="1.0.0",
@@ -2210,6 +2474,16 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
     moe_middle_ord = 0
     for col_id, (level_label, entries) in hanja_by_grade.items():
         for idx, (ekey, hw, reading, gloss, facet) in enumerate(entries, start=1):
+            enriched_facet = dict(facet)
+            enriched_facet.setdefault("clean_front", f"📜 [{level_label}] 다음 한자의 훈(뜻)과 음(소리)은?\n{hw}")
+            enriched_facet.setdefault("lv1_front", f"🌱 [Lv.1 기초 한자] 다음 한자의 훈과 음은 무엇인가요?\n{hw} (부수: {facet.get('radical', '')}, {facet.get('strokes', '')}획)")
+            enriched_facet.setdefault("lv1_back", f"{gloss} ({reading})")
+            enriched_facet.setdefault("lv2_front", f"📘 [Lv.2 실전 한자] 뜻이 '{{{{c1::{gloss}::훈과 음}}}}'인 한자는 {hw}이다.")
+            enriched_facet.setdefault("lv2_back", f"{gloss} ({hw}, 음: {reading})")
+            enriched_facet.setdefault("lv3_front", f"🔥 [Lv.3 심화 역방향] 훈과 음이 '{gloss}'인 한자를 고르거나 쓰시오. (부수: {facet.get('radical', '')}, 총 {facet.get('strokes', '')}획)")
+            enriched_facet.setdefault("lv3_back", f"{hw} — {gloss} ({reading})")
+            enriched_facet.setdefault("target_answer", gloss)
+            enriched_facet.setdefault("extra_explanation", f"한자: {hw} · 음: {reading} · 부수: {facet.get('radical', '')} ({facet.get('strokes', '')}획)")
             builder.add_entry(
                 entry_key=ekey,
                 entry_type="hanja_char",
@@ -2217,7 +2491,7 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
                 norm_key=hw,
                 reading=reading,
                 gloss_ko=gloss,
-                facet_json=facet,
+                facet_json=enriched_facet,
                 source_id="anki_self_fact",
                 difficulty_rank=idx,
             )
@@ -2254,7 +2528,7 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
 
     # =========================================================================
     # 2. Priority #1: 중학교 1학년 영어 (동아출판 윤정미 외 — kr.mid1.eng.donga_yoon.2022)
-    #    Lesson 1 ~ Lesson 8 전 단원 어휘·핵심문법·쪽수 매핑
+    #    Lesson 1 ~ Lesson 8 전 단원 어휘·핵심문법·쪽수 매핑 (Spoiler-Free & Lv1/Lv2/Lv3)
     # =========================================================================
     tb_mid1 = "kr.mid1.eng.donga_yoon.2022"
     builder.add_textbook(
@@ -2296,52 +2570,113 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
             achievement_code=ach_code,
         )
 
+    mid1_examples = {
+        "word:introduce": "Let me {{c1::introduce::소개하다}} myself to the class.",
+        "word:classmate": "Jimin is my new {{c1::classmate::반 친구}} this year.",
+        "word:favorite": "What is your {{c1::favorite::가장 좋아하는}} school subject?",
+        "word:subject": "English is my favorite {{c1::subject::과목}} at school.",
+        "word:delicious": "This bulgogi pizza smells and tastes {{c1::delicious::매우 맛있는}}!",
+        "word:healthy": "Eating fresh fruit keeps your body {{c1::healthy::건강한}}.",
+        "word:dessert": "We had sweet ice cream for {{c1::dessert::후식}} after dinner.",
+        "word:vegetable": "Carrots and broccoli are fresh {{c1::vegetable::채소}} ingredients.",
+        "word:volunteer": "She works as a {{c1::volunteer::자원봉사자}} at the local animal shelter.",
+        "word:donate": "Many students {{c1::donate::기부하다}} their books to the charity market.",
+        "word:secondhand": "I bought a clean {{c1::secondhand::중고의}} backpack at the flea market.",
+        "word:treasure": "One person's trash can be another person's {{c1::treasure::보물}}.",
+        "word:neighborhood": "There is a quiet park in my {{c1::neighborhood::동네}}.",
+        "word:bakery": "Fresh bread smells wonderful at the corner {{c1::bakery::빵집}}.",
+        "word:straight": "Go {{c1::straight::곧장}} two blocks and turn left at the bank.",
+        "word:career": "She is exploring her future {{c1::career::진로·직업}} on Career Day.",
+        "word:creative": "Webtoon artists need {{c1::creative::창의적인}} ideas and storytelling skills.",
+        "word:talent": "He has a great {{c1::talent::재능}} for playing the guitar.",
+        "word:exhibition": "We visited a modern art {{c1::exhibition::전시회}} at the museum.",
+        "word:painting": "This famous {{c1::painting::회화·그림}} shows a starry night sky.",
+        "word:character": "Who is the main {{c1::character::등장인물}} in this animated movie?",
+        "word:gravity": "Things fall to the ground because of Earth's {{c1::gravity::중력}}.",
+        "word:float": "Astronauts {{c1::float::뜨다}} in space where there is microgravity.",
+        "word:experiment": "We did an exciting science {{c1::experiment::실험}} in the lab.",
+        "word:continent": "South America is a {{c1::continent::대륙}} with rich nature and history.",
+        "word:waterfall": "Iguazu Falls is a giant {{c1::waterfall::폭포}} in South America.",
+        "word:ancient": "Machu Picchu is an {{c1::ancient::고대의}} Inca city high in the Andes.",
+    }
+
     mid1_entries = [
         # Lesson 1 (p.10~27)
         ("word:introduce", "word", "introduce", "소개하다", "verb", f"{tb_mid1}:U01", 1, 12, 1, "core_vocab"),
         ("word:classmate", "word", "classmate", "반 친구, 급우", "noun", f"{tb_mid1}:U01", 2, 13, 1, "core_vocab"),
         ("word:favorite", "word", "favorite", "가장 좋아하는", "adj", f"{tb_mid1}:U01", 3, 15, 1, "core_vocab"),
         ("word:subject", "word", "subject", "과목, 주제", "noun", f"{tb_mid1}:U01", 4, 16, 1, "core_vocab"),
-        ("grammar:mid1_u1_be_verb", "fact_item", "Lesson 1 핵심문법: be동사 현재형 & 일반동사 3인칭 단수(-s/-es)", "주어가 3인칭 단수(he/she/it)일 때 일반동사 현재형에 -(e)s를 붙이며, 부정문은 doesn't + 동사원형을 쓴다.", "grammar", f"{tb_mid1}:U01", 5, 20, 1, "key_grammar"),
+        ("grammar:mid1_u1_be_verb", "fact_item", "Lesson 1 핵심문법: 주어가 3인칭 단수(he/she/it)일 때 일반동사 현재형의 어미 변화와 부정문 형태는?", "동사원형에 -(e)s를 붙이며, 부정문은 doesn't + 동사원형을 쓴다.", "grammar", f"{tb_mid1}:U01", 5, 20, 1, "key_grammar"),
         # Lesson 2 (p.28~45)
         ("word:delicious", "word", "delicious", "매우 맛있는", "adj", f"{tb_mid1}:U02", 1, 30, 1, "core_vocab"),
         ("word:healthy", "word", "healthy", "건강에 좋은, 건강한", "adj", f"{tb_mid1}:U02", 2, 32, 1, "core_vocab"),
         ("word:dessert", "word", "dessert", "후식, 디저트", "noun", f"{tb_mid1}:U02", 3, 35, 1, "core_vocab"),
         ("word:vegetable", "word", "vegetable", "채소, 야채", "noun", f"{tb_mid1}:U02", 4, 38, 2, "core_vocab"),
-        ("grammar:mid1_u2_present_prog", "fact_item", "Lesson 2 핵심문법: 현재진행형(am/are/is + V-ing) & 조동사 can/will", "지금 진행 중인 동작은 be동사 + 동사원형-ing로 나타내며, 조동사 can/will 뒤에는 반드시 동사원형이 온다.", "grammar", f"{tb_mid1}:U02", 5, 40, 1, "key_grammar"),
+        ("grammar:mid1_u2_present_prog", "fact_item", "Lesson 2 핵심문법: 지금 진행 중인 동작을 나타내는 현재진행형의 형태와 조동사 can/will 뒤의 동사 형태는?", "현재진행형: am/are/is + V-ing · 조동사 can/will + 동사원형", "grammar", f"{tb_mid1}:U02", 5, 40, 1, "key_grammar"),
         # Lesson 3 (p.46~63)
         ("word:volunteer", "word", "volunteer", "자원봉사자; 자원봉사하다", "noun", f"{tb_mid1}:U03", 1, 48, 1, "core_vocab"),
         ("word:donate", "word", "donate", "기부하다, 기증하다", "verb", f"{tb_mid1}:U03", 2, 50, 1, "core_vocab"),
         ("word:secondhand", "word", "secondhand", "중고의, 간접의", "adj", f"{tb_mid1}:U03", 3, 52, 1, "core_vocab"),
         ("word:treasure", "word", "treasure", "보물, 소중한 것", "noun", f"{tb_mid1}:U03", 4, 55, 1, "core_vocab"),
-        ("grammar:mid1_u3_past_tense", "fact_item", "Lesson 3 핵심문법: 동사의 과거시제 (규칙 -ed / 불규칙 변화 & did)", "과거의 일이나 상태는 과거시제를 쓰며, 일반동사 과거형의 의문문/부정문은 Did / didn't + 동사원형을 쓴다.", "grammar", f"{tb_mid1}:U03", 5, 58, 1, "key_grammar"),
+        ("grammar:mid1_u3_past_tense", "fact_item", "Lesson 3 핵심문법: 일반동사 과거시제의 규칙 어미 형태와 과거 의문문·부정문에 쓰는 조동사는?", "규칙 변화: 동사원형 + -(e)d · 의문문/부정문: Did / didn't + 동사원형", "grammar", f"{tb_mid1}:U03", 5, 58, 1, "key_grammar"),
         # Lesson 4 (p.64~81)
         ("word:neighborhood", "word", "neighborhood", "동네, 이웃", "noun", f"{tb_mid1}:U04", 1, 66, 1, "core_vocab"),
         ("word:bakery", "word", "bakery", "빵집, 제과점", "noun", f"{tb_mid1}:U04", 2, 68, 1, "core_vocab"),
         ("word:straight", "word", "straight", "곧장, 똑바로", "adv", f"{tb_mid1}:U04", 3, 70, 1, "core_vocab"),
-        ("grammar:mid1_u4_there_is", "fact_item", "Lesson 4 핵심문법: There is/are ~ (~이 있다) & 명령문", "There is + 단수명사 / There are + 복수명사로 존재를 표현하며, 길 안내 명령문은 동사원형(Go straight, Turn left)으로 시작한다.", "grammar", f"{tb_mid1}:U04", 4, 76, 1, "key_grammar"),
+        ("grammar:mid1_u4_there_is", "fact_item", "Lesson 4 핵심문법: '~이 있다'를 뜻하는 유도부사 구문의 단수·복수 형태와 길 안내 명령문의 시작 형태는?", "There is + 단수명사 / There are + 복수명사 · 명령문은 주어 없이 동사원형으로 시작", "grammar", f"{tb_mid1}:U04", 4, 76, 1, "key_grammar"),
         # Lesson 5 (p.82~99)
         ("word:career", "word", "career", "직업, 진로, 경력", "noun", f"{tb_mid1}:U05", 1, 84, 1, "core_vocab"),
         ("word:creative", "word", "creative", "창의적인, 독창적인", "adj", f"{tb_mid1}:U05", 2, 86, 1, "core_vocab"),
         ("word:talent", "word", "talent", "재능, 소질", "noun", f"{tb_mid1}:U05", 3, 89, 1, "core_vocab"),
-        ("grammar:mid1_u5_to_inf", "fact_item", "Lesson 5 핵심문법: to부정사의 명사적 용법(want/hope/plan + to-V) & 수여동사", "want, hope, plan, decide는 목적어로 to부정사(to + 동사원형)를 취하며, 수여동사(give/show/teach)는 '간접목적어 + 직접목적어' 어순을 쓴다.", "grammar", f"{tb_mid1}:U05", 4, 94, 1, "key_grammar"),
+        ("grammar:mid1_u5_to_inf", "fact_item", "Lesson 5 핵심문법: want/hope/plan 뒤에 목적어로 오는 형태와 수여동사(give/show) 4형식 어순은?", "목적어: to부정사(to + 동사원형) · 수여동사: 간접목적어(~에게) + 직접목적어(~을/를)", "grammar", f"{tb_mid1}:U05", 4, 94, 1, "key_grammar"),
         # Lesson 6 (p.100~117)
         ("word:exhibition", "word", "exhibition", "전시회", "noun", f"{tb_mid1}:U06", 1, 102, 1, "core_vocab"),
         ("word:painting", "word", "painting", "그림, 회화", "noun", f"{tb_mid1}:U06", 2, 105, 1, "core_vocab"),
         ("word:character", "word", "character", "등장인물, 성격, 글자", "noun", f"{tb_mid1}:U06", 3, 108, 1, "core_vocab"),
-        ("grammar:mid1_u6_gerund", "fact_item", "Lesson 6 핵심문법: 동명사(enjoy/finish/mind + V-ing) & 접속사 when", "enjoy, finish, mind, give up은 목적어로 동명사(V-ing)만을 취한다.", "grammar", f"{tb_mid1}:U06", 4, 112, 1, "key_grammar"),
+        ("grammar:mid1_u6_gerund", "fact_item", "Lesson 6 핵심문법: enjoy, finish, mind, give up 동사가 목적어로 취하는 준동사 형태는?", "동명사 (동사원형 + -ing) — to부정사는 목적어로 쓸 수 없음", "grammar", f"{tb_mid1}:U06", 4, 112, 1, "key_grammar"),
         # Lesson 7 (p.118~135)
         ("word:gravity", "word", "gravity", "중력", "noun", f"{tb_mid1}:U07", 1, 120, 1, "core_vocab"),
         ("word:float", "word", "float", "(물·공기 중에) 뜨다", "verb", f"{tb_mid1}:U07", 2, 122, 1, "core_vocab"),
         ("word:experiment", "word", "experiment", "실험; 실험하다", "noun", f"{tb_mid1}:U07", 3, 125, 1, "core_vocab"),
-        ("grammar:mid1_u7_comparative", "fact_item", "Lesson 7 핵심문법: 형용사·부사의 비교급(-er/more ~ than) & 최상급(the -est/most)", "두 대상을 비교할 때는 '비교급 + than', 셋 이상에서 가장 ~한 것은 'the + 최상급 + in/of'로 나타낸다.", "grammar", f"{tb_mid1}:U07", 4, 130, 1, "key_grammar"),
+        ("grammar:mid1_u7_comparative", "fact_item", "Lesson 7 핵심문법: 형용사·부사의 비교급 구문과 셋 이상을 비교하는 최상급 구문의 핵심 형태는?", "비교급: -er / more ~ + than · 최상급: the + -est / most ~ (+ in/of)", "grammar", f"{tb_mid1}:U07", 4, 130, 1, "key_grammar"),
         # Lesson 8 (p.136~153)
         ("word:continent", "word", "continent", "대륙", "noun", f"{tb_mid1}:U08", 1, 138, 1, "core_vocab"),
         ("word:waterfall", "word", "waterfall", "폭포", "noun", f"{tb_mid1}:U08", 2, 140, 1, "core_vocab"),
         ("word:ancient", "word", "ancient", "고대의, 옛날의", "adj", f"{tb_mid1}:U08", 3, 144, 1, "core_vocab"),
-        ("grammar:mid1_u8_sensory_verb", "fact_item", "Lesson 8 핵심문법: 감각동사(look/sound/smell/taste/feel + 형용사)", "감각동사 뒤에는 부사(-ly)가 아니라 반드시 형용사 보어가 온다 (예: It looks great).", "grammar", f"{tb_mid1}:U08", 4, 148, 1, "key_grammar"),
+        ("grammar:mid1_u8_sensory_verb", "fact_item", "Lesson 8 핵심문법: 감각동사(look/sound/smell/taste/feel) 뒤에 보어로 와야 하는 품사는?", "형용사 (주의: 부사 -ly는 보어로 올 수 없음. 예: It looks great)", "grammar", f"{tb_mid1}:U08", 4, 148, 1, "key_grammar"),
     ]
     for ekey, etype, hw, gloss, pos, uid, item_ord, page_no, tier, role in mid1_entries:
+        u_num = uid.split(":U0")[-1]
+        if etype == "word":
+            ex_cloze = mid1_examples.get(ekey, f"Please remember the word {{{{c1::{hw}::{gloss}}}}}.")
+            ex_plain = ex_cloze.replace(f"{{{{c1::{hw}::{gloss}}}}}", f"[{hw}]")
+            facet_data = {
+                "facet_schema_version": 2,
+                "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}],
+                "clean_front": f"📘 [Lesson {u_num} · 어휘] 다음 영단어의 뜻은?\n{hw}",
+                "lv1_front": f"🌱 [Lv.1 기초 어휘 · Lesson {u_num}] 다음 영단어의 우리말 뜻은?\n{hw} ({pos})",
+                "lv1_back": f"{gloss}\n\n💡 해설: 예문 — {ex_plain}",
+                "lv2_front": f"📘 [Lv.2 실전 문맥 빈칸 · Lesson {u_num}] 문맥에 알맞은 영단어를 채우세요:\n{ex_cloze}",
+                "lv2_back": f"{hw} — {gloss}\n\n💡 해설: 완성 문장 — {ex_plain}",
+                "lv3_front": f"🔥 [Lv.3 심화 영작 인출 · Lesson {u_num}] '{gloss}'에 해당하는 영어 단어({pos})를 철자에 맞게 쓰시오.",
+                "lv3_back": f"{hw}\n\n💡 해설: {hw} ({pos}): {gloss} · {ex_plain}",
+                "target_answer": gloss,
+                "extra_explanation": f"예문: {ex_plain}",
+            }
+        else:
+            facet_data = {
+                "facet_schema_version": 2,
+                "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}],
+                "clean_front": f"📐 [{hw}]",
+                "lv1_front": f"🌱 [Lv.1 기초 문법 확인]\n{hw}",
+                "lv1_back": gloss,
+                "lv2_front": f"📘 [Lv.2 실전 문법 적용]\n{hw}\n핵심 규칙: {{{{c1::{gloss.split('·')[0].strip()}::문법 핵심 형태}}}}",
+                "lv2_back": gloss,
+                "lv3_front": f"🔥 [Lv.3 심화 서술·어법 변별]\n{hw}\n(핵심 형태와 오답 주의점을 함께 서술하시오)",
+                "lv3_back": gloss,
+                "target_answer": gloss,
+                "extra_explanation": f"교과서 p.{page_no} 핵심 문법 포인트",
+            }
         builder.add_entry(
             entry_key=ekey,
             entry_type=etype,
@@ -2349,7 +2684,7 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
             norm_key=hw,
             gloss_ko=gloss,
             pos=pos,
-            facet_json={"facet_schema_version": 1, "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}]},
+            facet_json=facet_data,
             source_id="anki_self_fact",
         )
         builder.add_unit_entry(
@@ -2433,7 +2768,18 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
             norm_key=hw,
             gloss_ko=gloss,
             pos=pos,
-            facet_json={"facet_schema_version": 1, "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}]},
+            facet_json={
+                "facet_schema_version": 2,
+                "senses": [{"id": "s1", "gloss_ko": gloss, "pos": pos}],
+                "clean_front": f"📘 [중2 영어 · 어휘] 다음 영단어의 뜻은?\n{hw}",
+                "lv1_front": f"🌱 [Lv.1 기초 어휘] '{hw}' ({pos})의 우리말 뜻은?",
+                "lv1_back": gloss,
+                "lv2_front": f"📘 [Lv.2 실전 빈칸] 핵심 어휘 {{{{c1::{hw}::{gloss}}}}} ({pos})",
+                "lv2_back": f"{hw} — {gloss}",
+                "lv3_front": f"🔥 [Lv.3 심화 영작] '{gloss}'에 해당하는 영단어({pos})를 쓰시오.",
+                "lv3_back": hw,
+                "target_answer": gloss,
+            },
             source_id="anki_self_fact",
         )
         builder.add_unit_entry(
@@ -2499,6 +2845,83 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
         page_end=48,
         achievement_code="[10통과01-01]",
     )
+    extra_tb_entries = [
+        (
+            "khist:mid2:mesopotamia",
+            "event",
+            "🏛️ [중2 역사 · 고대 문명] 티그리스·유프라테스강 유역의 개방적 지형에서 발달하여 60진법·태음력·쐐기문자와 동해복수법의 법전을 남긴 문명과 그 법전 이름은?",
+            "메소포타미아 문명 · 함무라비 법전",
+            "kr.mid2.hist.miraeen.2022",
+            "kr.mid2.hist.miraeen.2022:U01",
+            1,
+            14,
+            "티그리스·유프라테스강 유역의 개방적 지형 때문에 이민족 침입이 잦아 현세적 종교관이 발달했으며, 쐐기문자와 함무라비 법전(눈에는 눈, 이에는 이)을 남겼다.",
+        ),
+        (
+            "khist:mid2:polis_athens",
+            "event",
+            "🏛️ [중2 역사 · 그리스 폴리스] 도편추방제로 참주 출현을 막고 민회 중심의 직접 민주 정치를 확립한 폴리스와 핵심 개혁가(2명)는?",
+            "아테네 · 클레이스테네스(도편추방제), 페리클레스(직접 민주 정치 전성기)",
+            "kr.mid2.hist.miraeen.2022",
+            "kr.mid2.hist.miraeen.2022:U01",
+            2,
+            24,
+            "클레이스테네스는 도편추방제를 마련했고, 페리클레스는 민회 권한 강화와 공직자 수당제 도입으로 아테네 직접 민주 정치를 완성했다.",
+        ),
+        (
+            "sci:high1:alkali_metals",
+            "element",
+            "🧪 [고1 통합과학 · 주기율표] 주기율표 1족(수소 제외)에 속하며 원자가 전자가 1개여서 물과 격렬히 반응해 수소 기체와 염기성 수용액을 만드는 금속 원소군의 이름과 대표 원소 3가지는?",
+            "알칼리 금속 (리튬 Li, 나트륨 Na, 칼륨 K)",
+            "kr.high1.sci.visang.2022",
+            "kr.high1.sci.visang.2022:U01",
+            1,
+            28,
+            "알칼리 금속은 원자번호가 커질수록(Li → Na → K) 반응성이 커지며, 공기 중 산소나 물과의 접촉을 막기 위해 석유나 액체 파라핀 속에 보관한다.",
+        ),
+        (
+            "sci:high1:covalent_ionic",
+            "formula",
+            "🧪 [고1 통합과학 · 화학 결합] 금속 양이온과 비금속 음이온의 정전기적 인력에 의한 결합과, 비금속 원자들이 전자쌍을 공유하여 형성하는 결합을 각각 무엇이라 하는가?",
+            "이온 결합 (금속+비금속) · 공유 결합 (비금속+비금속)",
+            "kr.high1.sci.visang.2022",
+            "kr.high1.sci.visang.2022:U01",
+            2,
+            36,
+            "이온 결합 물질(예: NaCl)은 수용액 상태에서 전기 전도성이 있고, 공유 결합 물질(예: H₂O, CO₂)은 비금속 원자들이 전자쌍을 공유해 안정한 전자 배치를 이룬다.",
+        ),
+    ]
+    for ekey, etype, hw, gloss, tbid, uid, ord_no, pno, extra_exp in extra_tb_entries:
+        builder.add_entry(
+            entry_key=ekey,
+            entry_type=etype,
+            headword=hw,
+            norm_key=hw,
+            gloss_ko=f"{gloss}\n\n💡 해설: {extra_exp}",
+            facet_json={
+                "facet_schema_version": 2,
+                "senses": [{"id": "s1", "gloss_ko": gloss}],
+                "clean_front": hw,
+                "lv1_front": f"🌱 [Lv.1 기초 개념]\n{hw}",
+                "lv1_back": f"{gloss}\n\n💡 해설: {extra_exp}",
+                "lv2_front": f"📘 [Lv.2 실전 빈칸] {{{{c1::{gloss.split('·')[0].strip()}::핵심 정답}}}}: {extra_exp}",
+                "lv2_back": f"{gloss}\n\n💡 해설: {extra_exp}",
+                "lv3_front": f"🔥 [Lv.3 심화 서술]\n{hw}\n(핵심 특징과 이유를 함께 설명하시오)",
+                "lv3_back": f"{gloss}\n\n💡 해설: {extra_exp}",
+                "target_answer": gloss,
+                "extra_explanation": extra_exp,
+            },
+            source_id="anki_self_fact",
+        )
+        builder.add_unit_entry(
+            textbook_id=tbid,
+            unit_id=uid,
+            entry_key=ekey,
+            unit_item_ordinal=ord_no,
+            page_no=pno,
+            importance_tier=1,
+            role_in_unit="core_concept",
+        )
 
     # =========================================================================
     # 4. 전 연령·전 분야 골고루 스타터 컬렉션 (초등·한국사·어학·사자성어·법학·과학·IT)
@@ -2507,79 +2930,223 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
         "ko-dictation:grade1-2": (
             "초등 1~2학년 급수별 받아쓰기 핵심 문장",
             [
-                ("dict:g1_01", "fact_item", "무궁화 꽃이 활짝 피었습니다", "초등 받아쓰기 (받침·쌍자음 연습)", {"expression": "무궁화 꽃이 활짝 피었습니다", "senses": [{"id": "s1", "gloss_ko": "꽃이 / 활짝 / 피었습니다"}]}),
-                ("dict:g1_02", "fact_item", "오늘 날씨가 참 맑고 따뜻합니다", "초등 받아쓰기 (겹받침 맑고 / 쌍디귿 따뜻)", {"expression": "오늘 날씨가 참 맑고 따뜻합니다", "senses": [{"id": "s1", "gloss_ko": "맑고(ㄺ) / 따뜻합니다"}]}),
-                ("dict:g1_03", "fact_item", "할머니께 예쁜 편지를 썼습니다", "초등 받아쓰기 (높임 조사 -께 / 썼습니다)", {"expression": "할머니께 예쁜 편지를 썼습니다", "senses": [{"id": "s1", "gloss_ko": "할머니께 / 예쁜 / 썼습니다"}]}),
-                ("dict:g1_04", "fact_item", "도서관에서 조용히 책을 읽어요", "초등 받아쓰기 (겹받침 읽어요)", {"expression": "도서관에서 조용히 책을 읽어요", "senses": [{"id": "s1", "gloss_ko": "조용히 / 책을 읽어요(ㄺ)"}]}),
+                (
+                    "dict:g1_01",
+                    "fact_item",
+                    "✏️ [초등 받아쓰기 1급] 빈칸에 들어갈 말을 바른 맞춤법으로 쓰세요:\n무궁화 [ ___ ] 활짝 피었습니다 (소리: 꼬치 / 힌트: ㅊ 받침 + 조사 + 쌍자음)",
+                    "꽃이 활짝\n\n💡 해설: 정답 문장 — 무궁화 꽃이 활짝 피었습니다 ('꽃이'는 [꼬치]로 소리 나지만 '꽃이'로 적습니다).",
+                    {
+                        "expression": "무궁화 꽃이 활짝 피었습니다",
+                        "senses": [{"id": "s1", "gloss_ko": "꽃이 활짝"}],
+                        "lv1_front": "🌱 [Lv.1 받아쓰기 기초] [꼬치]라고 소리 나는 낱말의 바른 표기는?\n무궁화 [ ___ ] 활짝 피었습니다",
+                        "lv1_back": "꽃이\n\n💡 해설: 무궁화 꽃이 활짝 피었습니다",
+                        "lv2_front": "📘 [Lv.2 받아쓰기 빈칸] 무궁화 {{c1::꽃이::[꼬치]}} {{c2::활짝::강조 부사}} 피었습니다.",
+                        "lv2_back": "꽃이 활짝 — 무궁화 꽃이 활짝 피었습니다",
+                        "lv3_front": "🔥 [Lv.3 전체 문장 받아쓰기] 소리 나는 대로를 바른 맞춤법 문장으로 고쳐 쓰세요:\n\"무궁화 꼬치 활짝 피어씀니다\"",
+                        "lv3_back": "무궁화 꽃이 활짝 피었습니다",
+                        "target_answer": "꽃이 활짝",
+                        "extra_explanation": "전체 문장: 무궁화 꽃이 활짝 피었습니다",
+                    },
+                ),
+                (
+                    "dict:g1_02",
+                    "fact_item",
+                    "✏️ [초등 받아쓰기 2급] 겹받침과 된소리에 주의하여 빈칸을 바르게 쓰세요:\n오늘 날씨가 참 [ ___ ] (소리: 말꼬 따뜨탑니다)",
+                    "맑고 따뜻합니다\n\n💡 해설: 정답 문장 — 오늘 날씨가 참 맑고 따뜻합니다 (겹받침 ㄺ '맑고', 받침 ㅅ '따뜻합니다').",
+                    {
+                        "expression": "오늘 날씨가 참 맑고 따뜻합니다",
+                        "senses": [{"id": "s1", "gloss_ko": "맑고 따뜻합니다"}],
+                        "lv1_front": "🌱 [Lv.1 받아쓰기 기초] [말꼬]라고 소리 나는 낱말의 바른 겹받침 표기는?\n오늘 날씨가 참 [ ___ ] 따뜻합니다",
+                        "lv1_back": "맑고\n\n💡 해설: 겹받침 ㄺ을 써서 '맑고'로 적습니다.",
+                        "lv2_front": "📘 [Lv.2 받아쓰기 빈칸] 오늘 날씨가 참 {{c1::맑고::[말꼬]}} {{c2::따뜻합니다::[따뜨탑니다]}}.",
+                        "lv2_back": "맑고 따뜻합니다",
+                        "lv3_front": "🔥 [Lv.3 전체 문장 받아쓰기] 소리 나는 대로를 바른 맞춤법 문장으로 고쳐 쓰세요:\n\"오늘 날씨가 참 말꼬 따뜨탑니다\"",
+                        "lv3_back": "오늘 날씨가 참 맑고 따뜻합니다",
+                        "target_answer": "맑고 따뜻합니다",
+                        "extra_explanation": "전체 문장: 오늘 날씨가 참 맑고 따뜻합니다",
+                    },
+                ),
+                (
+                    "dict:g1_03",
+                    "fact_item",
+                    "✏️ [초등 받아쓰기 3급] 높임 조사와 과거형 맞춤법에 맞게 빈칸을 쓰세요:\n[ ___ ] 예쁜 편지를 [ ___ ] (소리: 할머니께 / 써씀니다)",
+                    "할머니께 썼습니다\n\n💡 해설: 정답 문장 — 할머니께 예쁜 편지를 썼습니다 (윗사람에게는 높임 조사 '-께'를 씁니다).",
+                    {
+                        "expression": "할머니께 예쁜 편지를 썼습니다",
+                        "senses": [{"id": "s1", "gloss_ko": "할머니께 썼습니다"}],
+                        "lv1_front": "🌱 [Lv.1 받아쓰기 기초] 웃어른에게 드릴 때 쓰는 높임말 조사는?\n할머니[ ___ ] 예쁜 편지를 썼습니다",
+                        "lv1_back": "할머니께",
+                        "lv2_front": "📘 [Lv.2 받아쓰기 빈칸] {{c1::할머니께::높임 조사}} 예쁜 편지를 {{c2::썼습니다::[써씀니다]}}.",
+                        "lv2_back": "할머니께 썼습니다",
+                        "lv3_front": "🔥 [Lv.3 전체 문장 받아쓰기] 틀린 맞춤법을 바르게 고쳐 전체 문장을 쓰세요:\n\"할머니에게 예쁜 편지를 써씀니다\"",
+                        "lv3_back": "할머니께 예쁜 편지를 썼습니다",
+                        "target_answer": "할머니께 썼습니다",
+                        "extra_explanation": "전체 문장: 할머니께 예쁜 편지를 썼습니다",
+                    },
+                ),
+                (
+                    "dict:g1_04",
+                    "fact_item",
+                    "✏️ [초등 받아쓰기 4급] 겹받침 연음 표기에 주의하여 빈칸을 쓰세요:\n도서관에서 [ ___ ] 책을 [ ___ ] (소리: 조용히 / 일거요)",
+                    "조용히 읽어요\n\n💡 해설: 정답 문장 — 도서관에서 조용히 책을 읽어요 ('읽어요'는 [일거요]로 발음되지만 겹받침 ㄺ을 밝혀 적습니다).",
+                    {
+                        "expression": "도서관에서 조용히 책을 읽어요",
+                        "senses": [{"id": "s1", "gloss_ko": "조용히 읽어요"}],
+                        "lv1_front": "🌱 [Lv.1 받아쓰기 기초] [일거요]라고 소리 나는 낱말의 바른 표기는?\n도서관에서 조용히 책을 [ ___ ]",
+                        "lv1_back": "읽어요",
+                        "lv2_front": "📘 [Lv.2 받아쓰기 빈칸] 도서관에서 {{c1::조용히::부사}} 책을 {{c2::읽어요::[일거요]}}.",
+                        "lv2_back": "조용히 읽어요",
+                        "lv3_front": "🔥 [Lv.3 전체 문장 받아쓰기] 소리 나는 대로를 바른 맞춤법 문장으로 고쳐 쓰세요:\n\"도서관에서 조용이 채글 일거요\"",
+                        "lv3_back": "도서관에서 조용히 책을 읽어요",
+                        "target_answer": "조용히 읽어요",
+                        "extra_explanation": "전체 문장: 도서관에서 조용히 책을 읽어요",
+                    },
+                ),
             ],
         ),
         "moe-eng:elementary": (
             "교육부 고시 초등 필수 영단어 800 핵심",
             [
-                ("word:elem_library", "word", "library", "도서관", {"senses": [{"id": "s1", "gloss_ko": "도서관", "pos": "noun"}], "cefr": "A1"}),
-                ("word:elem_hospital", "word", "hospital", "병원", {"senses": [{"id": "s1", "gloss_ko": "병원", "pos": "noun"}], "cefr": "A1"}),
-                ("word:elem_weather", "word", "weather", "날씨", {"senses": [{"id": "s1", "gloss_ko": "날씨", "pos": "noun"}], "cefr": "A1"}),
-                ("word:elem_tomorrow", "word", "tomorrow", "내일", {"senses": [{"id": "s1", "gloss_ko": "내일", "pos": "noun"}], "cefr": "A1"}),
+                ("word:elem_library", "word", "library", "도서관", {"senses": [{"id": "s1", "gloss_ko": "도서관", "pos": "noun"}], "cefr": "A1", "clean_front": "📘 [초등 필수 영단어] 다음 단어의 뜻은?\nlibrary", "lv1_front": "🌱 [Lv.1 초등 영단어] 'library'의 우리말 뜻은?", "lv1_back": "도서관", "lv2_front": "📘 [Lv.2 문맥 빈칸] I borrow books from the school {{c1::library::도서관}}.", "lv2_back": "library (도서관)", "lv3_front": "🔥 [Lv.3 철자 쓰기] '도서관'을 영어로 쓰시오.", "lv3_back": "library", "target_answer": "도서관"}),
+                ("word:elem_hospital", "word", "hospital", "병원", {"senses": [{"id": "s1", "gloss_ko": "병원", "pos": "noun"}], "cefr": "A1", "clean_front": "📘 [초등 필수 영단어] 다음 단어의 뜻은?\nhospital", "lv1_front": "🌱 [Lv.1 초등 영단어] 'hospital'의 우리말 뜻은?", "lv1_back": "병원", "lv2_front": "📘 [Lv.2 문맥 빈칸] Doctors and nurses work at the {{c1::hospital::병원}}.", "lv2_back": "hospital (병원)", "lv3_front": "🔥 [Lv.3 철자 쓰기] '병원'을 영어로 쓰시오.", "lv3_back": "hospital", "target_answer": "병원"}),
+                ("word:elem_weather", "word", "weather", "날씨", {"senses": [{"id": "s1", "gloss_ko": "날씨", "pos": "noun"}], "cefr": "A1", "clean_front": "📘 [초등 필수 영단어] 다음 단어의 뜻은?\nweather", "lv1_front": "🌱 [Lv.1 초등 영단어] 'weather'의 우리말 뜻은?", "lv1_back": "날씨", "lv2_front": "📘 [Lv.2 문맥 빈칸] How is the {{c1::weather::날씨}} today?", "lv2_back": "weather (날씨)", "lv3_front": "🔥 [Lv.3 철자 쓰기] '날씨'를 영어로 쓰시오.", "lv3_back": "weather", "target_answer": "날씨"}),
+                ("word:elem_tomorrow", "word", "tomorrow", "내일", {"senses": [{"id": "s1", "gloss_ko": "내일", "pos": "noun"}], "cefr": "A1", "clean_front": "📘 [초등 필수 영단어] 다음 단어의 뜻은?\ntomorrow", "lv1_front": "🌱 [Lv.1 초등 영단어] 'tomorrow'의 우리말 뜻은?", "lv1_back": "내일", "lv2_front": "📘 [Lv.2 문맥 빈칸] See you {{c1::tomorrow::내일}} morning!", "lv2_back": "tomorrow (내일)", "lv3_front": "🔥 [Lv.3 철자 쓰기] '내일'을 영어로 쓰시오.", "lv3_back": "tomorrow", "target_answer": "내일"}),
             ],
         ),
         "khist:essential": (
             "한국사능력검정 핵심 연표·사건·문화재",
             [
-                ("khist:event:hunmin_1443", "event", "훈민정음 창제 (1443, 반포 1446)", "조선 세종 대 백성을 가르치는 바른 소리(훈민정음) 28자를 창제·반포한 사건", {"era": "joseon_early", "reign": "sejong", "year": 1443, "senses": [{"id": "s1", "gloss_ko": "조선 세종, 1443년 창제·1446년 반포"}]}),
-                ("khist:event:gapsin_1884", "event", "갑신정변 (1884)", "김옥균·박영효 등 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 근대화 개혁 운동", {"era": "joseon_late", "reign": "gojong", "year": 1884, "senses": [{"id": "s1", "gloss_ko": "1884년 급진개화파 정변 (개혁정강 14개조)"}]}),
-                ("khist:treaty:ganghwa_1876", "treaty", "강화도 조약 (조일수호조규, 1876)", "조선이 외국과 맺은 최초의 근대적 조약이자 불평등 조약 (부산·원산·인천 개항, 영사재판권 인정)", {"era": "joseon_late", "reign": "gojong", "year": 1876, "senses": [{"id": "s1", "gloss_ko": "1876년 최초의 근대적·불평등 조약"}]}),
-                ("khist:heritage:jikji_1377", "heritage", "직지심체요절 (1377, 청주 흥덕사)", "고려 우왕 3년(1377) 청주 흥덕사에서 간행된 현존 세계 최고(最古)의 금속활자본", {"era": "goryeo", "reign": "u_wang", "year": 1377, "senses": [{"id": "s1", "gloss_ko": "현존 세계 최고 금속활자본 (유네스코 세계기록유산)"}]}),
+                (
+                    "khist:event:hunmin_1443",
+                    "event",
+                    "🏛️ [한국사 핵심] 조선 세종 대 집현전 학자들과 함께 백성을 가르치는 바른 소리 28자를 창제(1443)·반포(1446)한 우리 고유의 문자는?",
+                    "훈민정음 (1443년 창제 · 1446년 반포)\n\n💡 해설: 세종 대 창제된 민족 문자로, 창제 원리를 밝힌 《훈민정음 해례본》은 유네스코 세계기록유산으로 등재되어 있습니다.",
+                    {
+                        "era": "joseon_early",
+                        "reign": "sejong",
+                        "year": 1443,
+                        "senses": [{"id": "s1", "gloss_ko": "훈민정음 (조선 세종, 1443년 창제·1446년 반포)"}],
+                        "lv1_front": "🌱 [Lv.1 한국사 기초] 조선 세종이 백성을 위해 창제한 28자 고유의 문자 이름은?",
+                        "lv1_back": "훈민정음 (1443년 창제, 1446년 반포)",
+                        "lv2_front": "📘 [Lv.2 한국사 연표 빈칸] 조선 {{c1::세종::왕}} 대인 {{c2::1443년::연도}}에 {{c3::훈민정음::문자}}을 창제하고 1446년에 반포하였다.",
+                        "lv2_back": "세종 · 1443년 · 훈민정음",
+                        "lv3_front": "🔥 [Lv.3 한국사 심화] '훈민정음'을 창제한 왕, 창제·반포 연도, 그리고 창제 원리가 담긴 세계기록유산 책의 이름을 쓰시오.",
+                        "lv3_back": "세종 · 1443년 창제(1446년 반포) · 훈민정음 해례본",
+                        "target_answer": "훈민정음",
+                        "extra_explanation": "조선 세종 25년(1443) 창제, 세종 28년(1446) 반포",
+                    },
+                ),
+                (
+                    "khist:event:gapsin_1884",
+                    "event",
+                    "🏛️ [한국사 핵심] 1884년 김옥균·박영효 등 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 근대적 국정 개혁 사건은?",
+                    "갑신정변 (1884년)\n\n💡 해설: 청에 대한 사대 관계 청산, 인민평등권 확립, 호조 중심 재정 일원화 등 14개조 개혁정강을 발표했으나 청군의 개입으로 3일 천하로 끝났습니다.",
+                    {
+                        "era": "joseon_late",
+                        "reign": "gojong",
+                        "year": 1884,
+                        "senses": [{"id": "s1", "gloss_ko": "갑신정변 (1884년 급진개화파 정변)"}],
+                        "lv1_front": "🌱 [Lv.1 한국사 기초] 김옥균 등 급진개화파가 우정총국 개국 축하연에서 일으킨 사건 이름은?",
+                        "lv1_back": "갑신정변 (1884년)",
+                        "lv2_front": "📘 [Lv.2 한국사 빈칸] {{c1::1884년::연도}} 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 정변을 {{c2::갑신정변::사건명}}이라 한다.",
+                        "lv2_back": "1884년 · 갑신정변",
+                        "lv3_front": "🔥 [Lv.3 한국사 심화] '갑신정변'이 일어난 연도, 주도 세력, 그리고 발표된 개혁안의 핵심 내용 2가지를 서술하시오.",
+                        "lv3_back": "1884년 · 급진개화파(김옥균·박영효) · 청 사대 관계 청산, 인민평등권 제정, 호조 재정 일원화(14개조 개혁정강)",
+                        "target_answer": "갑신정변",
+                        "extra_explanation": "1884년 급진개화파 정변 (14개조 개혁정강 발표, 3일 천하)",
+                    },
+                ),
+                (
+                    "khist:treaty:ganghwa_1876",
+                    "treaty",
+                    "🏛️ [한국사 핵심] 1876년 운요호 사건을 계기로 조선이 외국(일본)과 맺은 최초의 근대적 조약이자 불평등 조약은?",
+                    "강화도 조약 (조일수호조규, 1876년)\n\n💡 해설: 부산 외 2개 항구(원산·인천) 개항, 해안측량권 및 영사재판권(치외법권)을 인정한 불평등 조약입니다.",
+                    {
+                        "era": "joseon_late",
+                        "reign": "gojong",
+                        "year": 1876,
+                        "senses": [{"id": "s1", "gloss_ko": "강화도 조약 (1876년 최초의 근대적·불평등 조약)"}],
+                        "lv1_front": "🌱 [Lv.1 한국사 기초] 1876년 조선이 일본과 맺은 최초의 근대적·불평등 조약 이름은?",
+                        "lv1_back": "강화도 조약 (조일수호조규)",
+                        "lv2_front": "📘 [Lv.2 한국사 빈칸] {{c1::강화도 조약::조약명}}(1876)은 부산·원산·인천 3포 개항과 {{c2::영사재판권::불평등 독소조항}}(치외법권)을 포함하였다.",
+                        "lv2_back": "강화도 조약 · 영사재판권(치외법권)",
+                        "lv3_front": "🔥 [Lv.3 한국사 심화] '강화도 조약(1876)'이 불평등 조약으로 평가받는 근거 조항 2가지를 쓰시오.",
+                        "lv3_back": "영사재판권(치외법권) 인정 · 일본의 조선 해안측량권 허용",
+                        "target_answer": "강화도 조약",
+                        "extra_explanation": "1876년 조일수호조규 (최초의 근대적 조약이자 치외법권·해안측량권 불평등 조약)",
+                    },
+                ),
+                (
+                    "khist:heritage:jikji_1377",
+                    "heritage",
+                    "🏛️ [한국사 핵심] 고려 우왕 3년(1377) 청주 흥덕사에서 간행된 현존 세계 최고(最古)의 금속활자본 이름은?",
+                    "직지심체요절 (백운화상초록불조직지심체요절)\n\n💡 해설: 구텐베르크 성서보다 78년 앞선 1377년 청주 흥덕사에서 금속활자로 인쇄되었으며 유네스코 세계기록유산입니다.",
+                    {
+                        "era": "goryeo",
+                        "reign": "u_wang",
+                        "year": 1377,
+                        "senses": [{"id": "s1", "gloss_ko": "직지심체요절 (현존 세계 최고 금속활자본)"}],
+                        "lv1_front": "🌱 [Lv.1 한국사 기초] 고려 시대 청주 흥덕사에서 간행된 현존 세계 최고(最古) 금속활자본은?",
+                        "lv1_back": "직지심체요절 (1377년)",
+                        "lv2_front": "📘 [Lv.2 한국사 빈칸] 고려 우왕 때({{c1::1377년::연도}}) 청주 흥덕사에서 간행된 {{c2::직지심체요절::문화유산}}은 현존 세계 최고의 금속활자본이다.",
+                        "lv2_back": "1377년 · 직지심체요절",
+                        "lv3_front": "🔥 [Lv.3 한국사 심화] '직지심체요절'이 간행된 시대, 연도, 사찰 이름, 그리고 역사적 의의를 쓰시오.",
+                        "lv3_back": "고려 시대(우왕, 1377년) · 청주 흥덕사 · 현존 세계 최고(最古)의 금속활자본(유네스코 세계기록유산)",
+                        "target_answer": "직지심체요절",
+                        "extra_explanation": "1377년 청주 흥덕사 간행, 현존 세계 최고 금속활자본",
+                    },
+                ),
             ],
         ),
         "exam-eng:toeic-core": (
             "토익·비즈니스 빈출 핵심 어휘 (추정 레벨)",
             [
-                ("word:toeic_implement", "word", "implement", "(정책·계획을) 시행하다, 이행하다", {"senses": [{"id": "s1", "gloss_ko": "시행하다, 실행하다", "pos": "verb"}], "cefr": "B2"}),
-                ("word:toeic_reimburse", "word", "reimburse", "(경비를) 변제하다, 환급하다", {"senses": [{"id": "s1", "gloss_ko": "변제하다, 상환하다", "pos": "verb"}], "cefr": "C1"}),
-                ("word:toeic_prerequisite", "word", "prerequisite", "필수 전제 조건, 선수 과목", {"senses": [{"id": "s1", "gloss_ko": "전제 조건, 필수 조건", "pos": "noun"}], "cefr": "C1"}),
-                ("word:toeic_tentative", "word", "tentative", "잠정적인, 임시의", {"senses": [{"id": "s1", "gloss_ko": "잠정적인, 확정이 아닌", "pos": "adj"}], "cefr": "B2"}),
+                ("word:toeic_implement", "word", "implement", "(정책·계획을) 시행하다, 이행하다", {"senses": [{"id": "s1", "gloss_ko": "시행하다, 실행하다", "pos": "verb"}], "cefr": "B2", "clean_front": "💼 [토익 핵심 어휘] 다음 단어의 뜻은?\nimplement (v.)", "lv1_front": "🌱 [Lv.1 토익 기초] 'implement'의 핵심 뜻은?", "lv1_back": "(정책·계획을) 시행하다, 이행하다", "lv2_front": "📘 [Lv.2 토익 빈칸] The company will {{c1::implement::시행하다}} the new safety policy next month.", "lv2_back": "implement — 시행하다, 이행하다", "lv3_front": "🔥 [Lv.3 비즈니스 영작] '(정책·계획을) 시행하다, 이행하다'에 해당하는 동사를 쓰시오.", "lv3_back": "implement", "target_answer": "시행하다"}),
+                ("word:toeic_reimburse", "word", "reimburse", "(경비를) 변제하다, 환급하다", {"senses": [{"id": "s1", "gloss_ko": "변제하다, 상환하다", "pos": "verb"}], "cefr": "C1", "clean_front": "💼 [토익 핵심 어휘] 다음 단어의 뜻은?\nreimburse (v.)", "lv1_front": "🌱 [Lv.1 토익 기초] 'reimburse'의 핵심 뜻은?", "lv1_back": "(경비를) 변제하다, 환급하다", "lv2_front": "📘 [Lv.2 토익 빈칸] Accounting will {{c1::reimburse::변제·환급하다}} your travel expenses within 5 days.", "lv2_back": "reimburse — 변제하다, 환급하다", "lv3_front": "🔥 [Lv.3 비즈니스 영작] '(출장비·경비를) 변제하다, 환급하다'에 해당하는 동사를 쓰시오.", "lv3_back": "reimburse", "target_answer": "변제하다"}),
+                ("word:toeic_prerequisite", "word", "prerequisite", "필수 전제 조건, 선수 과목", {"senses": [{"id": "s1", "gloss_ko": "전제 조건, 필수 조건", "pos": "noun"}], "cefr": "C1", "clean_front": "💼 [토익 핵심 어휘] 다음 단어의 뜻은?\nprerequisite (n.)", "lv1_front": "🌱 [Lv.1 토익 기초] 'prerequisite'의 핵심 뜻은?", "lv1_back": "필수 전제 조건, 선수 과목", "lv2_front": "📘 [Lv.2 토익 빈칸] A valid license is a {{c1::prerequisite::필수 전제 조건}} for this position.", "lv2_back": "prerequisite — 필수 전제 조건", "lv3_front": "🔥 [Lv.3 비즈니스 영작] '필수 전제 조건, 선수 과목'을 뜻하는 명사를 쓰시오.", "lv3_back": "prerequisite", "target_answer": "필수 전제 조건"}),
+                ("word:toeic_tentative", "word", "tentative", "잠정적인, 임시의", {"senses": [{"id": "s1", "gloss_ko": "잠정적인, 확정이 아닌", "pos": "adj"}], "cefr": "B2", "clean_front": "💼 [토익 핵심 어휘] 다음 단어의 뜻은?\ntentative (adj.)", "lv1_front": "🌱 [Lv.1 토익 기초] 'tentative'의 핵심 뜻은?", "lv1_back": "잠정적인, 임시의", "lv2_front": "📘 [Lv.2 토익 빈칸] We have set a {{c1::tentative::잠정적인}} schedule for the conference.", "lv2_back": "tentative — 잠정적인, 임시의", "lv3_front": "🔥 [Lv.3 비즈니스 영작] '(일정·계획이) 잠정적인, 임시의'를 뜻하는 형용사를 쓰시오.", "lv3_back": "tentative", "target_answer": "잠정적인"}),
             ],
         ),
         "exam-ja:jlpt-n5-n3": (
             "일본어 능력시험(JLPT) N5~N3 필수 어휘 (추정 레벨)",
             [
-                ("word:ja_yakusoku", "word", "約束 (やくそく)", "약속 (야쿠소쿠)", {"senses": [{"id": "s1", "gloss_ko": "약속", "pos": "noun"}]}),
-                ("word:ja_junbi", "word", "準備 (じゅんび)", "준비 (준비)", {"senses": [{"id": "s1", "gloss_ko": "준비", "pos": "noun"}]}),
-                ("word:ja_keiken", "word", "経験 (けいけん)", "경험 (케이켄)", {"senses": [{"id": "s1", "gloss_ko": "경험", "pos": "noun"}]}),
-                ("word:ja_tashika", "word", "確か (たしか)", "확실히, 틀림없이 (타시카)", {"senses": [{"id": "s1", "gloss_ko": "확실히, 분명히", "pos": "adv"}]}),
+                ("word:ja_yakusoku", "word", "🇯🇵 [JLPT 필수 어휘] 다음 일본어 단어의 히라가나 읽기와 뜻은?\n約束", "약속 (やくそく / 야쿠소쿠)", {"senses": [{"id": "s1", "gloss_ko": "약속", "pos": "noun"}], "lv1_front": "🌱 [Lv.1 JLPT 기초] '約束'의 우리말 뜻과 읽기는?", "lv1_back": "약속 (やくそく)", "lv2_front": "📘 [Lv.2 JLPT 빈칸] 友達と {{c1::約束::やくそく (약속)}} を守る。", "lv2_back": "約束 (やくそく) — 약속", "lv3_front": "🔥 [Lv.3 JLPT 히라가나 인출] '約束(약속)'의 정확한 히라가나 표기를 쓰시오.", "lv3_back": "やくそく (약속)", "target_answer": "약속 (やくそく)"}),
+                ("word:ja_junbi", "word", "🇯🇵 [JLPT 필수 어휘] 다음 일본어 단어의 히라가나 읽기와 뜻은?\n準備", "준비 (じゅんび / 준비)", {"senses": [{"id": "s1", "gloss_ko": "준비", "pos": "noun"}], "lv1_front": "🌱 [Lv.1 JLPT 기초] '準備'의 우리말 뜻과 읽기는?", "lv1_back": "준비 (じゅんび)", "lv2_front": "📘 [Lv.2 JLPT 빈칸] 旅行の {{c1::準備::じゅんび (준비)}} をする。", "lv2_back": "準備 (じゅんび) — 준비", "lv3_front": "🔥 [Lv.3 JLPT 히라가나 인출] '準備(준비)'의 정확한 히라가나 표기를 쓰시오.", "lv3_back": "じゅんび (준비)", "target_answer": "준비 (じゅんび)"}),
+                ("word:ja_keiken", "word", "🇯🇵 [JLPT 필수 어휘] 다음 일본어 단어의 히라가나 읽기와 뜻은?\n経験", "경험 (けいけん / 케이켄)", {"senses": [{"id": "s1", "gloss_ko": "경험", "pos": "noun"}], "lv1_front": "🌱 [Lv.1 JLPT 기초] '経験'의 우리말 뜻과 읽기는?", "lv1_back": "경험 (けいけん)", "lv2_front": "📘 [Lv.2 JLPT 빈칸] 良い {{c1::経験::けいけん (경험)}} になりました。", "lv2_back": "経験 (けいけん) — 경험", "lv3_front": "🔥 [Lv.3 JLPT 히라가나 인출] '経験(경험)'의 정확한 히라가나 표기를 쓰시오.", "lv3_back": "けいけん (경험)", "target_answer": "경험 (けいけん)"}),
+                ("word:ja_tashika", "word", "🇯🇵 [JLPT 필수 어휘] 다음 일본어 단어의 히라가나 읽기와 뜻은?\n確か", "확실히, 틀림없이 (たしか / 타시카)", {"senses": [{"id": "s1", "gloss_ko": "확실히, 분명히", "pos": "adv"}], "lv1_front": "🌱 [Lv.1 JLPT 기초] '確か'의 우리말 뜻과 읽기는?", "lv1_back": "확실히, 틀림없이 (たしか)", "lv2_front": "📘 [Lv.2 JLPT 빈칸] {{c1::確か::たしか (분명히)}} 彼の名前は田中さんです。", "lv2_back": "確か (たしか) — 확실히, 분명히", "lv3_front": "🔥 [Lv.3 JLPT 히라가나 인출] '確か(확실히)'의 정확한 히라가나 표기를 쓰시오.", "lv3_back": "たしか (확실히)", "target_answer": "확실히 (たしか)"}),
             ],
         ),
         "ko-idiom:essential": (
             "필수 사자성어·고사성어 핵심",
             [
-                ("idiom:gojingamrae", "idiom", "苦盡甘來 (고진감래)", "쓴 것이 다하면 단 것이 온다 — 고생 끝에 낙이 온다는 뜻", {"hanja": "苦盡甘來", "reading": "고진감래", "senses": [{"id": "s1", "gloss_ko": "고생 끝에 즐거움이 옴"}], "char_meanings": ["괴로울 고", "다할 진", "달 감", "올 래"]}),
-                ("idiom:daegimanseong", "idiom", "大器晩成 (대기만성)", "큰 그릇은 늦게 이루어진다 — 크게 될 인물은 오랜 노력 끝에 늦게 이루어진다는 뜻", {"hanja": "大器晩成", "reading": "대기만성", "senses": [{"id": "s1", "gloss_ko": "큰 인물은 늦게 이루어짐"}], "char_meanings": ["클 대", "그릇 기", "늦을 만", "이룰 성"]}),
-                ("idiom:yeokjisaji", "idiom", "易地思之 (역지사지)", "처지를 바꾸어 생각함 — 상대편의 입장에서 헤아려 생각한다는 뜻", {"hanja": "易地思之", "reading": "역지사지", "senses": [{"id": "s1", "gloss_ko": "입장을 바꾸어 생각함"}], "char_meanings": ["바꿀 역", "땅 지", "생각 사", "갈 지"]}),
-                ("idiom:일석이조", "idiom", "一石二鳥 (일석이조)", "돌 한 개를 던져 새 두 마리를 잡는다 — 한 가지 일로 두 가지 이익을 얻음", {"hanja": "一石二鳥", "reading": "일석이조", "senses": [{"id": "s1", "gloss_ko": "한 가지 일로 두 가지 이득을 얻음"}], "char_meanings": ["한 일", "돌 석", "두 이", "새 조"]}),
+                ("idiom:gojingamrae", "idiom", "📜 [사자성어] 다음 한자성어의 독음(읽기)과 속뜻은?\n苦盡甘來", "고진감래 — 고생 끝에 즐거움(낙)이 온다\n\n💡 해설: 괴로울 고(苦)·다할 진(盡)·달 감(甘)·올 래(來). 쓴 것이 다하면 단 것이 온다는 뜻입니다.", {"hanja": "苦盡甘來", "reading": "고진감래", "senses": [{"id": "s1", "gloss_ko": "고진감래 — 고생 끝에 즐거움이 옴"}], "char_meanings": ["괴로울 고", "다할 진", "달 감", "올 래"], "lv1_front": "🌱 [Lv.1 사자성어 기초] '苦盡甘來'의 독음(4글자)과 뜻은?", "lv1_back": "고진감래 — 고생 끝에 낙이 온다", "lv2_front": "📘 [Lv.2 사자성어 빈칸] 쓴 것이 다하면 단 것이 온다는 뜻으로, 고생 끝에 낙이 옴을 이르는 성어는 {{c1::고진감래::독음 4글자}}(苦盡甘來)이다.", "lv2_back": "고진감래 (苦盡甘來)", "lv3_front": "🔥 [Lv.3 사자성어 역방향] '쓴 것이 다하면 단 것이 온다(고생 끝에 낙이 온다)'를 뜻하는 사자성어를 쓰시오.", "lv3_back": "고진감래 (苦盡甘來)", "target_answer": "고진감래", "extra_explanation": "苦(괴로울 고) 盡(다할 진) 甘(달 감) 來(올 래)"}),
+                ("idiom:daegimanseong", "idiom", "📜 [사자성어] 다음 한자성어의 독음(읽기)과 속뜻은?\n大器晩成", "대기만성 — 크게 될 인물은 오랜 노력 끝에 늦게 이루어진다\n\n💡 해설: 클 대(大)·그릇 기(器)·늦을 만(晩)·이룰 성(成). 큰 그릇은 만드는 데 시간이 오래 걸린다는 뜻입니다.", {"hanja": "大器晩成", "reading": "대기만성", "senses": [{"id": "s1", "gloss_ko": "대기만성 — 큰 인물은 늦게 이루어짐"}], "char_meanings": ["클 대", "그릇 기", "늦을 만", "이룰 성"], "lv1_front": "🌱 [Lv.1 사자성어 기초] '大器晩成'의 독음(4글자)과 뜻은?", "lv1_back": "대기만성 — 큰 인물은 늦게 이루어진다", "lv2_front": "📘 [Lv.2 사자성어 빈칸] 큰 그릇은 늦게 이루어진다는 뜻으로, 크게 될 인물은 오랜 수양 끝에 대성함을 이르는 말은 {{c1::대기만성::독음 4글자}}(大器晩成)이다.", "lv2_back": "대기만성 (大器晩成)", "lv3_front": "🔥 [Lv.3 사자성어 역방향] '큰 그릇은 늦게 이루어진다(크게 될 인물은 늦게 대성한다)'를 뜻하는 사자성어를 쓰시오.", "lv3_back": "대기만성 (大器晩成)", "target_answer": "대기만성", "extra_explanation": "大(클 대) 器(그릇 기) 晩(늦을 만) 成(이룰 성)"}),
+                ("idiom:yeokjisaji", "idiom", "📜 [사자성어] 다음 한자성어의 독음(읽기)과 속뜻은?\n易地思之", "역지사지 — 상대편의 처지나 입장에서 바꾸어 생각한다\n\n💡 해설: 바꿀 역(易)·땅 지(地)·생각 사(思)·갈 지(之). 처지를 바꾸어 생각함을 뜻합니다.", {"hanja": "易地思之", "reading": "역지사지", "senses": [{"id": "s1", "gloss_ko": "역지사지 — 입장을 바꾸어 생각함"}], "char_meanings": ["바꿀 역", "땅 지", "생각 사", "갈 지"], "lv1_front": "🌱 [Lv.1 사자성어 기초] '易地思之'의 독음(4글자)과 뜻은?", "lv1_back": "역지사지 — 다른 사람의 입장에서 생각함", "lv2_front": "📘 [Lv.2 사자성어 빈칸] 처지를 바꾸어 생각한다는 뜻으로, 상대방의 입장에서 헤아려 봄을 이르는 성어는 {{c1::역지사지::독음 4글자}}(易地思之)이다.", "lv2_back": "역지사지 (易地思之)", "lv3_front": "🔥 [Lv.3 사자성어 역방향] '처지를 바꾸어 상대방의 입장에서 생각한다'를 뜻하는 사자성어를 쓰시오.", "lv3_back": "역지사지 (易地思之)", "target_answer": "역지사지", "extra_explanation": "易(바꿀 역) 地(땅 지) 思(생각 사) 之(갈 지)"}),
+                ("idiom:일석이조", "idiom", "📜 [사자성어] 다음 한자성어의 독음(읽기)과 속뜻은?\n一石二鳥", "일석이조 — 한 가지 일로 두 가지 이익을 동시에 얻는다\n\n💡 해설: 한 일(一)·돌 석(石)·두 이(二)·새 조(鳥). 돌 하나로 새 두 마리를 잡는다는 뜻입니다.", {"hanja": "一石二鳥", "reading": "일석이조", "senses": [{"id": "s1", "gloss_ko": "일석이조 — 한 가지 일로 두 가지 이득을 얻음"}], "char_meanings": ["한 일", "돌 석", "두 이", "새 조"], "lv1_front": "🌱 [Lv.1 사자성어 기초] '一石二鳥'의 독음(4글자)과 뜻은?", "lv1_back": "일석이조 — 한 가지 일로 두 가지 이익을 얻음", "lv2_front": "📘 [Lv.2 사자성어 빈칸] 돌 한 개로 새 두 마리를 잡는다는 뜻의 사자성어는 {{c1::일석이조::독음 4글자}}(一石二鳥)이다.", "lv2_back": "일석이조 (一石二鳥)", "lv3_front": "🔥 [Lv.3 사자성어 역방향] '돌 하나로 새 두 마리를 잡는다(한 가지 일로 두 가지 이익을 얻음)'를 뜻하는 사자성어를 쓰시오.", "lv3_back": "일석이조 (一石二鳥)", "target_answer": "일석이조", "extra_explanation": "一(한 일) 石(돌 석) 二(두 이) 鳥(새 조)"}),
             ],
         ),
         "law-statute:constitution": (
             "대한민국 헌법 및 기본법 핵심 조문",
             [
-                ("statute:const_art1", "statute", "대한민국 헌법 제1조", "① 대한민국은 민주공화국이다. ② 대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.", {"law_id": "헌법", "article": "제1조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "민주공화국 및 국민주권 원리"}]}),
-                ("statute:const_art10", "statute", "대한민국 헌법 제10조 (인간의 존엄과 가치·행복추구권)", "모든 국민은 인간으로서의 존엄과 가치를 가지며, 행복을 추구할 권리를 가진다.", {"law_id": "헌법", "article": "제10조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "인간의 존엄과 가치, 행복추구권 및 국가의 기본권 보장 의무"}]}),
-                ("statute:const_art37_2", "statute", "대한민국 헌법 제37조 제2항 (과잉금지원칙)", "국민의 모든 자유와 권리는 국가안전보장·질서유지 또는 공공복리를 위하여 필요한 경우에 한하여 법률로써 제한할 수 있으며, 제한하는 경우에도 자유와 권리의 본질적인 내용을 침해할 수 없다.", {"law_id": "헌법", "article": "제37조 제2항", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "기본권 제한의 한계 및 비례원칙(과잉금지원칙)"}]}),
+                ("statute:const_art1", "statute", "⚖️ [헌법 제1조] 대한민국의 국체(국가 형태)와 주권의 소재를 규정한 헌법 제1조 제1항·제2항의 핵심 내용은?", "민주공화국 · 국민주권 (주권은 국민에게 있고 모든 권력은 국민으로부터 나온다)", {"law_id": "헌법", "article": "제1조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "민주공화국 및 국민주권 원리"}], "lv1_front": "🌱 [Lv.1 헌법 기초] 대한민국 헌법 제1조가 선언하는 국가 형태와 주권의 주체는?", "lv1_back": "민주공화국 · 주권은 국민에게 있다(국민주권)", "lv2_front": "📘 [Lv.2 헌법 조문 빈칸] 헌법 제1조 ① 대한민국은 {{c1::민주공화국::국체}}이다. ② 대한민국의 {{c2::주권::핵심 권력}}은 국민에게 있고, 모든 권력은 국민으로부터 나온다.", "lv2_back": "민주공화국 · 주권", "lv3_front": "🔥 [Lv.3 헌법 심화] '대한민국은 민주공화국이며 주권은 국민에게 있다'고 규정한 헌법 조문 번호와 기본 원리를 쓰시오.", "lv3_back": "헌법 제1조 (민주공화국 원리 및 국민주권주의)", "target_answer": "민주공화국 · 국민주권"}),
+                ("statute:const_art10", "statute", "⚖️ [헌법 기본권] 모든 국민이 가지는 '인간으로서의 존엄과 가치' 및 '행복추구권'과 국가의 기본권 보장 의무를 규정한 헌법 조문은?", "헌법 제10조 (인간의 존엄과 가치 · 행복추구권)\n\n💡 해설: 모든 국민은 인간으로서의 존엄과 가치를 가지며, 행복을 추구할 권리를 가진다.", {"law_id": "헌법", "article": "제10조", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "인간의 존엄과 가치, 행복추구권"}], "lv1_front": "🌱 [Lv.1 헌법 기초] 인간의 존엄과 가치 및 행복추구권을 규정한 대한민국 헌법 조문은?", "lv1_back": "헌법 제10조", "lv2_front": "📘 [Lv.2 헌법 조문 빈칸] 헌법 {{c1::제10조::조문}}: 모든 국민은 인간으로서의 존엄과 가치를 가지며, {{c2::행복을 추구할 권리::포괄적 기본권}}를 가진다.", "lv2_back": "제10조 · 행복을 추구할 권리(행복추구권)", "lv3_front": "🔥 [Lv.3 헌법 심화] 헌법 제10조가 보장하는 2대 핵심 권리와 국가의 의무를 서술하시오.", "lv3_back": "인간으로서의 존엄과 가치, 행복추구권 · 국가는 개인이 가지는 불가침의 기본적 인권을 확인하고 이를 보장할 의무를 진다.", "target_answer": "헌법 제10조 (인간의 존엄과 가치·행복추구권)"}),
+                ("statute:const_art37_2", "statute", "⚖️ [헌법 기본권 제한] 국민의 기본권을 법률로써 제한할 수 있는 3대 목적 사유와 그 한계(과잉금지원칙)를 규정한 조문은?", "헌법 제37조 제2항 — 국가안전보장 · 질서유지 · 공공복리 (자유와 권리의 본질적 내용 침해 금지)", {"law_id": "헌법", "article": "제37조 제2항", "effective_from": "1988-02-25", "senses": [{"id": "s1", "gloss_ko": "기본권 제한의 한계 및 비례원칙(과잉금지원칙)"}], "lv1_front": "🌱 [Lv.1 헌법 기초] 기본권 제한의 한계(과잉금지원칙)를 규정한 헌법 조문은?", "lv1_back": "헌법 제37조 제2항", "lv2_front": "📘 [Lv.2 헌법 조문 빈칸] 헌법 제37조 제2항: 기본권은 {{c1::국가안전보장·질서유지·공공복리::3대 목적}}를 위하여 필요한 경우에 한하여 {{c2::법률::형식}}로써 제한할 수 있다.", "lv2_back": "국가안전보장·질서유지·공공복리 · 법률", "lv3_front": "🔥 [Lv.3 헌법 심화] 헌법 제37조 제2항에 따른 기본권 제한의 3대 목적 사유와 절대적 한계를 쓰시오.", "lv3_back": "목적: 국가안전보장, 질서유지, 공공복리 · 한계: 자유와 권리의 본질적인 내용을 침해할 수 없음(과잉금지원칙)", "target_answer": "헌법 제37조 제2항 (국가안전보장·질서유지·공공복리)"}),
             ],
         ),
         "sci-element-formula:core": (
             "주기율표 필수 원소 및 물리·화학·수학 공식",
             [
-                ("sci:ohm_law", "formula", "옴의 법칙: V = I × R", "전압(V)은 전류(I)와 저항(R)의 곱에 비례한다 (I = V / R).", {"expression": "V = I × R", "senses": [{"id": "s1", "gloss_ko": "전압 = 전류 × 저항"}]}),
-                ("sci:elem_fe", "element", "원소기호 Fe (원자번호 26)", "철 (Iron) — 헤모글로빈의 핵심 성분이자 산업의 중심 전이금속", {"expression": "Fe (26)", "senses": [{"id": "s1", "gloss_ko": "철 (Iron, 원자번호 26)"}]}),
-                ("sci:quadratic_formula", "formula", "이차방정식의 근의 공식 (ax² + bx + c = 0)", "x = (-b ± √(b² - 4ac)) / 2a (단, a ≠ 0)", {"expression": "x = (-b ± √(b² - 4ac)) / 2a", "senses": [{"id": "s1", "gloss_ko": "근의 공식 및 판별식 D = b² - 4ac"}]}),
+                ("sci:ohm_law", "formula", "🔬 [물리 공식] 전기 회로에서 전압(V), 전류(I), 저항(R) 사이의 관계를 나타내는 '옴의 법칙' 관계식은?", "V = I × R (전압 = 전류 × 저항, I = V / R)\n\n💡 해설: 도체에 흐르는 전류(I)의 세기는 전압(V)에 비례하고 저항(R)에 반비례합니다.", {"expression": "V = I × R", "senses": [{"id": "s1", "gloss_ko": "V = I × R (전압 = 전류 × 저항)"}], "lv1_front": "🌱 [Lv.1 과학 기초] 전압(V), 전류(I), 저항(R)의 관계를 나타낸 '옴의 법칙' 공식은?", "lv1_back": "V = I × R (전압 = 전류 × 저항)", "lv2_front": "📘 [Lv.2 과학 빈칸] 옴의 법칙에서 전류 I는 전압 V에 비례하고 저항 R에 반비례하므로 관계식은 {{c1::V = I × R::옴의 법칙}}이다.", "lv2_back": "V = I × R (또는 I = V / R)", "lv3_front": "🔥 [Lv.3 과학 응용 계산] 저항이 10Ω인 회로에 2A의 전류가 흐를 때 걸리는 전압(V)과 적용된 법칙 이름을 쓰시오.", "lv3_back": "20V · 옴의 법칙 (V = I × R = 2A × 10Ω = 20V)", "target_answer": "V = I × R"}),
+                ("sci:elem_fe", "element", "🔬 [화학 원소] 원자번호 26번이며 혈액 속 헤모글로빈의 핵심 성분이자 산업의 중심이 되는 전이금속의 이름과 원소기호는?", "철 (Fe, Iron)\n\n💡 해설: 원자번호 26번 원소기호 Fe(라틴어 Ferrum 유래)로, 산소를 운반하는 헤모글로빈과 강철 합금의 주성분입니다.", {"expression": "Fe (26)", "senses": [{"id": "s1", "gloss_ko": "철 (Fe, 원자번호 26)"}], "lv1_front": "🌱 [Lv.1 화학 기초] 원소기호 'Fe'(원자번호 26)는 어떤 원소인가요?", "lv1_back": "철 (Iron)", "lv2_front": "📘 [Lv.2 화학 빈칸] 헤모글로빈의 중심 금속이자 원자번호 26번인 {{c1::철 (Fe)::원소명·기호}}은 대표적인 전이금속이다.", "lv2_back": "철 (Fe)", "lv3_front": "🔥 [Lv.3 화학 심화] 원자번호 26번 '철(Iron)'의 원소기호와 생체 내(혈액) 주요 역할을 쓰시오.", "lv3_back": "Fe · 적혈구 헤모글로빈의 구성 성분으로 산소 운반", "target_answer": "철 (Fe)"}),
+                ("sci:quadratic_formula", "formula", "📐 [수학 공식] 이차방정식 ax² + bx + c = 0 (단, a ≠ 0)의 해를 구하는 '근의 공식'과 판별식 D는?", "x = (-b ± √(b² - 4ac)) / 2a · 판별식 D = b² - 4ac\n\n💡 해설: D > 0이면 서로 다른 두 실근, D = 0이면 중근, D < 0이면 서로 다른 두 허근을 가집니다.", {"expression": "x = (-b ± √(b² - 4ac)) / 2a", "senses": [{"id": "s1", "gloss_ko": "x = (-b ± √(b² - 4ac)) / 2a"}], "lv1_front": "🌱 [Lv.1 수학 기초] 이차방정식 ax² + bx + c = 0의 실근 개수를 판별하는 판별식 D는?", "lv1_back": "D = b² - 4ac", "lv2_front": "📘 [Lv.2 수학 빈칸] 이차방정식 ax² + bx + c = 0의 근의 공식은 x = {{c1::(-b ± √(b² - 4ac)) / 2a::근의 공식}}이다.", "lv2_back": "x = (-b ± √(b² - 4ac)) / 2a", "lv3_front": "🔥 [Lv.3 수학 심화] 이차방정식 ax² + bx + c = 0의 근의 공식을 쓰고, 판별식 D의 부호에 따른 근의 종류를 설명하시오.", "lv3_back": "x = (-b ± √(b² - 4ac)) / 2a · D>0: 서로 다른 두 실근, D=0: 중근, D<0: 서로 다른 두 허근", "target_answer": "x = (-b ± √(b² - 4ac)) / 2a"}),
             ],
         ),
         "cert-it:core": (
             "정보처리기사·컴퓨터활용능력 핵심 개념 팩트",
             [
-                ("cert:acid_tx", "fact_item", "데이터베이스 트랜잭션의 4대 특성 (ACID)", "원자성(Atomicity), 일관성(Consistency), 격리성(Isolation), 영속성(Durability)", {"expression": "ACID", "senses": [{"id": "s1", "gloss_ko": "Atomicity · Consistency · Isolation · Durability"}]}),
-                ("cert:osi_7layer", "fact_item", "OSI 7계층 순서 (하위 1계층 -> 상위 7계층)", "물리(Physical) - 데이터링크(Data Link) - 네트워크(Network) - 전송(Transport) - 세션(Session) - 표현(Presentation) - 응용(Application)", {"expression": "물·데·네·전·세·표·응", "senses": [{"id": "s1", "gloss_ko": "물리-데이터링크-네트워크-전송-세션-표현-응용"}]}),
-                ("cert:db_index_btree", "fact_item", "B-Tree 인덱스(Index)의 핵심 특징", "루트·브랜치·리프 노드가 균형을 유지하며 조회 성능을 O(log N)으로 높이는 대표적인 데이터베이스 인덱스 구조", {"expression": "B-Tree Index", "senses": [{"id": "s1", "gloss_ko": "O(log N) 균형 탐색 트리 인덱스"}]}),
+                ("cert:acid_tx", "fact_item", "💻 [정보처리기사 · DB] 데이터베이스 트랜잭션이 안전하게 수행되기 위해 보장해야 하는 4대 특성(ACID)은?", "원자성(Atomicity) · 일관성(Consistency) · 격리성(Isolation) · 영속성(Durability)", {"expression": "ACID", "senses": [{"id": "s1", "gloss_ko": "원자성 · 일관성 · 격리성 · 영속성"}], "lv1_front": "🌱 [Lv.1 IT 기초] DB 트랜잭션의 4대 특성 약자(ACID)가 뜻하는 우리말 4가지는?", "lv1_back": "원자성(Atomicity), 일관성(Consistency), 격리성(Isolation), 영속성(Durability)", "lv2_front": "📘 [Lv.2 IT 빈칸] 트랜잭션 연산이 모두 반영되거나 전혀 반영되지 않아야 하는 All-or-Nothing 특성은 {{c1::원자성 (Atomicity)::ACID 중 A}}이다.", "lv2_back": "원자성 (Atomicity)", "lv3_front": "🔥 [Lv.3 IT 심화] DB 트랜잭션의 4대 특성(ACID)을 영문과 우리말로 모두 나열하시오.", "lv3_back": "Atomicity(원자성) · Consistency(일관성) · Isolation(격리성) · Durability(영속성)", "target_answer": "원자성 · 일관성 · 격리성 · 영속성"}),
+                ("cert:osi_7layer", "fact_item", "💻 [정보처리기사 · 네트워크] OSI 7계층을 하위 1계층부터 상위 7계층까지 순서대로 나열하면?", "물리 - 데이터링크 - 네트워크 - 전송 - 세션 - 표현 - 응용 (물·데·네·전·세·표·응)", {"expression": "물·데·네·전·세·표·응", "senses": [{"id": "s1", "gloss_ko": "물리-데이터링크-네트워크-전송-세션-표현-응용"}], "lv1_front": "🌱 [Lv.1 IT 기초] OSI 7계층의 1계층~7계층 앞글자 순서는?", "lv1_back": "물·데·네·전·세·표·응 (물리-데이터링크-네트워크-전송-세션-표현-응용)", "lv2_front": "📘 [Lv.2 IT 빈칸] OSI 7계층 중 IP 라우팅을 담당하는 3계층은 {{c1::네트워크 계층::3계층}}이고, TCP/UDP 종단 간 전달을 담당하는 4계층은 {{c2::전송 계층::4계층}}이다.", "lv2_back": "네트워크 계층(3계층) · 전송 계층(4계층)", "lv3_front": "🔥 [Lv.3 IT 심화] OSI 7계층을 1계층부터 7계층까지 순서대로 모두 쓰시오.", "lv3_back": "1.물리(Physical) - 2.데이터링크(Data Link) - 3.네트워크(Network) - 4.전송(Transport) - 5.세션(Session) - 6.표현(Presentation) - 7.응용(Application)", "target_answer": "물리 - 데이터링크 - 네트워크 - 전송 - 세션 - 표현 - 응용"}),
+                ("cert:db_index_btree", "fact_item", "💻 [정보처리기사 · DB] 루트·브랜치·리프 노드가 균형을 유지하며 탐색 성능을 O(log N)으로 높이는 대표적인 DB 인덱스 자료구조는?", "B-Tree 인덱스 (Balanced Tree Index, O(log N) 탐색)", {"expression": "B-Tree Index", "senses": [{"id": "s1", "gloss_ko": "B-Tree 인덱스 (O(log N) 균형 탐색 트리)"}], "lv1_front": "🌱 [Lv.1 IT 기초] 루트·브랜치·리프 노드가 균형을 유지하며 O(log N) 탐색을 제공하는 DB 기본 인덱스 구조는?", "lv1_back": "B-Tree 인덱스 (또는 B+Tree 인덱스)", "lv2_front": "📘 [Lv.2 IT 빈칸] {{c1::B-Tree::자료구조}} 인덱스는 균형 트리를 유지하여 평균 및 최악 탐색 시간복잡도 {{c2::O(log N)::시간복잡도}}을 보장한다.", "lv2_back": "B-Tree · O(log N)", "lv3_front": "🔥 [Lv.3 IT 심화] 데이터베이스에서 B-Tree 인덱스를 사용하는 이유와 탐색 시간복잡도를 쓰시오.", "lv3_back": "루트·브랜치·리프 노드의 균형을 유지해 전체 테이블 스캔(O(N)) 없이 O(log N) 시간복잡도로 고속 조회·범위 검색을 수행하기 위해", "target_answer": "B-Tree 인덱스 (O(log N))"}),
             ],
         ),
     }
@@ -2604,6 +3171,84 @@ def build_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
             )
 
     return builder.finalize_pack()
+
+
+def ensure_starter_k12_and_exam_pack(db_path: str | Path) -> dict[str, Any]:
+    """Verify existing `Tier R` starter pack in read-only mode or build atomically via `.tmp.<pid>` + `os.replace` (Invariant I-4 / AC-2)."""
+    import os
+
+    target_path = Path(db_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _verify_ro_pack(candidate_path: Path) -> dict[str, Any] | None:
+        if not candidate_path.is_file():
+            return None
+        try:
+            conn = sqlite3.connect(f"file:{candidate_path}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                qc = conn.execute("PRAGMA quick_check").fetchone()
+                if qc is None or str(qc[0]).lower() != "ok":
+                    return None
+                fk_errs = conn.execute("PRAGMA foreign_key_check").fetchall()
+                if fk_errs:
+                    return None
+                meta_row = conn.execute("SELECT * FROM pack_meta LIMIT 1").fetchone()
+                if meta_row is None or str(meta_row["pack_version"]) != "1.0.0":
+                    return None
+                rows = conn.execute(
+                    "SELECT entry_key, content_hash FROM ref_entries ORDER BY entry_key ASC"
+                ).fetchall()
+                digest = hashlib.sha256()
+                for r in rows:
+                    digest.update(f"{r['entry_key']}:{r['content_hash']}\n".encode("utf-8"))
+                if digest.hexdigest() != str(meta_row["content_sha256"]):
+                    return None
+                # Ensure required textbooks have unit entries and v5.4 spoiler-free multi-level facets
+                hist_cnt = conn.execute(
+                    "SELECT COUNT(*) FROM ref_unit_entries WHERE textbook_id = 'kr.mid2.hist.miraeen.2022'"
+                ).fetchone()[0]
+                if int(hist_cnt) < 1:
+                    return None
+                g_row = conn.execute(
+                    "SELECT facet_json FROM ref_entries WHERE entry_key = 'grammar:mid1_u1_be_verb'"
+                ).fetchone()
+                if g_row is None or '"lv1_front"' not in str(g_row["facet_json"]):
+                    return None
+                meta = dict(meta_row)
+                meta["file_sha256"] = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+                meta["rebuilt"] = False
+                return meta
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
+    verified = _verify_ro_pack(target_path)
+    if verified is not None:
+        return verified
+
+    tmp_path = Path(f"{target_path}.tmp.{os.getpid()}")
+    try:
+        build_starter_k12_and_exam_pack(tmp_path)
+        checked = _verify_ro_pack(tmp_path)
+        if checked is None:
+            raise RuntimeError("Newly built starter pack failed RO verification")
+        os.replace(tmp_path, target_path)
+        for suffix in ("-wal", "-shm"):
+            wal_p = Path(f"{tmp_path}{suffix}")
+            if wal_p.exists():
+                wal_p.unlink()
+        checked["file_sha256"] = hashlib.sha256(target_path.read_bytes()).hexdigest()
+        checked["rebuilt"] = True
+        return checked
+    except Exception:
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(f"{tmp_path}{suffix}")
+            if p.exists():
+                p.unlink()
+        raise
+
 
 
 def inspect_pack_catalog(pack_db_path: str | Path) -> dict[str, Any]:

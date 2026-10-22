@@ -8,14 +8,21 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 from typing import Any, Dict, Iterator, List, Optional
 import zipfile
 
+from anki_studio.domain.rea_v56 import ReviewEvent
+from anki_studio.domain.ai_learning import (
+    extract_clean_target_answer,
+    interleave_study_cards,
+)
 from anki_studio.domain.fsrs_math import (
     CardMemoryState,
     Rating,
@@ -81,6 +88,85 @@ CREATE TABLE IF NOT EXISTS revlog (
     elapsed_days REAL NOT NULL,
     reviewed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS review_undo_journal (
+    undo_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id INTEGER NOT NULL REFERENCES cards(card_id) ON DELETE CASCADE,
+    rev_id INTEGER NOT NULL,
+    state_before TEXT NOT NULL,
+    difficulty_before REAL NOT NULL,
+    stability_before REAL NOT NULL,
+    reps_before INTEGER NOT NULL,
+    lapses_before INTEGER NOT NULL,
+    due_at_before TEXT NOT NULL,
+    last_review_at_before TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS review_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    card_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('REVIEW', 'REVIEW_AHEAD', 'CRAM', 'VOID')),
+    rating INTEGER CHECK(rating IS NULL OR (rating BETWEEN 1 AND 4)),
+    ts_ms INTEGER NOT NULL,
+    device_id TEXT NOT NULL,
+    idem_key TEXT NOT NULL UNIQUE,
+    voids TEXT
+);
+
+CREATE TABLE IF NOT EXISTS note_facets (
+    facet_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL REFERENCES notes(note_id) ON DELETE CASCADE,
+    facet_key TEXT NOT NULL,
+    facet_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'RETIRED', 'TOMBSTONED')),
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE(note_id, facet_key)
+);
+
+CREATE TABLE IF NOT EXISTS confusion_edges (
+    a_card_id INTEGER NOT NULL,
+    b_card_id INTEGER NOT NULL,
+    confusion_count INTEGER NOT NULL DEFAULT 1,
+    contrastive_card_id INTEGER,
+    last_confused_ms INTEGER NOT NULL,
+    PRIMARY KEY(a_card_id, b_card_id),
+    CHECK(a_card_id < b_card_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_plans (
+    plan_id TEXT PRIMARY KEY,
+    deck_id INTEGER NOT NULL REFERENCES decks(deck_id) ON DELETE CASCADE,
+    exam_date_iso TEXT NOT NULL,
+    daily_cap INTEGER NOT NULL CHECK(daily_cap >= 1),
+    target_retention REAL NOT NULL DEFAULT 0.95,
+    status TEXT NOT NULL DEFAULT 'OK'
+);
+
+CREATE TABLE IF NOT EXISTS media_cas (
+    sha256 TEXT PRIMARY KEY CHECK(length(sha256) = 64),
+    mime TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK(byte_size >= 0),
+    refcount INTEGER NOT NULL DEFAULT 1 CHECK(refcount >= 1),
+    created_at_ms INTEGER NOT NULL
+);
+"""
+
+TRIGGER_REVIEW_EVENTS_NO_UPDATE = """
+CREATE TRIGGER IF NOT EXISTS review_events_no_update
+BEFORE UPDATE ON review_events
+BEGIN
+    SELECT RAISE(ABORT, 'review_events_append_only');
+END;
+"""
+
+TRIGGER_REVIEW_EVENTS_NO_DELETE = """
+CREATE TRIGGER IF NOT EXISTS review_events_no_delete
+BEFORE DELETE ON review_events
+BEGIN
+    SELECT RAISE(ABORT, 'review_events_append_only');
+END;
 """
 
 
@@ -124,6 +210,8 @@ class AnkiStudioStore:
             for stmt in SCHEMA_SQL.strip().split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
+            conn.execute(TRIGGER_REVIEW_EVENTS_NO_UPDATE.strip())
+            conn.execute(TRIGGER_REVIEW_EVENTS_NO_DELETE.strip())
             cols = {
                 str(r["name"])
                 for r in conn.execute("PRAGMA table_info(notes)").fetchall()
@@ -352,6 +440,7 @@ class AnkiStudioStore:
         deck_id: Optional[int] = None,
         as_of_iso: Optional[str] = None,
         limit: int = 50,
+        shuffle_mode: str = "sequential",
     ) -> List[Dict[str, Any]]:
         now_str = as_of_iso or _utc_now_iso()
         now_dt = datetime.fromisoformat(now_str)
@@ -376,14 +465,40 @@ class AnkiStudioStore:
             result: List[Dict[str, Any]] = []
             for r in rows:
                 item = dict(r)
+                raw_tags_json = item.get("tags_json")
+                if isinstance(raw_tags_json, str) and raw_tags_json.strip():
+                    try:
+                        parsed_tags = json.loads(raw_tags_json)
+                        item["tags"] = [str(t) for t in parsed_tags] if isinstance(parsed_tags, list) else []
+                    except Exception:
+                        item["tags"] = []
+                else:
+                    item["tags"] = []
                 if item["note_type"] == "cloze":
-                    item["rendered_question"] = render_cloze_card(item["front_text"], item["ordinal"], reveal=False)
-                    item["rendered_answer"] = render_cloze_card(item["front_text"], item["ordinal"], reveal=True)
+                    ord_idx = int(item["ordinal"] or 1)
+                    item["rendered_question"] = render_cloze_card(item["front_text"], ord_idx, reveal=False)
+                    item["rendered_answer"] = render_cloze_card(item["front_text"], ord_idx, reveal=True)
+                    ord_targets = [
+                        m.strip()
+                        for m in re.findall(rf"\{{\{{c{ord_idx}::([^}}:]+)(?:::[^}}]+)?\}}\}}", str(item["front_text"]))
+                        if m.strip()
+                    ]
+                    if not ord_targets:
+                        ord_targets = [
+                            m.strip()
+                            for m in re.findall(r"\{\{c\d+::([^}:]+)(?:::[^}]+)?\}\}", str(item["front_text"]))
+                            if m.strip()
+                        ]
+                    item["target_answer"] = " · ".join(dict.fromkeys(ord_targets)) if ord_targets else str(item["back_text"] or "").strip()
+                    item["extra_explanation"] = str(item["back_text"] or "").strip()
                     if item["back_text"]:
                         item["rendered_answer"] += f"\n\n💡 해설: {item['back_text']}"
                 else:
                     item["rendered_question"] = item["front_text"]
                     item["rendered_answer"] = item["back_text"]
+                    t_ans, extra_exp = extract_clean_target_answer(str(item["front_text"]), str(item["back_text"]))
+                    item["target_answer"] = t_ans
+                    item["extra_explanation"] = extra_exp
 
                 elapsed_days = 0.0
                 if item["last_review_at"]:
@@ -418,6 +533,8 @@ class AnkiStudioStore:
                     else 1.0
                 )
                 result.append(item)
+            if shuffle_mode in ("interleaved", "random"):
+                return interleave_study_cards(result, shuffle_mode=shuffle_mode)
             return result
         finally:
             conn.close()
@@ -488,7 +605,7 @@ class AnkiStudioStore:
                 ),
             )
 
-            conn.execute(
+            rev_cur = conn.execute(
                 """
                 INSERT INTO revlog (
                     card_id, rating, state_before, difficulty_before, stability_before,
@@ -511,14 +628,79 @@ class AnkiStudioStore:
                     now_iso,
                 ),
             )
+            rev_id = int(rev_cur.lastrowid)
+            conn.execute(
+                """
+                INSERT INTO review_undo_journal (
+                    card_id, rev_id, state_before, difficulty_before, stability_before,
+                    reps_before, lapses_before, due_at_before, last_review_at_before, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(card_id),
+                    rev_id,
+                    mem_before.state,
+                    mem_before.difficulty,
+                    mem_before.stability,
+                    mem_before.reps,
+                    mem_before.lapses,
+                    str(row["due_at"]),
+                    row["last_review_at"],
+                    now_iso,
+                ),
+            )
 
             return {
                 "card_id": int(card_id),
+                "rev_id": rev_id,
                 "rating": int(outcome.rating),
                 "memory": outcome.memory,
                 "scheduled_days": outcome.scheduled_days,
                 "scheduled_label": outcome.scheduled_label,
                 "due_at": due_dt.isoformat(),
+            }
+
+    def undo_last_review(self) -> Dict[str, Any]:
+        """Atomically revert the most recent card review (`#btn-undo-review` / shortcut `Z`)."""
+        with self._write_tx() as conn:
+            u = conn.execute(
+                "SELECT * FROM review_undo_journal ORDER BY undo_id DESC LIMIT 1"
+            ).fetchone()
+            if u is None:
+                return {
+                    "ok": False,
+                    "error_code": "NOTHING_TO_UNDO",
+                    "detail": "최근 복습 기록이 없어 되돌릴 수 없습니다.",
+                }
+            cid = int(u["card_id"])
+            conn.execute(
+                """
+                UPDATE cards
+                SET state = ?, difficulty = ?, stability = ?, reps = ?, lapses = ?,
+                    due_at = ?, last_review_at = ?
+                WHERE card_id = ?
+                """,
+                (
+                    str(u["state_before"]),
+                    float(u["difficulty_before"]),
+                    float(u["stability_before"]),
+                    int(u["reps_before"]),
+                    int(u["lapses_before"]),
+                    str(u["due_at_before"]),
+                    u["last_review_at_before"],
+                    cid,
+                ),
+            )
+            conn.execute("DELETE FROM revlog WHERE rev_id = ?", (int(u["rev_id"]),))
+            conn.execute("DELETE FROM review_undo_journal WHERE undo_id = ?", (int(u["undo_id"]),))
+            return {
+                "ok": True,
+                "undone_card_id": cid,
+                "undone_rev_id": int(u["rev_id"]),
+                "restored_state": str(u["state_before"]),
+                "restored_reps": int(u["reps_before"]),
+                "restored_stability": float(u["stability_before"]),
             }
 
     def decompress_backlog(
@@ -753,8 +935,8 @@ class AnkiStudioStore:
         )
 
         semi_id = self.ensure_deck(
-            "🔬 반도체 소자·공정 & AI 아키텍처 (DeepTech)",
-            description="FinFET/GAA Nanosheet · High-NA EUV · LLM 추론 최적화 핵심 수식 및 개념",
+            "🔬 반도체 소자·공정 & 차세대 아키텍처 (DeepTech)",
+            description="FinFET/GAA Nanosheet · High-NA EUV · 추론 최적화 핵심 수식 및 개념",
             desired_retention=0.92,
         )
         self.add_note(
@@ -773,3 +955,90 @@ class AnkiStudioStore:
             tags=["semiconductor", "device", "gaa"],
             source_ref="seed:semi:2",
         )
+
+    def append_review_event(self, event: ReviewEvent) -> Dict[str, Any]:
+        """Append an immutable ReviewEvent with First-Writer-Wins idempotency on `idem_key`."""
+        with self._write_tx() as conn:
+            existing = conn.execute(
+                "SELECT event_id FROM review_events WHERE idem_key = ?",
+                (event.idem_key,),
+            ).fetchone()
+            if existing is not None:
+                return {
+                    "ok": True,
+                    "duplicate_noop": True,
+                    "event_id": str(existing["event_id"]),
+                }
+            conn.execute(
+                """
+                INSERT INTO review_events (
+                    event_id, card_id, kind, rating, ts_ms, device_id, idem_key, voids
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(event.event_id),
+                    str(event.card_id),
+                    str(event.kind),
+                    int(event.rating) if event.rating is not None else None,
+                    int(event.ts_ms),
+                    str(event.device_id),
+                    str(event.idem_key),
+                    event.voids,
+                ),
+            )
+            return {
+                "ok": True,
+                "duplicate_noop": False,
+                "event_id": str(event.event_id),
+            }
+
+    def put_media_cas(self, data: bytes, mime: str, expected_sha256: str) -> Dict[str, Any]:
+        """Store media blob in content-addressed storage after verifying SHA-256."""
+        actual_sha256 = hashlib.sha256(data).hexdigest()
+        expected = (expected_sha256 or "").strip().lower()
+        if actual_sha256 != expected:
+            raise ValueError(
+                f"sha256 mismatch: expected {expected}, got {actual_sha256}"
+            )
+        cas_dir = self.db_path.parent / "media_cas"
+        cas_dir.mkdir(parents=True, exist_ok=True)
+        final_path = cas_dir / f"{actual_sha256}.bin"
+        staging_path = cas_dir / f".staging.{actual_sha256}.{os.getpid()}.tmp"
+        try:
+            staging_path.write_bytes(data)
+            os.replace(staging_path, final_path)
+        finally:
+            if staging_path.exists():
+                staging_path.unlink(missing_ok=True)
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        with self._write_tx() as conn:
+            existing = conn.execute(
+                "SELECT refcount FROM media_cas WHERE sha256 = ?",
+                (actual_sha256,),
+            ).fetchone()
+            if existing is None:
+                refcount = 1
+                conn.execute(
+                    """
+                    INSERT INTO media_cas (sha256, mime, byte_size, refcount, created_at_ms)
+                    VALUES (?, ?, ?, 1, ?)
+                    """,
+                    (actual_sha256, mime, len(data), now_ms),
+                )
+            else:
+                refcount = int(existing["refcount"]) + 1
+                conn.execute(
+                    "UPDATE media_cas SET refcount = ? WHERE sha256 = ?",
+                    (refcount, actual_sha256),
+                )
+        return {
+            "ok": True,
+            "sha256": actual_sha256,
+            "refcount": refcount,
+            "path": str(final_path),
+        }
+
+
+SQLiteAnkiStore = AnkiStudioStore
+

@@ -156,8 +156,8 @@ object BuiltInCurriculumCatalog {
                 CurriculumUnitMeta("$MID2_MIRAEEN_HIST:U01", 1, "Ⅰ단원", "문명의 발생과 고대 세계의 형성", 10, 35, "[9역01-01]")
             ),
             entries = listOf(
-                TextbookEntryItem("khist:hunmin_1443", "$MID2_MIRAEEN_HIST:U01", 18, "훈민정음 창제 (1443, 반포 1446)", "조선 세종 대 훈민정음 28자 창제·반포", "historical_event"),
-                TextbookEntryItem("khist:ganghwa_1876", "$MID2_MIRAEEN_HIST:U01", 26, "강화도 조약 (1876)", "조선 최초의 근대적 조약이자 불평등 조약", "historical_event")
+                TextbookEntryItem("khist:hunmin_1443", "$MID2_MIRAEEN_HIST:U01", 18, "🏛️ [중2 역사①] 조선 세종이 1443년에 창제하고 1446년에 반포한 우리 고유의 28자 문자는?", "훈민정음 (창제 1443 · 반포 1446)\n💡 해설: 백성을 가르치는 바른 소리라는 뜻으로 집현전 학자들과 함께 창제했습니다.", "historical_event"),
+                TextbookEntryItem("khist:ganghwa_1876", "$MID2_MIRAEEN_HIST:U01", 26, "🏛️ [중2 역사①] 1876년 운요호 사건을 계기로 체결된 조선 최초의 근대적 조약이자 불평등 조약은?", "강화도 조약 (조일수호조규, 1876)\n💡 해설: 부산 등 3개 항구 개항과 영사재판권·해안측량권을 허용한 불평등 조약입니다.", "historical_event")
             )
         ),
         TextbookCatalogItem(
@@ -173,16 +173,23 @@ object BuiltInCurriculumCatalog {
                 CurriculumUnitMeta("$HIGH1_VISANG_SCI:U01", 1, "Ⅰ단원", "과학의 기초와 물질의 규칙성", 12, 48, "[10통과01-01]")
             ),
             entries = listOf(
-                TextbookEntryItem("sci:ohm_law", "$HIGH1_VISANG_SCI:U01", 20, "옴의 법칙: V = I × R", "전압(V) = 전류(I) × 저항(R)", "formula"),
-                TextbookEntryItem("sci:elem_fe", "$HIGH1_VISANG_SCI:U01", 32, "원소기호 Fe (원자번호 26)", "철 (Iron)", "formula")
+                TextbookEntryItem("sci:ohm_law", "$HIGH1_VISANG_SCI:U01", 20, "🔬 [통합과학1] 도선에 흐르는 전류(I), 전압(V), 저항(R) 사이의 관계식(옴의 법칙)을 V에 대한 식으로 나타내면?", "V = I × R (전압 = 전류 × 저항)\n💡 해설: 전류(I = V/R)는 전압에 비례하고 저항에 반비례합니다.", "formula"),
+                TextbookEntryItem("sci:elem_fe", "$HIGH1_VISANG_SCI:U01", 32, "🔬 [통합과학1] 원자번호 26번으로 지각과 핵에 풍부하며 헤모글로빈의 중심 원소인 금속의 원소기호와 이름은?", "Fe — 철 (Iron)\n💡 해설: 산소 운반 단백질인 헤모글로빈의 핵심 성분입니다.", "formula")
             )
         )
     )
 
-    private fun card(front: String, back: String, tag: String, pattern: String = "definition", page: Int = 1): SourcedCard =
+    private fun card(
+        front: String,
+        back: String,
+        tag: String,
+        pattern: String = "definition",
+        page: Int = 1,
+        noteType: String = if (front.contains("{{c")) "cloze" else "basic"
+    ): SourcedCard =
         SourcedCard(
             spec = GeneratedCardSpec(
-                noteType = "basic",
+                noteType = noteType,
                 frontText = front,
                 backText = back,
                 tags = listOf(tag),
@@ -306,10 +313,10 @@ object BuiltInCurriculumCatalog {
             category = "language",
             ageRecommendation = "junior",
             cards = listOf(
-                card("무궁화 꽃이 활짝 피었습니다", "받침 '꽃이'와 쌍자음 '활짝' 주의", "dictation_g1"),
-                card("오늘 날씨가 참 맑고 따뜻합니다", "겹받침 '맑고(ㄺ)'와 '따뜻합니다' 주의", "dictation_g1"),
-                card("할머니께 예쁜 편지를 썼습니다", "높임 조사 '-께'와 '썼습니다' 주의", "dictation_g1"),
-                card("도서관에서 조용히 책을 읽어요", "겹받침 '읽어요(ㄺ)' 주의", "dictation_g1")
+                card("✏️ [받아쓰기] 빈칸에 알맞은 맞춤법 표기는?\n무궁화 {{c1::꽃이}} {{c2::활짝}} 피었습니다", "꽃이 활짝\n💡 해설: 받침 '꽃이'와 쌍자음 '활짝' 표기에 주의하세요.", "dictation_g1"),
+                card("✏️ [받아쓰기] 빈칸에 알맞은 맞춤법 표기는?\n오늘 날씨가 참 {{c1::맑고}} {{c2::따뜻합니다}}", "맑고 따뜻합니다\n💡 해설: 겹받침 '맑고(ㄺ)'와 '따뜻합니다' 표기에 주의하세요.", "dictation_g1"),
+                card("✏️ [받아쓰기] 빈칸에 알맞은 맞춤법 표기는?\n할머니{{c1::께}} 예쁜 편지를 {{c2::썼습니다}}", "께 썼습니다\n💡 해설: 높임 조사 '-께'와 '썼습니다' 표기에 주의하세요.", "dictation_g1"),
+                card("✏️ [받아쓰기] 빈칸에 알맞은 맞춤법 표기는?\n도서관에서 조용히 책을 {{c1::읽어요}}", "읽어요\n💡 해설: 겹받침 '읽어요(ㄺ)' 표기에 주의하세요.", "dictation_g1")
             )
         ),
         CollectionCatalogItem(
@@ -330,10 +337,10 @@ object BuiltInCurriculumCatalog {
             category = "exam",
             ageRecommendation = "teen_to_adult",
             cards = listOf(
-                card("훈민정음 창제 (1443, 반포 1446)", "조선 세종 대 백성을 가르치는 바른 소리 28자를 창제·반포한 사건", "khist_core"),
-                card("강화도 조약 (조일수호조규, 1876)", "조선이 외국과 맺은 최초의 근대적 조약이자 불평등 조약 (영사재판권·해안측량권 허용)", "khist_core"),
-                card("갑신정변 (1884)", "김옥균·박영효 등 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 근대화 개혁 운동", "khist_core"),
-                card("직지심체요절 (1377, 청주 흥덕사)", "고려 우왕 3년 청주 흥덕사에서 간행된 현존 세계 최고(最古)의 금속활자본", "khist_core")
+                card("🏛️ [한국사 핵심] 조선 세종이 1443년에 창제하고 1446년에 반포한 우리 고유의 28자 문자는?", "훈민정음\n💡 해설: 창제 1443년 · 반포 1446년 (집현전 학자들과 창제)", "khist_core"),
+                card("🏛️ [한국사 핵심] 1876년 운요호 사건을 계기로 체결된 조선 최초의 근대적 조약이자 불평등 조약은?", "강화도 조약 (조일수호조규, 1876)\n💡 해설: 부산 등 3개 항구 개항과 영사재판권·해안측량권을 허용한 불평등 조약입니다.", "khist_core"),
+                card("🏛️ [한국사 핵심] 1884년 김옥균·박영효 등 급진개화파가 우정총국 개국 축하연을 계기로 일으킨 근대화 개혁 운동은?", "갑신정변 (1884)\n💡 해설: 청에 대한 사대 관계 청산과 인민평등권 확립 등 14개조 정강을 발표했습니다.", "khist_core"),
+                card("🏛️ [한국사 핵심] 1377년(고려 우왕 3년) 청주 흥덕사에서 간행된 현존 세계 최고(最古)의 금속활자본은?", "직지심체요절 (1377)\n💡 해설: 2001년 유네스코 세계기록유산으로 등재되었습니다.", "khist_core")
             )
         ),
         CollectionCatalogItem(
@@ -354,10 +361,10 @@ object BuiltInCurriculumCatalog {
             category = "language",
             ageRecommendation = "teen_to_adult",
             cards = listOf(
-                card("約束 (やくそく)", "약속 (야쿠소쿠)", "jlpt_core"),
-                card("準備 (じゅんび)", "준비 (준비)", "jlpt_core"),
-                card("経験 (けいけん)", "경험 (케이켄)", "jlpt_core"),
-                card("確か (たしか)", "확실히, 틀림없이 (타시카)", "jlpt_core")
+                card("🇯🇵 [JLPT 필수] 다음 일본어 어휘의 요미가나(읽기)와 우리말 뜻은?\n約束", "やくそく — 약속\n💡 해설: 約束(やくそく)を守る (약속을 지키다)", "jlpt_core"),
+                card("🇯🇵 [JLPT 필수] 다음 일본어 어휘의 요미가나(읽기)와 우리말 뜻은?\n準備", "じゅんび — 준비\n💡 해설: 旅行の準備(じゅんび)をする (여행 준비를 하다)", "jlpt_core"),
+                card("🇯🇵 [JLPT 필수] 다음 일본어 어휘의 요미가나(읽기)와 우리말 뜻은?\n経験", "けいけん — 경험\n💡 해설: いい経験(けいけん)になる (좋은 경험이 되다)", "jlpt_core"),
+                card("🇯🇵 [JLPT 필수] 다음 일본어 어휘의 요미가나(읽기)와 우리말 뜻은?\n確か", "たしか — 확실히, 틀림없이\n💡 해설: 確(たし)かな情報 (확실한 정보)", "jlpt_core")
             )
         ),
         CollectionCatalogItem(
@@ -366,10 +373,10 @@ object BuiltInCurriculumCatalog {
             category = "language",
             ageRecommendation = "teen_to_adult",
             cards = listOf(
-                card("苦盡甘來 (고진감래)", "쓴 것이 다하면 단 것이 온다 — 고생 끝에 낙이 온다는 뜻", "idiom_core"),
-                card("大器晩成 (대기만성)", "큰 그릇은 늦게 이루어진다 — 크게 될 인물은 오랜 노력 끝에 대기(大器)를 이룸", "idiom_core"),
-                card("易地思之 (역지사지)", "처지를 바꾸어 생각함 — 상대편의 입장에서 헤아려 생각한다는 뜻", "idiom_core"),
-                card("一石二鳥 (일석이조)", "돌 한 개를 던져 새 두 마리를 잡는다 — 한 가지 일로 두 가지 이익을 얻음", "idiom_core")
+                card("📜 [사자성어] '쓴 것이 다하면 단 것이 온다'는 뜻으로, 고생 끝에 낙이 온다는 의미의 사자성어는?\n(한자: 苦盡甘來)", "고진감래 (苦盡甘來)\n💡 해설: 苦(쓸 고)·盡(다할 진)·甘(달 감)·來(올 래)", "idiom_core"),
+                card("📜 [사자성어] '큰 그릇은 늦게 이루어진다'는 뜻으로, 크게 될 인물은 오랜 노력 끝에 성취한다는 사자성어는?\n(한자: 大器晩成)", "대기만성 (大器晩成)\n💡 해설: 大(클 대)·器(그릇 기)·晩(늦을 만)·成(이룰 성)", "idiom_core"),
+                card("📜 [사자성어] '처지를 바꾸어 생각한다'는 뜻으로, 상대편의 입장에서 헤아려 본다는 사자성어는?\n(한자: 易地思之)", "역지사지 (易地思之)\n💡 해설: 易(바꿀 역)·地(땅 지)·思(생각 사)·之(갈 지)", "idiom_core"),
+                card("📜 [사자성어] '돌 한 개를 던져 새 두 마리를 잡는다'는 뜻으로, 한 가지 일로 두 가지 이익을 얻음을 이르는 사자성어는?\n(한자: 一石二鳥)", "일석이조 (一石二鳥)\n💡 해설: 유의어 일거양득(一擧兩得)", "idiom_core")
             )
         ),
         CollectionCatalogItem(
@@ -378,9 +385,9 @@ object BuiltInCurriculumCatalog {
             category = "law",
             ageRecommendation = "adult",
             cards = listOf(
-                card("대한민국 헌법 제1조", "① 대한민국은 민주공화국이다. ② 대한민국의 주권은 국민에게 있고, 모든 권력은 국민으로부터 나온다.", "law_const"),
-                card("대한민국 헌법 제10조", "모든 국민은 인간으로서의 존엄과 가치를 가지며, 행복을 추구할 권리를 가진다.", "law_const"),
-                card("대한민국 헌법 제37조 제2항 (과잉금지원칙)", "국민의 모든 자유와 권리는 국가안전보장·질서유지 또는 공공복리를 위하여 필요한 경우에 한하여 법률로써 제한할 수 있다.", "law_const")
+                card("⚖️ [헌법 제1조] ① 대한민국은 {{c1::민주공화국}}이다. ② 대한민국의 주권은 {{c2::국민}}에게 있고, 모든 권력은 국민으로부터 나온다.", "민주공화국, 국민\n💡 해설: 대한민국 헌법 제1조 (국체와 국민주권의 원리)", "law_const"),
+                card("⚖️ [헌법 제10조] 모든 국민은 인간으로서의 {{c1::존엄과 가치}}를 가지며, {{c2::행복을 추구할 권리}}를 가진다.", "존엄과 가치, 행복을 추구할 권리\n💡 해설: 기본권 보장의 대원칙인 헌법 제10조입니다.", "law_const"),
+                card("⚖️ [헌법 제37조 제2항] 국민의 모든 자유와 권리는 {{c1::국가안전보장}}·질서유지 또는 {{c2::공공복리}}를 위하여 필요한 경우에 한하여 법률로써 제한할 수 있다.", "국가안전보장, 공공복리\n💡 해설: 기본권 제한의 한계(과잉금지원칙)를 규정한 조문입니다.", "law_const")
             )
         ),
         CollectionCatalogItem(
@@ -389,9 +396,9 @@ object BuiltInCurriculumCatalog {
             category = "engineering",
             ageRecommendation = "teen_to_adult",
             cards = listOf(
-                card("옴의 법칙 (Ohm's Law)", "V = I × R (전압 = 전류 × 저항)", "sci_formula"),
-                card("원소기호 Fe (원자번호 26)", "철 (Iron) — 헤모글로빈의 핵심 성분이자 대표 전이금속", "sci_formula"),
-                card("이차방정식 근의 공식 (ax² + bx + c = 0)", "x = (-b ± √(b² - 4ac)) / 2a (단, a ≠ 0)", "sci_formula")
+                card("🔬 [과학 공식] 도선에 흐르는 전류(I), 전압(V), 저항(R) 사이의 관계식(옴의 법칙)을 V에 대한 식으로 나타내면?", "V = I × R (전압 = 전류 × 저항)\n💡 해설: 전류(I = V/R)는 전압에 비례하고 저항에 반비례합니다.", "sci_formula"),
+                card("🔬 [원소기호] 원자번호 26번으로 지각과 핵에 풍부하며 헤모글로빈의 핵심 성분인 전이금속의 원소기호와 이름은?", "Fe — 철 (Iron)\n💡 해설: 원자번호 26번 전이금속입니다.", "sci_formula"),
+                card("🔬 [수학 공식] 이차방정식 ax² + bx + c = 0 (단, a ≠ 0)의 근의 공식은?", "x = (-b ± √(b² - 4ac)) / 2a\n💡 해설: 판별식 D = b² - 4ac의 부호로 실근의 개수를 판별합니다.", "sci_formula")
             )
         ),
         CollectionCatalogItem(
@@ -400,23 +407,145 @@ object BuiltInCurriculumCatalog {
             category = "engineering",
             ageRecommendation = "adult",
             cards = listOf(
-                card("데이터베이스 트랜잭션 4대 특성 (ACID)", "원자성(Atomicity) · 일관성(Consistency) · 격리성(Isolation) · 영속성(Durability)", "cert_it"),
-                card("OSI 7계층 순서 (하위 1계층 -> 상위 7계층)", "물리 - 데이터링크 - 네트워크 - 전송 - 세션 - 표현 - 응용", "cert_it"),
-                card("B-Tree 인덱스의 핵심 특징", "루트·브랜치·리프 노드가 균형을 유지하며 탐색 시간복잡도를 O(log N)으로 보장하는 DB 인덱스", "cert_it")
+                card("💻 [정보처리] 데이터베이스 트랜잭션이 안전하게 수행되기 위해 보장해야 하는 4대 특성(ACID)은?", "원자성(Atomicity) · 일관성(Consistency) · 격리성(Isolation) · 영속성(Durability)\n💡 해설: All-or-Nothing 보장(원자성)과 커밋 후 영구 반영(영속성)이 핵심입니다.", "cert_it"),
+                card("💻 [네트워크] OSI 7계층을 하위 1계층부터 상위 7계층까지 순서대로 나열하면?", "물리 - 데이터링크 - 네트워크 - 전송 - 세션 - 표현 - 응용\n💡 해설: IP 라우팅은 3계층(네트워크), TCP/UDP는 4계층(전송)입니다.", "cert_it"),
+                card("💻 [데이터베이스] 루트·브랜치·리프 노드가 균형을 유지하며 탐색 시간복잡도 {{c1::O(log N)}}을 보장하는 표준 DB 인덱스 자료구조는?", "B-Tree (또는 B+Tree) 인덱스 · O(log N)\n💡 해설: 범위 검색(Range Scan)과 정렬 조회에 가장 널리 쓰이는 인덱스입니다.", "cert_it")
             )
         )
     )
 
+    data class CombinedScopeItem(
+        val type: String = "textbook", // "textbook" | "collection"
+        val refId: String = "",
+        val unitIds: Set<String> = emptySet(),
+        val title: String = "",
+        val difficultyLevel: String = "mixed",
+        val sourceType: String = type,
+        val label: String = title
+    ) {
+        val effectiveType: String get() = sourceType.ifBlank { type }
+        val effectiveLabel: String get() = label.ifBlank { title }
+    }
+
     fun listTextbooks(): List<TextbookCatalogItem> = TEXTBOOKS
 
     fun listCollections(): List<CollectionCatalogItem> = COLLECTIONS
+
+    private fun expandCardForDifficulty(baseCard: SourcedCard, difficultyLevel: String): List<SourcedCard> {
+        val diff = difficultyLevel.trim().lowercase()
+        val front = baseCard.spec.frontText.trim()
+        val back = baseCard.spec.backText.trim()
+        val mainBack = back.substringBefore("💡 해설:").trim()
+        val conciseTarget = mainBack.substringBefore(" (").substringBefore(" —").trim().ifEmpty { mainBack }
+        val conceptTag = "concept:cat_${((front.take(24) + ":" + conciseTarget).hashCode() and 0x7fffffff)}"
+        val baseTags = if (baseCard.spec.tags.any { it.startsWith("concept:") }) baseCard.spec.tags else (baseCard.spec.tags + conceptTag)
+
+        if (diff == "standard" || diff.isEmpty()) {
+            return listOf(baseCard.copy(spec = baseCard.spec.copy(tags = baseTags)))
+        }
+
+        val lv1Card = baseCard.copy(
+            spec = baseCard.spec.copy(
+                frontText = if (front.startsWith("🌱")) front else "🌱 [Lv.1 기초] $front",
+                tags = baseTags + "diff_lv1"
+            )
+        )
+        val lv2Card = if (front.contains("{{c")) {
+            baseCard.copy(spec = baseCard.spec.copy(tags = baseTags + "diff_lv2"))
+        } else {
+            val clozeFront = "📘 [Lv.2 문맥 빈칸] $front — 알맞은 핵심 표현: {{c1::$conciseTarget::정답 인출}}"
+            baseCard.copy(
+                spec = baseCard.spec.copy(
+                    noteType = "cloze",
+                    frontText = clozeFront,
+                    backText = back,
+                    tags = baseTags + "diff_lv2"
+                )
+            )
+        }
+        val isGrammar = baseTags.any { it == "role:key_grammar" } ||
+            front.contains("핵심문법") ||
+            front.contains("[문법") ||
+            front.contains("핵심 문법")
+        val lv3Card = if (!isGrammar && front.length <= 24 && !front.contains("{{c")) {
+            baseCard.copy(
+                spec = baseCard.spec.copy(
+                    noteType = "basic",
+                    frontText = "🔥 [Lv.3 심화·역방향] 다음 뜻·설명에 해당하는 핵심 어휘(표현)는?\n💡 $mainBack",
+                    backText = "$front\n💡 해설: $mainBack",
+                    tags = baseTags + "diff_lv3"
+                )
+            )
+        } else {
+            baseCard.copy(
+                spec = baseCard.spec.copy(
+                    frontText = "🔥 [Lv.3 심화] $front",
+                    backText = back,
+                    tags = baseTags + "diff_lv3"
+                )
+            )
+        }
+        return when (diff) {
+            "lv1" -> listOf(lv1Card)
+            "lv2" -> listOf(lv2Card)
+            "lv3" -> listOf(lv3Card)
+            "mixed" -> listOf(lv1Card, lv2Card, lv3Card)
+            else -> listOf(baseCard)
+        }
+    }
+
+    fun interleaveSourcedCards(cards: List<SourcedCard>, seed: Long = 20261021L): List<SourcedCard> {
+        if (cards.size <= 1) return cards
+        val grouped = LinkedHashMap<String, ArrayDeque<SourcedCard>>()
+        for (c in cards) {
+            val bucketKey = c.spec.tags.firstOrNull { !it.startsWith("diff_") } ?: c.pattern
+            grouped.getOrPut(bucketKey) { ArrayDeque() }.addLast(c)
+        }
+        val keys = grouped.keys.toMutableList()
+        var rng = seed
+        fun nextIndex(bound: Int): Int {
+            rng = (rng * 1664525L + 1013904223L) and 0xFFFFFFFFL
+            return (rng % bound).toInt()
+        }
+        for (i in keys.lastIndex downTo 1) {
+            val j = nextIndex(i + 1)
+            val tmp = keys[i]
+            keys[i] = keys[j]
+            keys[j] = tmp
+        }
+        val result = ArrayList<SourcedCard>(cards.size)
+        var lastKey: String? = null
+        var streak = 0
+        while (result.size < cards.size) {
+            val activeKeys = keys.filter { grouped[it]?.isNotEmpty() == true }
+            if (activeKeys.isEmpty()) break
+            val candidates = if (activeKeys.size > 1 && lastKey != null && streak >= 2) {
+                activeKeys.filter { it != lastKey }.ifEmpty { activeKeys }
+            } else {
+                activeKeys
+            }
+            val chosen = candidates.maxByOrNull { k ->
+                (grouped[k]?.size ?: 0) * 10 + (if (k != lastKey) 4 else 0)
+            } ?: candidates.first()
+            val nextCard = grouped[chosen]!!.removeFirst()
+            result.add(nextCard)
+            if (chosen == lastKey) {
+                streak += 1
+            } else {
+                lastKey = chosen
+                streak = 1
+            }
+        }
+        return result
+    }
 
     fun buildExamScopeCards(
         textbookId: String,
         selectedUnitIds: Set<String>,
         pageStart: Int? = null,
         pageEnd: Int? = null,
-        maxImportanceTier: Int = 2
+        maxImportanceTier: Int = 2,
+        difficultyLevel: String = "standard"
     ): List<SourcedCard> {
         val tb = TEXTBOOKS.firstOrNull { it.textbookId == textbookId } ?: return emptyList()
         val effectiveUnits = if (selectedUnitIds.isEmpty()) {
@@ -424,7 +553,7 @@ object BuiltInCurriculumCatalog {
         } else {
             selectedUnitIds
         }
-        return tb.entries
+        val baseCards = tb.entries
             .filter { entry ->
                 entry.unitId in effectiveUnits &&
                     entry.importanceTier <= maxImportanceTier &&
@@ -434,10 +563,10 @@ object BuiltInCurriculumCatalog {
             .map { entry ->
                 SourcedCard(
                     spec = GeneratedCardSpec(
-                        noteType = "basic",
+                        noteType = if (entry.frontText.contains("{{c")) "cloze" else "basic",
                         frontText = entry.frontText,
                         backText = entry.backText,
-                        tags = listOf(textbookId, entry.unitId, "p.${entry.pageNo}"),
+                        tags = listOf(entry.unitId, textbookId, "p.${entry.pageNo}", "role:${entry.roleInUnit}"),
                         rationale = "${tb.title} (${entry.unitId} · p.${entry.pageNo})"
                     ),
                     pattern = if (entry.roleInUnit == "key_grammar") "definition" else "language_pair",
@@ -445,9 +574,48 @@ object BuiltInCurriculumCatalog {
                     sourceExcerpt = "${entry.frontText} — ${entry.backText}"
                 )
             }
+        return baseCards.flatMap { expandCardForDifficulty(it, difficultyLevel) }
     }
 
-    fun buildCollectionCards(collectionId: String): List<SourcedCard> {
-        return COLLECTIONS.firstOrNull { it.collectionId == collectionId }?.cards ?: emptyList()
+    fun buildCollectionCards(
+        collectionId: String,
+        difficultyLevel: String = "standard"
+    ): List<SourcedCard> {
+        val base = COLLECTIONS.firstOrNull { it.collectionId == collectionId }?.cards ?: return emptyList()
+        return base.flatMap { expandCardForDifficulty(it, difficultyLevel) }
+    }
+
+    fun buildCombinedExamScopeCards(
+        scopes: List<CombinedScopeItem>,
+        difficultyLevel: String = "mixed",
+        shuffleMode: String = "interleaved",
+        interleaveShuffle: Boolean = true
+    ): List<SourcedCard> {
+        val combined = mutableListOf<SourcedCard>()
+        for (scope in scopes) {
+            val effDiff = scope.difficultyLevel.ifBlank { difficultyLevel }
+            if (scope.effectiveType == "textbook") {
+                combined.addAll(
+                    buildExamScopeCards(
+                        textbookId = scope.refId,
+                        selectedUnitIds = scope.unitIds,
+                        difficultyLevel = effDiff
+                    )
+                )
+            } else {
+                combined.addAll(
+                    buildCollectionCards(
+                        collectionId = scope.refId,
+                        difficultyLevel = effDiff
+                    )
+                )
+            }
+        }
+        val shouldShuffle = interleaveShuffle && (shuffleMode.equals("interleaved", ignoreCase = true) || shuffleMode.equals("random", ignoreCase = true))
+        return if (shouldShuffle) {
+            interleaveSourcedCards(combined)
+        } else {
+            combined
+        }
     }
 }

@@ -342,10 +342,10 @@ def normalize_card_front_key(front_text: str) -> str:
 def _extract_answer_Verification_tokens(spec: GeneratedCardSpec) -> List[str]:
     """Extract target answer tokens that MUST exist in the source document for grounding."""
     cloze_targets = _CLOZE_EXTRACT_RE.findall(spec.front_text)
-    raw_target = " ".join(cloze_targets) if cloze_targets else spec.back_text
+    raw_target = " ".join(cloze_targets) if cloze_targets else spec.back_text.split("💡 해설:")[0]
     norm_target = unicodedata.normalize("NFKC", raw_target).lower()
     tokens = re.findall(r"[가-힣]{2,}|[a-z0-9]+(?:\.[0-9]+)?", norm_target)
-    return [t for t in tokens if t not in _STOPWORDS]
+    return [t for t in tokens if t not in _STOPWORDS and t not in ("해설", "정답")]
 
 
 def _is_token_grounded_on_page(
@@ -457,12 +457,41 @@ def _strip_repeated_headers_footers(blocks: Sequence[DocumentBlock]) -> List[Doc
     return cleaned_blocks
 
 
-def _synthesize_cards_from_block(block: DocumentBlock, category: str) -> List[SourcedCard]:
-    """Deterministically generate grounded SourcedCards from a single DocumentBlock."""
+def _select_semantic_hinge_token(
+    candidates: Sequence[str],
+    text: str,
+    category: str,
+) -> str:
+    """Select the most semantically pivotal domain token rather than naively picking the longest word."""
+    cat_keywords = {kw.lower() for kw in _CATEGORY_KEYWORDS.get(category, ())}
+    all_domain_kw = {kw.lower() for kws in _CATEGORY_KEYWORDS.values() for kw in kws}
+
+    def _score(tok: str) -> Tuple[int, int, int, int]:
+        tl = tok.lower()
+        in_cat = 1 if any(kw in tl or tl in kw for kw in cat_keywords) else 0
+        in_any_dom = 1 if any(kw in tl or tl in kw for kw in all_domain_kw) else 0
+        is_tech_or_num = 1 if (any(ch.isdigit() for ch in tok) or any("A" <= ch <= "Z" for ch in tok)) else 0
+        # Penalize generic verbal/modifier endings in Korean
+        generic_penalty = -3 if tok.endswith(("하는", "되는", "있는", "없는", "통한", "대한", "의한")) else 0
+        return (in_cat * 3 + in_any_dom * 2 + is_tech_or_num * 2 + generic_penalty, is_tech_or_num, in_any_dom, len(tok))
+
+    return max(candidates, key=_score)
+
+
+def _synthesize_cards_from_block(
+    block: DocumentBlock,
+    category: str,
+    difficulty_level: str = "standard",
+) -> List[SourcedCard]:
+    """Deterministically generate grounded SourcedCards from a single DocumentBlock.
+
+    Supports difficulty stratification (`standard`, `lv1`, `lv2`, `lv3`, `mixed`).
+    """
     text = _clean_line(block.text)
     if len(text) < 8:
         return []
 
+    diff = (difficulty_level or "standard").strip().lower()
     excerpt = text[:140]
     pattern = classify_block_pattern(text)
     base_tags = ("auto-deck", category, pattern, f"p{block.page}")
@@ -473,30 +502,77 @@ def _synthesize_cards_from_block(block: DocumentBlock, category: str) -> List[So
         m = _ARROW_PAIR_RE.match(text)
         if m:
             src_phrase, dst_phrase = m.group(1).strip(), m.group(2).strip()
-            results.append(
-                SourcedCard(
-                    spec=GeneratedCardSpec(
-                        note_type="speaking",
-                        front_text=f"🗣️ [어학·표현 인출] {src_phrase}",
-                        back_text=dst_phrase,
-                        tags=base_tags,
-                        rationale=f"p.{block.page} 어학 표현 쌍 자동 추출",
-                    ),
-                    pattern="language_pair",
-                    source_page=block.page,
-                    source_excerpt=excerpt,
+            if diff == "lv1":
+                results.append(
+                    SourcedCard(
+                        spec=GeneratedCardSpec(
+                            note_type="basic",
+                            front_text=f"🌱 [Lv.1 표현 의미 인지] 다음 표현의 뜻·의미는?\n{dst_phrase}",
+                            back_text=src_phrase,
+                            tags=base_tags + ("lv1",),
+                            rationale=f"p.{block.page} Lv.1 어학 표현 의미 인지",
+                        ),
+                        pattern="language_pair",
+                        source_page=block.page,
+                        source_excerpt=excerpt,
+                    )
                 )
-            )
+            elif diff == "lv3":
+                first_ch = dst_phrase[0] if dst_phrase else ""
+                results.append(
+                    SourcedCard(
+                        spec=GeneratedCardSpec(
+                            note_type="speaking",
+                            front_text=f"🔥 [Lv.3 실전 역방향 발화·작문] '{src_phrase}'을(를) 목표 표현으로 정확히 쓰시오. (첫 글자 '{first_ch}', 총 {len(dst_phrase)}자)",
+                            back_text=dst_phrase,
+                            tags=base_tags + ("lv3",),
+                            rationale=f"p.{block.page} Lv.3 어학 역방향 완전 인출",
+                        ),
+                        pattern="language_pair",
+                        source_page=block.page,
+                        source_excerpt=excerpt,
+                    )
+                )
+            else:
+                results.append(
+                    SourcedCard(
+                        spec=GeneratedCardSpec(
+                            note_type="speaking",
+                            front_text=f"🗣️ [어학·표현 인출] {src_phrase}",
+                            back_text=dst_phrase,
+                            tags=base_tags,
+                            rationale=f"p.{block.page} 어학 표현 쌍 자동 추출",
+                        ),
+                        pattern="language_pair",
+                        source_page=block.page,
+                        source_excerpt=excerpt,
+                    )
+                )
+                if diff in ("mixed", "all"):
+                    results.append(
+                        SourcedCard(
+                            spec=GeneratedCardSpec(
+                                note_type="basic",
+                                front_text=f"🌱 [Lv.1 역방향 확인] '{dst_phrase}'의 정확한 우리말 의미는?",
+                                back_text=src_phrase,
+                                tags=base_tags + ("lv1",),
+                                rationale=f"p.{block.page} 어학 표현 양방향 교차 카드",
+                            ),
+                            pattern="language_pair",
+                            source_page=block.page,
+                            source_excerpt=excerpt,
+                        )
+                    )
             return results
 
     # 2. Numbered List (`1) ... 2) ...` or `① ... ② ...`)
     if pattern == "numbered_list":
         items = [it.strip(" ,.;:") for it in _NUMBERED_ITEM_RE.findall(text) if len(it.strip()) >= 2]
         if len(items) >= 2:
-            # Build a multi-cloze card covering up to 3 key items so none of the items are lost
+            max_blanks = 1 if diff == "lv1" else (min(len(items), 4) if diff == "lv3" else 3)
             cloze_parts: List[str] = []
             for idx, item in enumerate(items):
-                if idx < 3:
+                if idx < max_blanks:
                     cloze_parts.append(f"({idx + 1}) {{{{c{idx + 1}::{item}}}}}")
                 else:
                     cloze_parts.append(f"({idx + 1}) {item}")
@@ -554,39 +630,116 @@ def _synthesize_cards_from_block(block: DocumentBlock, category: str) -> List[So
     col_m = _COLON_DEF_RE.match(text)
     if col_m:
         term, desc = col_m.group(1).strip(), col_m.group(2).strip()
-        results.append(
-            SourcedCard(
-                spec=GeneratedCardSpec(
-                    note_type="cloze",
-                    front_text=f"{{{{c1::{term}::핵심 개념}}}}: {desc}",
-                    back_text=f"{term} — {desc}",
-                    tags=base_tags,
-                    rationale=f"p.{block.page} 용어 정의 Cloze",
-                ),
-                pattern="definition",
-                source_page=block.page,
-                source_excerpt=excerpt,
+        if diff == "lv1":
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"🌱 [Lv.1 기초 개념 확인] '{term}'의 핵심 정의는 무엇인가요?",
+                        back_text=f"{desc}\n\n💡 해설: {term} — {desc}",
+                        tags=base_tags + ("lv1",),
+                        rationale=f"p.{block.page} Lv.1 용어 정의 기본 Q&A",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
             )
-        )
+        elif diff == "lv3":
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"🔥 [Lv.3 심화 역방향 인출] 다음 설명이 가리키는 정확한 핵심 용어를 쓰시오.\n\"{desc}\"",
+                        back_text=f"{term}\n\n💡 해설: {term} — {desc}",
+                        tags=base_tags + ("lv3",),
+                        rationale=f"p.{block.page} Lv.3 정의 → 용어 역방향 인출",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
+            )
+        else:
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="cloze",
+                        front_text=f"{{{{c1::{term}::핵심 개념}}}}: {desc}",
+                        back_text=f"{term} — {desc}",
+                        tags=base_tags,
+                        rationale=f"p.{block.page} 용어 정의 Cloze",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
+            )
+            if diff in ("mixed", "all"):
+                results.append(
+                    SourcedCard(
+                        spec=GeneratedCardSpec(
+                            note_type="basic",
+                            front_text=f"🔥 [Lv.3 심화 개념 설명] '{term}'의 핵심 정의와 의미를 서술하시오.",
+                            back_text=f"{desc}",
+                            tags=base_tags + ("lv3",),
+                            rationale=f"p.{block.page} Lv.3 용어 → 정의 서술형 인출",
+                        ),
+                        pattern="definition",
+                        source_page=block.page,
+                        source_excerpt=excerpt,
+                    )
+                )
         return results
 
     kor_m = _KOREAN_DEF_RE.match(text)
     if kor_m:
         term, desc = kor_m.group(1).strip(), kor_m.group(2).strip()
-        results.append(
-            SourcedCard(
-                spec=GeneratedCardSpec(
-                    note_type="cloze",
-                    front_text=f"{{{{c1::{term}::핵심 개념}}}}은(는) {desc}",
-                    back_text=f"{term}: {desc}",
-                    tags=base_tags,
-                    rationale=f"p.{block.page} 국문 개념 정의 Cloze",
-                ),
-                pattern="definition",
-                source_page=block.page,
-                source_excerpt=excerpt,
+        if diff == "lv1":
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"🌱 [Lv.1 기초 개념] '{term}'은(는) 무엇을 뜻하나요?",
+                        back_text=desc,
+                        tags=base_tags + ("lv1",),
+                        rationale=f"p.{block.page} Lv.1 국문 개념 기초 Q&A",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
             )
-        )
+        elif diff == "lv3":
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"🔥 [Lv.3 심화 역방향 인출] 다음 정의에 해당하는 핵심 개념을 쓰시오.\n\"{desc}\"",
+                        back_text=f"{term}: {desc}",
+                        tags=base_tags + ("lv3",),
+                        rationale=f"p.{block.page} Lv.3 국문 개념 역방향 인출",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
+            )
+        else:
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="cloze",
+                        front_text=f"{{{{c1::{term}::핵심 개념}}}}은(는) {desc}",
+                        back_text=f"{term}: {desc}",
+                        tags=base_tags,
+                        rationale=f"p.{block.page} 국문 개념 정의 Cloze",
+                    ),
+                    pattern="definition",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
+            )
         return results
 
     eng_m = _ENGLISH_DEF_RE.match(text)
@@ -612,29 +765,45 @@ def _synthesize_cards_from_block(block: DocumentBlock, category: str) -> List[So
     cc_m = _CAUSAL_COMPARE_RE.search(text)
     if cc_m:
         lhs, connector, rhs = cc_m.group(1).strip(), cc_m.group(2).strip(), cc_m.group(3).strip()
-        results.append(
-            SourcedCard(
-                spec=GeneratedCardSpec(
-                    note_type="basic",
-                    front_text=f"❓ [인과·비교 핵심] {lhs} ({connector}) 뒤에 이어지는 핵심 결과·대조 내용은?",
-                    back_text=rhs,
-                    tags=base_tags,
-                    rationale=f"p.{block.page} 인과·비교({connector}) Q&A",
-                ),
-                pattern="causal_compare",
-                source_page=block.page,
-                source_excerpt=excerpt,
+        if diff == "lv3":
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"🔥 [Lv.3 심화 역인과 추론] '{rhs}' 결과가 나타나거나 대조되는 선행 조건·원인({connector} 앞 내용)은 무엇인가?",
+                        back_text=lhs,
+                        tags=base_tags + ("lv3",),
+                        rationale=f"p.{block.page} Lv.3 역방향 인과·비교 추론",
+                    ),
+                    pattern="causal_compare",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
             )
-        )
+        else:
+            results.append(
+                SourcedCard(
+                    spec=GeneratedCardSpec(
+                        note_type="basic",
+                        front_text=f"❓ [인과·비교 핵심] {lhs} ({connector}) 뒤에 이어지는 핵심 결과·대조 내용은?",
+                        back_text=rhs,
+                        tags=base_tags,
+                        rationale=f"p.{block.page} 인과·비교({connector}) Q&A",
+                    ),
+                    pattern="causal_compare",
+                    source_page=block.page,
+                    source_excerpt=excerpt,
+                )
+            )
         return results
 
-    # Fallback for general informative sentence: mask the longest domain noun/keyword
+    # Fallback for general informative sentence: mask the semantically pivotal domain noun/keyword
     if block.kind == "heading":
         return []
     candidates = re.findall(r"[A-Za-z][A-Za-z0-9\-]{3,18}|[가-힣]{2,10}", text)
     filtered = [c for c in candidates if c.lower() not in _STOPWORDS]
     if filtered and len(text) >= 18:
-        target = max(filtered, key=len)
+        target = _select_semantic_hinge_token(filtered, text, category)
         cloze_sentence = text.replace(target, f"{{{{c1::{target}::핵심 키워드}}}}", 1)
         results.append(
             SourcedCard(
@@ -688,6 +857,7 @@ def build_deck_plan(
     now_date_str: str = "2026-10-19",
     extra_llm_cards: Sequence[SourcedCard] = (),
     ocr_pages: int = 0,
+    difficulty_level: str = "standard",
 ) -> DeckPlan:
     """Build a verified, grounded DeckPlan from an ExtractedDocument (Fail-Closed on insufficient quality)."""
     max_cards = max(1, min(60, int(max_cards)))
@@ -748,9 +918,13 @@ def build_deck_plan(
                     page=block.page,
                     confidence=block.confidence,
                 )
-                raw_candidates.extend(_synthesize_cards_from_block(sub_block, category))
+                raw_candidates.extend(
+                    _synthesize_cards_from_block(sub_block, category, difficulty_level=difficulty_level)
+                )
         else:
-            raw_candidates.extend(_synthesize_cards_from_block(block, category))
+            raw_candidates.extend(
+                _synthesize_cards_from_block(block, category, difficulty_level=difficulty_level)
+            )
 
     if extra_llm_cards:
         raw_candidates.extend(extra_llm_cards)

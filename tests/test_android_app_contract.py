@@ -254,4 +254,30 @@ def test_android_builtin_curriculum_catalog_and_ui_wiring() -> None:
     assert "BuiltInCurriculumCatalog.buildCollectionDeckPlan" in vm_kt
     assert "onGenerateExamScopeDeck" in main_kt
     assert "onGenerateCollectionDeck" in main_kt
+    # v5.2 Onboarding Mode Selector & 5-Tab Bottom Navigation Architecture
+    assert "OnboardingModeSelectorScreen" in main_kt
+    assert "NavigationBar" in main_kt
+    assert "NavigationBarItem" in main_kt
+    assert "StudyTabScreen" in main_kt
+    assert "CurriculumTabScreen" in main_kt
+    assert "CreateDeckTabScreen" in main_kt
+    assert "StoreTabScreen" in main_kt
+    assert "StatsAndModeTabScreen" in main_kt
+    assert "0xFFF2F4F6" in main_kt
+    assert "0xFF1B64DA" in main_kt
+    assert "KEY_ONBOARDING_DONE" in vm_kt
+    assert "KEY_AGE_TIER" in vm_kt
+    assert "fun completeOnboarding(" in vm_kt
+    assert "fun selectTab(" in vm_kt
+    # v5.3 Typing 3-Tier Understanding Grader + Wrong-Only Cram Filter + Anki Core Parity
+    assert "fun submitTypedAnswer(" in vm_kt
+    assert "fun submitDontKnowQuick(" in vm_kt
+    assert "fun setStudyFilterMode(" in vm_kt
+    assert "fun startWrongOnlyRetrySession(" in vm_kt
+    assert "fun toggleMarkCurrentCard(" in vm_kt
+    assert "fun buryCurrentCardToday(" in vm_kt
+    assert "fun addCustomCardDirect(" in vm_kt
+    assert "TextToSpeech" in main_kt
+
+
 

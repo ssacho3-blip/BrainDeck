@@ -499,7 +499,19 @@ def test_studio_service_catalog_and_exam_scope_and_hanja_deck_generation(tmp_pat
     assert col_counts["hanja-grade:3geup"] == 6
     assert col_counts["moe-hanja-1800:middle"] == 44
 
-    # 1. Generate a deck from Middle School Grade 1 Dong-A (Yoon) Lesson 1 & Lesson 3 exam scope
+    # 1. Unlock required BrainPacks first (Invariant I-1 / AC-1 Fail-Closed Entitlement Gate)
+    svc.purchase_store_pack(
+        pack_id="pack.mid1.eng.donga_yoon.full",
+        auto_create_deck=False,
+        payment_token="BDPAY-pack.mid1.eng.donga_yoon.full",
+    )
+    svc.purchase_store_pack(
+        pack_id="pack.exam.hanja_master",
+        auto_create_deck=False,
+        payment_token="BDPAY-pack.exam.hanja_master",
+    )
+
+    # 2. Generate a deck from Middle School Grade 1 Dong-A (Yoon) Lesson 1 & Lesson 3 exam scope
     exam_res = svc.generate_exam_scope_deck(
         textbook_id="kr.mid1.eng.donga_yoon.2022",
         unit_ids=["kr.mid1.eng.donga_yoon.2022:U01", "kr.mid1.eng.donga_yoon.2022:U03"],

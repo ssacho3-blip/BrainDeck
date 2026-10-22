@@ -13,11 +13,16 @@ import tempfile
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from anki_studio.adapters.ai_engine import AICardSynthesizer
+from anki_studio.adapters.ai_engine import (
+    AICardSynthesizer,
+    OLLAMA_CLOUD_DEFAULT_MODEL,
+    is_ollama_cloud_model_blocked,
+)
 from anki_studio.adapters.document_ingestor import DocumentIngestor, MAX_DOCUMENT_BYTES
 from anki_studio.adapters.reference_pack_store import (
     TierULedgerStore,
     build_starter_k12_and_exam_pack,
+    ensure_starter_k12_and_exam_pack,
     inspect_pack_catalog,
 )
 from anki_studio.adapters.sqlite_store import AnkiStudioStore
@@ -30,10 +35,25 @@ from anki_studio.domain.adaptive_quiz import (
 from anki_studio.domain.ai_learning import (
     decompose_leech_card,
     evaluate_free_recall,
+    extract_clean_target_answer,
     generate_socratic_hint,
+    interleave_study_cards,
 )
 from anki_studio.domain.document_deck_builder import build_deck_plan
 from anki_studio.domain.fsrs_math import Rating
+from anki_studio.domain.pack_store import (
+    calculate_bundle_quote,
+    check_ref_entitlement,
+    decide_entitlement_action,
+    get_pack_by_id,
+    list_store_catalog,
+    resolve_cloud_vision_policy,
+    validate_store_purchase,
+)
+from anki_studio.domain.rea_v56 import (
+    build_type_matched_quiz_options,
+    classify_card_question_type,
+)
 
 
 MAX_JSON_BODY_BYTES = 512 * 1024  # 512 KB hard cap
@@ -64,7 +84,7 @@ class AnkiStudioService:
         self.ingestor = document_ingestor or DocumentIngestor()
         self.starter_pack_path = self.db_path.parent / "starter_pack.sqlite"
         self.tier_u_path = self.db_path.parent / "tier_u_ledger.sqlite"
-        self.pack_meta = build_starter_k12_and_exam_pack(self.starter_pack_path)
+        self.pack_meta = ensure_starter_k12_and_exam_pack(self.starter_pack_path)
         self.ledger = TierULedgerStore(self.tier_u_path)
         self.ledger.register_installed_pack(
             pack_id=self.pack_meta["pack_id"],
@@ -81,16 +101,37 @@ class AnkiStudioService:
     def get_status(self) -> Dict[str, Any]:
         stats = self.store.get_dashboard_stats()
         decks = self.store.list_decks()
+        unlocked_packs = self.ledger.list_unlocked_pack_ids(profile_id=1)
         return {
             "ok": True,
-            "engine": "Anki Studio 2.0 (FSRS-5 + AI Active Recall)",
+            "brand": "BrainDeck (브레인덱)",
+            "engine": "BrainDeck 2.0 (FSRS-5 + AI Active Recall + BrainPack Store)",
+            "unlocked_pack_ids": unlocked_packs,
             "stats": stats,
             "decks": decks,
         }
 
-    def get_due_cards(self, deck_id: Optional[int] = None, limit: int = 50) -> Dict[str, Any]:
-        cards = self.store.get_due_cards(deck_id=deck_id, limit=limit)
-        return {"ok": True, "count": len(cards), "cards": cards}
+    def get_due_cards(
+        self,
+        deck_id: Optional[int] = None,
+        limit: int = 50,
+        shuffle_mode: str = "sequential",
+    ) -> Dict[str, Any]:
+        cards = self.store.get_due_cards(deck_id=deck_id, limit=limit, shuffle_mode=shuffle_mode)
+        return {
+            "ok": True,
+            "count": len(cards),
+            "shuffle_mode": shuffle_mode,
+            "cards": cards,
+        }
+
+    def suspend_card(self, card_id: int) -> Dict[str, Any]:
+        suspended = self.store.suspend_card(int(card_id))
+        return {
+            "ok": True,
+            "card_id": int(card_id),
+            "suspended": bool(suspended),
+        }
 
     def submit_review(self, card_id: int, rating: int) -> Dict[str, Any]:
         if rating not in (1, 2, 3, 4):
@@ -109,6 +150,25 @@ class AnkiStudioService:
                 "reps": outcome["memory"].reps,
                 "lapses": outcome["memory"].lapses,
                 "state": outcome["memory"].state,
+            },
+        }
+
+    def undo_review(self) -> Dict[str, Any]:
+        """Revert the most recent review (`#btn-undo-review` / shortcut `Z`)."""
+        return self.store.undo_last_review()
+
+    def set_profile_age_tier(self, age_tier: str, profile_id: int = 1) -> Dict[str, Any]:
+        """Persist learner profile `age_tier` and return corresponding UI/UX tokens."""
+        prof = self.ledger.update_profile_age_tier(age_tier=age_tier, profile_id=profile_id)
+        tier = prof["age_tier"]
+        return {
+            "ok": True,
+            **prof,
+            "ui_tokens": {
+                "age_tier": tier,
+                "allow_easy_button": tier != "junior",
+                "default_quiz_stage": 0 if tier in ("junior", "teen") else 2,
+                "min_touch_target_px": 56 if tier == "junior" else (48 if tier == "teen" else 44),
             },
         }
 
@@ -203,11 +263,33 @@ class AnkiStudioService:
         deck_id: Optional[int] = None,
         auto_save: bool = True,
         max_cards: int = 10,
+        difficulty_level: str = "standard",
+        ollama_cloud_model: Optional[str] = None,
     ) -> Dict[str, Any]:
-        res = self.ai.synthesize_cards(raw_text=raw_text, domain_mode=domain_mode, max_cards=max_cards)
+        res = self.ai.synthesize_cards(
+            raw_text=raw_text,
+            domain_mode=domain_mode,
+            max_cards=max_cards,
+            difficulty_level=difficulty_level,
+            ollama_cloud_model=ollama_cloud_model,
+        )
+        if res.get("error_code") == "BLOCKED_MODEL":
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": "BLOCKED_MODEL",
+                "engine": res["engine"],
+                "provider": res.get("provider", "blocked_model_policy"),
+                "ollama_cloud_model": ollama_cloud_model,
+                "ollama_cloud_used": False,
+                "latency_ms": res.get("latency_ms", 0.0),
+                "generated_count": 0,
+                "saved_note_ids": [],
+                "cards": [],
+            }
         saved_ids = []
         if auto_save and res["cards"]:
-            target_deck = int(deck_id) if deck_id is not None else self.store.ensure_deck("✨ AI 자동 생성 덱 (AI Card Factory)")
+            target_deck = int(deck_id) if deck_id is not None else self.store.ensure_deck("✨ 스마트 자동 생성 덱")
             for c in res["cards"]:
                 nid = self.store.add_note(
                     deck_id=target_deck,
@@ -221,9 +303,12 @@ class AnkiStudioService:
             "ok": True,
             "engine": res["engine"],
             "provider": res.get("provider", "deterministic_nlp"),
+            "ollama_cloud_model": res.get("ollama_cloud_model", ollama_cloud_model or "local_rule"),
+            "ollama_cloud_used": bool(res.get("ollama_cloud_used", False)),
             "latency_ms": res.get("latency_ms", 0.0),
             "fallback_reason": res.get("fallback_reason"),
             "error_code": res.get("error_code"),
+            "difficulty_level": difficulty_level,
             "generated_count": len(res["cards"]),
             "saved_note_ids": saved_ids,
             "cards": res["cards"],
@@ -251,12 +336,69 @@ class AnkiStudioService:
         auto_save: bool = False,
         allow_cloud_vision: bool = False,
         now_date_str: Optional[str] = None,
+        profile_id: int = 1,
+        difficulty_level: str = "standard",
+        ollama_cloud_model: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Extract text/OCR from PDF or photo, build a grounded DeckPlan, and optionally batch-save (AC-1..AC-10)."""
+        """Extract text/OCR from PDF or photo, build a grounded DeckPlan, optionally enrich via Ollama Cloud, and batch-save."""
+        if ollama_cloud_model and is_ollama_cloud_model_blocked(ollama_cloud_model):
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": "BLOCKED_MODEL",
+                "detail": f"Model '{ollama_cloud_model}' is permanently blocked by Model Policy.",
+                "deck_id": None,
+                "deck_name": deck_name or "",
+                "category": "general",
+                "cards": [],
+                "stats": {
+                    "pages": 0,
+                    "ocr_pages": 0,
+                    "low_confidence_lines": 0,
+                    "unmeasured_confidence_lines": 0,
+                    "dropped_ungrounded": 0,
+                    "duplicates": 0,
+                    "total_chars": 0,
+                },
+                "provider": "blocked_model_policy",
+                "ollama_cloud_model": ollama_cloud_model,
+                "ollama_cloud_used": False,
+                "latency_ms": 0.0,
+                "fallback_reason": "blocked_model",
+            }
+        prof = self.ledger.get_profile_info(profile_id=profile_id)
+        cv_policy = resolve_cloud_vision_policy(
+            age_tier=prof.get("age_tier"),
+            cloud_vision_locked=prof.get("cloud_vision_locked"),
+            requested=allow_cloud_vision,
+        )
+        if not cv_policy["allowed"]:
+            return {
+                "ok": False,
+                "status": "BLOCKED",
+                "error_code": cv_policy["error_code"],
+                "detail": "Junior or cloud-locked profile cannot invoke external Cloud Vision OCR (Invariant I-3).",
+                "deck_id": None,
+                "deck_name": deck_name or "",
+                "category": "general",
+                "cards": [],
+                "stats": {
+                    "pages": 0,
+                    "ocr_pages": 0,
+                    "low_confidence_lines": 0,
+                    "unmeasured_confidence_lines": 0,
+                    "dropped_ungrounded": 0,
+                    "duplicates": 0,
+                    "total_chars": 0,
+                },
+                "provider": "blocked_by_policy",
+                "latency_ms": 0.0,
+                "fallback_reason": "cloud_vision_locked",
+            }
         ext = self.ingestor.extract_document(
             data=data,
             mime=mime,
-            allow_cloud_vision=allow_cloud_vision,
+            allow_cloud_vision=bool(cv_policy["use_cloud_vision"]),
         )
         if ext.status != "OK" or ext.document is None:
             return {
@@ -289,6 +431,7 @@ class AnkiStudioService:
             max_cards=max_cards,
             now_date_str=date_str,
             ocr_pages=ext.ocr_pages,
+            difficulty_level=difficulty_level,
         )
         stats_dict = {
             "pages": plan.stats.pages,
@@ -329,6 +472,26 @@ class AnkiStudioService:
             for sc in plan.cards
         ]
 
+        ollama_used = False
+        eff_provider = ext.provider
+        eff_fallback = ext.fallback_reason
+        req_ollama_model = (ollama_cloud_model or "").strip()
+        if req_ollama_model and req_ollama_model.lower() not in ("local_rule", "off", "none", "local"):
+            cloud_res = self.ai.synthesize_document_cards_with_ollama_cloud(
+                blocks=ext.document.blocks,
+                base_cards=cards_out,
+                ollama_cloud_model=req_ollama_model,
+                difficulty_level=difficulty_level,
+                max_cards=max_cards,
+            )
+            if cloud_res.get("cards"):
+                cards_out = list(cloud_res["cards"])
+            ollama_used = bool(cloud_res.get("ollama_cloud_used", False))
+            if ollama_used:
+                eff_provider = f"{ext.provider}+ollama_cloud:{req_ollama_model}"
+            elif cloud_res.get("fallback_reason"):
+                eff_fallback = str(cloud_res["fallback_reason"])
+
         saved_deck_id: Optional[int] = None
         saved_note_ids: List[int] = []
         if auto_save:
@@ -351,9 +514,11 @@ class AnkiStudioService:
                     "category": plan.category,
                     "cards": [],
                     "stats": stats_dict,
-                    "provider": ext.provider,
+                    "provider": eff_provider,
+                    "ollama_cloud_model": req_ollama_model or "local_rule",
+                    "ollama_cloud_used": ollama_used,
                     "latency_ms": ext.latency_ms,
-                    "fallback_reason": ext.fallback_reason,
+                    "fallback_reason": eff_fallback,
                 }
 
         return {
@@ -366,9 +531,11 @@ class AnkiStudioService:
             "saved_note_ids": saved_note_ids,
             "cards": cards_out,
             "stats": stats_dict,
-            "provider": ext.provider,
+            "provider": eff_provider,
+            "ollama_cloud_model": req_ollama_model or "local_rule",
+            "ollama_cloud_used": ollama_used,
             "latency_ms": ext.latency_ms,
-            "fallback_reason": ext.fallback_reason,
+            "fallback_reason": eff_fallback,
         }
 
     def save_deck_batch(
@@ -394,12 +561,209 @@ class AnkiStudioService:
     def get_curriculum_catalog(self) -> Dict[str, Any]:
         """Return built-in K-12 textbooks (e.g. Mid-1 Dong-A Yoon) and Hanja/Exam collections."""
         cat = inspect_pack_catalog(self.starter_pack_path)
+        unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        for tb in cat["textbooks"]:
+            ent = check_ref_entitlement(tb["textbook_id"], unlocked)
+            tb["unlocked"] = ent["allowed"]
+            tb["required_pack_id"] = ent.get("required_pack_id")
+        for col in cat["collections"]:
+            ent = check_ref_entitlement(col["collection_id"], unlocked)
+            col["unlocked"] = ent["allowed"]
+            col["required_pack_id"] = ent.get("required_pack_id")
         return {
             "ok": True,
             "pack_id": self.pack_meta["pack_id"],
             "pack_version": self.pack_meta["pack_version"],
+            "unlocked_pack_ids": unlocked,
             "textbooks": cat["textbooks"],
             "collections": cat["collections"],
+        }
+
+    def get_store_catalog(
+        self,
+        category_filter: Optional[str] = None,
+        age_tier_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return the In-App BrainPack Store catalog with live entitlement status."""
+        unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        return list_store_catalog(
+            unlocked_pack_ids=unlocked,
+            category_filter=category_filter,
+            age_tier_filter=age_tier_filter,
+        )
+
+    def require_entitlement(
+        self,
+        target_ref_id: str,
+        action: str = "GENERATE",
+        profile_id: int = 1,
+    ) -> Dict[str, Any]:
+        """Single Fail-Closed Entitlement Gate (Invariant I-1 / AC-1)."""
+        try:
+            unlocked = self.ledger.list_unlocked_pack_ids(profile_id=profile_id)
+            refunded = self.ledger.list_refunded_pack_ids(profile_id=profile_id)
+        except Exception as exc:
+            raise PermissionError(
+                json.dumps(
+                    {
+                        "allowed": False,
+                        "action": action,
+                        "target_ref_id": target_ref_id,
+                        "error_code": "ENTITLEMENT_UNAVAILABLE",
+                        "detail": str(exc),
+                    },
+                    ensure_ascii=False,
+                )
+            ) from exc
+
+        decision = decide_entitlement_action(
+            target_ref_id=target_ref_id,
+            unlocked_pack_ids=unlocked,
+            refunded_pack_ids=refunded,
+            action=action,
+        )
+        if not decision["allowed"]:
+            raise PermissionError(json.dumps(decision, ensure_ascii=False))
+        return decision
+
+    def purchase_store_pack(
+        self,
+        pack_id: str,
+        auto_create_deck: bool = True,
+        payment_channel: str = "braindeck_store",
+        payment_token: Optional[str] = None,
+        price_paid_override_krw: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Purchase/unlock a BrainPack in the store and atomically materialize its study deck once."""
+        unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        val = validate_store_purchase(
+            pack_id=pack_id,
+            unlocked_pack_ids=unlocked,
+            payment_token=payment_token,
+        )
+        pack = get_pack_by_id(pack_id)
+        effective_price_krw = pack.price_krw if price_paid_override_krw is None else max(0, int(price_paid_override_krw))
+        ent_res = self.ledger.purchase_store_pack(
+            pack_id=pack.pack_id,
+            profile_id=1,
+            price_paid_krw=effective_price_krw,
+            payment_channel=payment_channel,
+        )
+        was_already_unlocked = bool(val["already_unlocked"] or ent_res["already_purchased"])
+
+        mounted_deck: Optional[Dict[str, Any]] = None
+        target_deck_title = f"📦 {pack.title}"
+        if auto_create_deck:
+            existing_decks = self.store.list_decks()
+            existing_match = next((d for d in existing_decks if d["name"] == target_deck_title), None)
+            if was_already_unlocked and existing_match is not None:
+                mounted_deck = {
+                    "ok": True,
+                    "deck_id": existing_match["deck_id"],
+                    "deck_name": existing_match["name"],
+                    "saved_count": existing_match["total_cards"],
+                    "already_mounted": True,
+                }
+            else:
+                if pack.link_kind == "textbook":
+                    cat = inspect_pack_catalog(self.starter_pack_path)
+                    tb = next((t for t in cat["textbooks"] if t["textbook_id"] == pack.primary_ref_id), None)
+                    if tb and tb.get("units"):
+                        unit_ids = [str(u["unit_id"]) for u in tb["units"]]
+                        mounted_deck = self.generate_exam_scope_deck(
+                            textbook_id=pack.primary_ref_id,
+                            unit_ids=unit_ids,
+                            deck_name=target_deck_title,
+                        )
+                else:
+                    mounted_deck = self.generate_collection_deck(
+                        collection_id=pack.primary_ref_id,
+                        limit=50,
+                        deck_name=target_deck_title,
+                    )
+
+        updated_unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        return {
+            "ok": True,
+            "pack_id": pack.pack_id,
+            "title": pack.title,
+            "price_krw": pack.price_krw,
+            "price_paid_krw": int(ent_res["price_paid_krw"]),
+            "already_unlocked": was_already_unlocked,
+            "receipt_hash": ent_res["receipt_hash"],
+            "unlocked_pack_ids": updated_unlocked,
+            "mounted_deck": mounted_deck,
+        }
+
+    def purchase_store_bundle(
+        self,
+        pack_ids: List[str],
+        auto_create_decks: bool = True,
+        payment_channel: str = "braindeck_bundle",
+        payment_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Purchase multiple BrainPacks at once with automatic 15% bundle discount (>= 3 billable packs, T34 & I-2)."""
+        if not pack_ids:
+            raise ValueError("pack_ids must contain at least one pack_id")
+        unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        quote = calculate_bundle_quote(pack_ids=pack_ids, unlocked_pack_ids=unlocked)
+        if quote["final_price_krw"] > 0 and not (payment_token or "").strip():
+            raise ValueError("payment_token is required for paid bundle purchases")
+
+        allocated_map = quote.get("allocated_prices_krw") or {}
+        purchased_items: List[Dict[str, Any]] = []
+        for pid in quote["billable_pack_ids"]:
+            token = payment_token or f"BDPAY-BUNDLE-{pid}"
+            res = self.purchase_store_pack(
+                pack_id=pid,
+                auto_create_deck=auto_create_decks,
+                payment_channel=payment_channel,
+                payment_token=token,
+                price_paid_override_krw=allocated_map.get(pid),
+            )
+            purchased_items.append(res)
+
+        updated_unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
+        return {
+            "ok": True,
+            "quote": quote,
+            "purchased_count": len(purchased_items),
+            "purchased_items": purchased_items,
+            "unlocked_pack_ids": updated_unlocked,
+        }
+
+    def refund_store_pack(
+        self,
+        pack_id: str,
+        profile_id: int = 1,
+    ) -> Dict[str, Any]:
+        """Transition a purchased BrainPack to `refunded_frozen` (T31 & AC-3: preserve FSRS history, block GENERATE)."""
+        res = self.ledger.freeze_refunded_pack(pack_id=pack_id, profile_id=profile_id)
+        return {
+            **res,
+            "unlocked_pack_ids": self.ledger.list_unlocked_pack_ids(profile_id=profile_id),
+            "refunded_pack_ids": self.ledger.list_refunded_pack_ids(profile_id=profile_id),
+        }
+
+    def get_offline_bundle_snapshot(self) -> Dict[str, Any]:
+        """Export an entitlement-filtered JSON bundle so Apple/Android Web-Apps (PWA) work offline without leaking locked packs."""
+        full_cat = self.get_curriculum_catalog()
+        entitled_cat = {
+            "ok": True,
+            "pack_id": full_cat["pack_id"],
+            "pack_version": full_cat["pack_version"],
+            "unlocked_pack_ids": full_cat["unlocked_pack_ids"],
+            "textbooks": [tb for tb in full_cat["textbooks"] if tb.get("unlocked")],
+            "collections": [col for col in full_cat["collections"] if col.get("unlocked")],
+        }
+        return {
+            "ok": True,
+            "brand": "BrainDeck (브레인덱)",
+            "exported_at_utc": datetime.now(timezone.utc).isoformat(),
+            "status": self.get_status(),
+            "due": self.get_due_cards(limit=150),
+            "store": self.get_store_catalog(),
+            "catalog": entitled_cat,
         }
 
     def generate_collection_deck(
@@ -407,14 +771,19 @@ class AnkiStudioService:
         collection_id: str,
         limit: int = 25,
         deck_name: Optional[str] = None,
+        difficulty_level: str = "standard",
+        shuffle_mode: str = "sequential",
     ) -> Dict[str, Any]:
         """Materialize cards from a built-in collection (e.g., `hanja-grade:8geup`..`3geup`, `khist:essential`)."""
+        self.require_entitlement(target_ref_id=collection_id, action="GENERATE", profile_id=1)
         cat = inspect_pack_catalog(self.starter_pack_path)
         col_meta = next((c for c in cat["collections"] if c["collection_id"] == collection_id), None)
         if col_meta is None:
             raise ValueError(f"Unknown collection_id: {collection_id}")
 
-        resolved_title = (deck_name or "").strip() or f"📚 {col_meta['level_label']} ({collection_id})"
+        diff_norm = (difficulty_level or "standard").strip().lower()
+        diff_suffix = f" [{diff_norm.upper()}]" if diff_norm not in ("standard", "") else ""
+        resolved_title = (deck_name or "").strip() or f"📚 {col_meta['level_label']} ({collection_id}){diff_suffix}"
         tier_u_deck_id = self.ledger.create_deck(
             profile_id=1,
             name=f"{resolved_title} [{datetime.now(timezone.utc).strftime('%H%M%S_%f')}]",
@@ -442,24 +811,29 @@ class AnkiStudioService:
             activation_id=act_id,
             pack_db_path=self.starter_pack_path,
             daily_new_limit=max(1, min(200, int(limit))),
+            difficulty_level=diff_norm,
         )
         notes_payload = [
             {
                 "front_text": c["front"],
                 "back_text": c["back"],
-                "note_type": "basic",
-                "tags": [collection_id.replace(":", "_")],
+                "note_type": c.get("note_type") or ("cloze" if "{{c" in c["front"] else "basic"),
+                "tags": [collection_id.replace(":", "_"), f"diff_{diff_norm}"],
             }
             for c in mat_cards
         ]
+        if shuffle_mode in ("interleaved", "random") and len(notes_payload) > 1:
+            notes_payload = interleave_study_cards(notes_payload, shuffle_mode=shuffle_mode)
         batch = self.store.create_deck_with_notes(
             deck_name=resolved_title,
             notes=notes_payload,
-            description=f"내장 레퍼런스 팩 ({collection_id})",
+            description=f"내장 레퍼런스 팩 ({collection_id}, 난이도: {diff_norm})",
         )
         return {
             "ok": True,
             "collection_id": collection_id,
+            "difficulty_level": diff_norm,
+            "shuffle_mode": shuffle_mode,
             "deck_id": batch["deck_id"],
             "deck_name": batch["deck_name"],
             "saved_count": len(batch["saved_note_ids"]),
@@ -474,8 +848,11 @@ class AnkiStudioService:
         page_end: Optional[int] = None,
         max_importance_tier: int = 2,
         deck_name: Optional[str] = None,
+        difficulty_level: str = "standard",
+        shuffle_mode: str = "sequential",
     ) -> Dict[str, Any]:
         """Resolve a middle/high school textbook exam scope (e.g., 중1 동아 윤정미 Lesson 1~2) and create a study deck."""
+        self.require_entitlement(target_ref_id=textbook_id, action="GENERATE", profile_id=1)
         if not unit_ids:
             raise ValueError("unit_ids must contain at least one curriculum unit")
         cat = inspect_pack_catalog(self.starter_pack_path)
@@ -483,7 +860,9 @@ class AnkiStudioService:
         if tb_meta is None:
             raise ValueError(f"Unknown textbook_id: {textbook_id}")
 
-        resolved_title = (deck_name or "").strip() or f"🏫 {tb_meta['title']} 시험범위 ({len(unit_ids)}개 단원)"
+        diff_norm = (difficulty_level or "standard").strip().lower()
+        diff_suffix = f" [{diff_norm.upper()}]" if diff_norm not in ("standard", "") else ""
+        resolved_title = (deck_name or "").strip() or f"🏫 {tb_meta['title']} 시험범위 ({len(unit_ids)}개 단원){diff_suffix}"
         tier_u_deck_id = self.ledger.create_deck(
             profile_id=1,
             name=f"{resolved_title} [{datetime.now(timezone.utc).strftime('%H%M%S_%f')}]",
@@ -512,6 +891,7 @@ class AnkiStudioService:
             scope_id=scope_id,
             pack_db_path=self.starter_pack_path,
             materialize_now=True,
+            difficulty_level=diff_norm,
         )
         notes_payload: List[Dict[str, Any]] = []
         with self.ledger._write_tx() as conn:
@@ -529,23 +909,239 @@ class AnkiStudioService:
                                 "front_text": str(nrow["front"]),
                                 "back_text": str(nrow["back"]),
                                 "note_type": str(nrow["note_type"] or "basic"),
-                                "tags": [textbook_id, str(nrow["curriculum_unit_id"] or ""), page_tag],
+                                "tags": [textbook_id, str(nrow["curriculum_unit_id"] or ""), page_tag, f"diff_{diff_norm}"],
                             }
                         )
+
+        if shuffle_mode in ("interleaved", "random") and len(notes_payload) > 1:
+            notes_payload = interleave_study_cards(notes_payload, shuffle_mode=shuffle_mode)
 
         batch = self.store.create_deck_with_notes(
             deck_name=resolved_title,
             notes=notes_payload,
-            description=f"교과서 시험범위 맞춤 덱 ({tb_meta['title']})",
+            description=f"교과서 시험범위 맞춤 덱 ({tb_meta['title']}, 난이도: {diff_norm})",
         )
         return {
             "ok": True,
             "scope_id": scope_id,
             "textbook_id": textbook_id,
+            "difficulty_level": diff_norm,
+            "shuffle_mode": shuffle_mode,
             "deck_id": batch["deck_id"],
             "deck_name": batch["deck_name"],
             "saved_count": len(batch["saved_note_ids"]),
             "cards": notes_payload,
+        }
+
+    def generate_combined_exam_deck(
+        self,
+        scopes: List[Dict[str, Any]],
+        deck_name: Optional[str] = None,
+        difficulty_level: str = "mixed",
+        shuffle_mode: str = "interleaved",
+        max_cards: int = 120,
+    ) -> Dict[str, Any]:
+        """Combine multiple textbook units, subjects, and/or collections into one interleaved exam-prep deck."""
+        if not scopes or not isinstance(scopes, list):
+            raise ValueError("scopes must be a non-empty list of textbook/collection scope specifications")
+
+        cat = inspect_pack_catalog(self.starter_pack_path)
+        tb_by_id = {t["textbook_id"]: t for t in cat["textbooks"]}
+        col_by_id = {c["collection_id"]: c for c in cat["collections"]}
+        diff_norm = (difficulty_level or "mixed").strip().lower()
+        shuf_norm = (shuffle_mode or "interleaved").strip().lower()
+
+        combined_notes: List[Dict[str, Any]] = []
+        source_summary: List[Dict[str, Any]] = []
+
+        for idx, raw_scope in enumerate(scopes):
+            if not isinstance(raw_scope, dict):
+                continue
+            scope_diff = str(raw_scope.get("difficulty_level") or diff_norm).strip().lower()
+            src_type = str(raw_scope.get("source_type") or raw_scope.get("type") or "").strip().lower()
+            ref_id = str(raw_scope.get("ref_id") or "").strip()
+            tb_id = str(raw_scope.get("textbook_id") or (ref_id if src_type == "textbook" else "")).strip()
+            col_id = str(raw_scope.get("collection_id") or (ref_id if src_type == "collection" else "")).strip()
+
+            if tb_id:
+                try:
+                    self.require_entitlement(target_ref_id=tb_id, action="GENERATE", profile_id=1)
+                except PermissionError as exc:
+                    err_obj = json.loads(str(exc))
+                    req_pack = err_obj.get("required_pack_id")
+                    if err_obj.get("error_code") == "PACK_LOCKED" and req_pack:
+                        self.ledger.purchase_store_pack(
+                            pack_id=req_pack,
+                            profile_id=1,
+                            price_paid_krw=0,
+                            payment_channel="combo_exam_auto",
+                        )
+                    else:
+                        raise
+                tb_meta = tb_by_id.get(tb_id)
+                if tb_meta is None:
+                    raise ValueError(f"Unknown textbook_id in combined scope: {tb_id}")
+                u_ids = [str(u) for u in (raw_scope.get("unit_ids") or []) if str(u).strip()]
+                if not u_ids:
+                    u_ids = [str(u["unit_id"]) for u in tb_meta.get("units", [])]
+                p_start = int(raw_scope["page_start"]) if raw_scope.get("page_start") not in (None, "") else None
+                p_end = int(raw_scope["page_end"]) if raw_scope.get("page_end") not in (None, "") else None
+                max_tier = int(raw_scope.get("max_importance_tier") or 2)
+
+                tier_u_deck_id = self.ledger.create_deck(
+                    profile_id=1,
+                    name=f"ComboScope-{tb_id}-{idx}-{datetime.now(timezone.utc).strftime('%H%M%S_%f')}",
+                    category=str(tb_meta.get("subject_code") or "language"),
+                )
+                rules = [
+                    {
+                        "unit_id": uid,
+                        "include_subunits": True,
+                        "page_start": p_start,
+                        "page_end": p_end,
+                    }
+                    for uid in u_ids
+                ]
+                scope_id = self.ledger.create_exam_scope(
+                    profile_id=1,
+                    deck_id=tier_u_deck_id,
+                    title=f"Combo-{tb_meta['title']}",
+                    pack_id=self.pack_meta["pack_id"],
+                    resolved_pack_version=self.pack_meta["pack_version"],
+                    textbook_id=tb_id,
+                    max_importance_tier=max(1, min(3, max_tier)),
+                    rules=rules,
+                )
+                resolved_items = self.ledger.resolve_and_reconcile_exam_scope(
+                    scope_id=scope_id,
+                    pack_db_path=self.starter_pack_path,
+                    materialize_now=True,
+                    difficulty_level=scope_diff,
+                )
+                added_for_scope = 0
+                with self.ledger._write_tx() as conn:
+                    for item in resolved_items:
+                        nid = item.get("materialized_note_id") or item.get("user_note_id")
+                        if nid is not None:
+                            nrow = conn.execute(
+                                "SELECT front, back, note_type, curriculum_unit_id, textbook_page_no FROM notes WHERE id = ?",
+                                (int(nid),),
+                            ).fetchone()
+                            if nrow is not None:
+                                unit_tag = str(nrow["curriculum_unit_id"] or tb_id)
+                                page_tag = f"p.{nrow['textbook_page_no']}" if nrow["textbook_page_no"] else ""
+                                combined_notes.append(
+                                    {
+                                        "front_text": str(nrow["front"]),
+                                        "back_text": str(nrow["back"]),
+                                        "note_type": str(nrow["note_type"] or "basic"),
+                                        "tags": [unit_tag, tb_id, page_tag, f"diff_{scope_diff}", "combined_exam"],
+                                    }
+                                )
+                                added_for_scope += 1
+                source_summary.append(
+                    {
+                        "type": "textbook",
+                        "id": tb_id,
+                        "title": tb_meta["title"],
+                        "unit_ids": u_ids,
+                        "count": added_for_scope,
+                    }
+                )
+            elif col_id:
+                try:
+                    self.require_entitlement(target_ref_id=col_id, action="GENERATE", profile_id=1)
+                except PermissionError as exc:
+                    err_obj = json.loads(str(exc))
+                    req_pack = err_obj.get("required_pack_id")
+                    if err_obj.get("error_code") == "PACK_LOCKED" and req_pack:
+                        self.ledger.purchase_store_pack(
+                            pack_id=req_pack,
+                            profile_id=1,
+                            price_paid_krw=0,
+                            payment_channel="combo_exam_auto",
+                        )
+                    else:
+                        raise
+                col_meta = col_by_id.get(col_id)
+                if col_meta is None:
+                    raise ValueError(f"Unknown collection_id in combined scope: {col_id}")
+                col_limit = max(1, min(100, int(raw_scope.get("limit") or 15)))
+                tier_u_deck_id = self.ledger.create_deck(
+                    profile_id=1,
+                    name=f"ComboCol-{col_id}-{idx}-{datetime.now(timezone.utc).strftime('%H%M%S_%f')}",
+                    category="hanja" if "hanja" in col_id else "general",
+                )
+                with self.ledger._write_tx() as conn:
+                    existing_act = conn.execute(
+                        "SELECT activation_id FROM pack_activations WHERE profile_id = 1 AND pack_id = ? AND collection_id = ?",
+                        (self.pack_meta["pack_id"], col_id),
+                    ).fetchone()
+                if existing_act is not None:
+                    act_id = int(existing_act["activation_id"])
+                    with self.ledger._write_tx() as conn:
+                        conn.execute(
+                            "UPDATE pack_activations SET next_ordinal = 1, deck_id = ? WHERE activation_id = ?",
+                            (tier_u_deck_id, act_id),
+                        )
+                else:
+                    act_id = self.ledger.activate_pack_collection(
+                        profile_id=1,
+                        deck_id=tier_u_deck_id,
+                        pack_id=self.pack_meta["pack_id"],
+                        collection_id=col_id,
+                    )
+                mat_cards = self.ledger.materialize_daily_pack_cards(
+                    activation_id=act_id,
+                    pack_db_path=self.starter_pack_path,
+                    daily_new_limit=col_limit,
+                    difficulty_level=scope_diff,
+                )
+                for c in mat_cards:
+                    combined_notes.append(
+                        {
+                            "front_text": c["front"],
+                            "back_text": c["back"],
+                            "note_type": c.get("note_type") or ("cloze" if "{{c" in c["front"] else "basic"),
+                            "tags": [col_id.replace(":", "_"), f"diff_{scope_diff}", "combined_exam"],
+                        }
+                    )
+                source_summary.append(
+                    {
+                        "type": "collection",
+                        "id": col_id,
+                        "title": col_meta["level_label"],
+                        "count": len(mat_cards),
+                    }
+                )
+
+        if not combined_notes:
+            raise ValueError("No cards matched the selected combined exam scopes")
+
+        if shuf_norm in ("interleaved", "random") and len(combined_notes) > 1:
+            combined_notes = interleave_study_cards(combined_notes, shuffle_mode=shuf_norm)
+
+        cap = max(1, min(300, int(max_cards or 120)))
+        combined_notes = combined_notes[:cap]
+
+        summary_labels = [s["title"] for s in source_summary[:3]]
+        default_title = f"🎯 통합 시험범위 덱 ({' + '.join(summary_labels)}) [{diff_norm.upper()}]"
+        resolved_title = (deck_name or "").strip() or default_title
+
+        batch = self.store.create_deck_with_notes(
+            deck_name=resolved_title,
+            notes=combined_notes,
+            description=f"다중 출제범위 스마트 인터리빙 통합 덱 ({len(source_summary)}개 범위 조합, 난이도: {diff_norm})",
+        )
+        return {
+            "ok": True,
+            "deck_id": batch["deck_id"],
+            "deck_name": batch["deck_name"],
+            "saved_count": len(batch["saved_note_ids"]),
+            "difficulty_level": diff_norm,
+            "shuffle_mode": shuf_norm,
+            "source_summary": source_summary,
+            "cards": combined_notes,
         }
 
     def build_interactive_quiz(
@@ -560,7 +1156,10 @@ class AnkiStudioService:
             raise KeyError(f"Card {card_id} not found in due cards")
 
         front_str = str(target["front_text"] or "").strip()
-        target_ans = str(target["back_text"] or "").strip()
+        raw_back = str(target["back_text"] or "").strip()
+        target_ans = str(target.get("target_answer") or "").strip() or extract_clean_target_answer(front_str, raw_back)
+        target_qtype = classify_card_question_type(target)
+        target_facet_key = str(target_qtype["facet_key"])
 
         candidates: List[CandidateDistractor] = []
         selected_relations: List[str] = []
@@ -569,17 +1168,21 @@ class AnkiStudioService:
         conn = sqlite3.connect(f"file:{self.starter_pack_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            headword_guess = front_str.split("]")[-1].strip() if "]" in front_str else front_str
+            headword_guess_1 = front_str.split("]")[-1].strip() if "]" in front_str else front_str
+            last_line = front_str.splitlines()[-1].strip() if front_str else ""
+            headword_guess_2 = last_line.split("(")[0].strip()
             entry_row = conn.execute(
-                "SELECT entry_key, entry_type, facet_json FROM ref_entries WHERE headword = ? LIMIT 1",
-                (headword_guess,),
+                "SELECT entry_key, entry_type, facet_json FROM ref_entries WHERE headword IN (?, ?) LIMIT 1",
+                (headword_guess_1, headword_guess_2),
             ).fetchone()
             is_hanja = (
                 (entry_row is not None and str(entry_row["entry_type"]) == "hanja_char")
                 or front_str.startswith("[한자")
+                or "[한자" in front_str
+                or target_facet_key in ("hanja_hun_eum", "hanja_char")
             )
             q_facet = QuestionFacet.HANJA_CHAR if is_hanja else QuestionFacet.WORD_MEANING
-            if entry_row is not None:
+            if entry_row is not None and target_facet_key in ("eng_vocab_meaning", "hanja_hun_eum"):
                 rel_rows = conn.execute(
                     """
                     SELECT r.to_key AS distractor_key, r.rel_type AS relation, r.weight, e.headword, e.gloss_ko, e.facet_json
@@ -593,7 +1196,10 @@ class AnkiStudioService:
                 for rrow in rel_rows:
                     f_data = json.loads(str(rrow["facet_json"] or "{}"))
                     if is_hanja and "hun" in f_data and "eum" in f_data:
-                        opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
+                        if "(부수:" in target_ans:
+                            opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
+                        else:
+                            opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])}"
                     else:
                         opt_txt = str(rrow["gloss_ko"])
                     rel_name = str(rrow["relation"])
@@ -608,42 +1214,67 @@ class AnkiStudioService:
                         )
                     )
 
-            # 2) Add other due cards in the workspace
+            # 2) Add other due cards ONLY if they have the exact same question facet_key (zero cross-type leak!)
             for other in due:
                 if int(other["card_id"]) == int(card_id):
                     continue
-                other_ans = str(other["back_text"] or "").strip()
+                other_qtype = classify_card_question_type(other)
+                if str(other_qtype["facet_key"]) != target_facet_key:
+                    continue
+                other_ans = str(other.get("target_answer") or "").strip() or extract_clean_target_answer(
+                    str(other.get("front_text") or ""),
+                    str(other.get("back_text") or ""),
+                )
                 if not other_ans:
                     continue
                 candidates.append(
                     CandidateDistractor(
                         key=f"card:{other['card_id']}",
                         option_text=other_ans,
-                        answer_set=frozenset({other_ans}),
+                        answer_set=frozenset({other_ans, str(other.get("back_text") or "").strip()}),
                         relations=frozenset({"same_radical"} if is_hanja else {"same_pos_level"}),
                         source_priority=2,
                     )
                 )
 
-            # 3) Supplement from Tier R entries of the same entry_type so even 1-card decks get 3 distractors
-            target_etype = str(entry_row["entry_type"]) if entry_row is not None else ("hanja_char" if is_hanja else "vocab")
-            fallback_rows = conn.execute(
-                "SELECT entry_key, gloss_ko, facet_json FROM ref_entries WHERE entry_type = ? ORDER BY difficulty_rank ASC LIMIT 12",
-                (target_etype,),
-            ).fetchall()
-            for frow in fallback_rows:
-                f_data = json.loads(str(frow["facet_json"] or "{}"))
-                if is_hanja and "hun" in f_data and "eum" in f_data:
-                    opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
-                else:
-                    opt_txt = str(frow["gloss_ko"])
+            # 3) Supplement from Tier R entries ONLY when target is Korean meaning or Hanja hun/eum
+            if target_facet_key in ("eng_vocab_meaning", "hanja_hun_eum"):
+                target_etype = str(entry_row["entry_type"]) if entry_row is not None else ("hanja_char" if is_hanja else "vocab")
+                fallback_rows = conn.execute(
+                    "SELECT entry_key, gloss_ko, facet_json FROM ref_entries WHERE entry_type = ? ORDER BY difficulty_rank ASC LIMIT 12",
+                    (target_etype,),
+                ).fetchall()
+                for frow in fallback_rows:
+                    f_data = json.loads(str(frow["facet_json"] or "{}"))
+                    if is_hanja and "hun" in f_data and "eum" in f_data:
+                        if "(부수:" in target_ans:
+                            opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])} (부수: {f_data.get('radical', '')}, 총 {f_data.get('strokes', '')}획)"
+                        else:
+                            opt_txt = f"{f_data['hun']} {'/'.join(f_data['eum'])}"
+                    else:
+                        opt_txt = str(frow["gloss_ko"])
+                    candidates.append(
+                        CandidateDistractor(
+                            key=f"pack:{frow['entry_key']}",
+                            option_text=opt_txt,
+                            answer_set=frozenset({opt_txt, str(frow["gloss_ko"])}),
+                            relations=frozenset({"same_radical"} if is_hanja else {"same_pos_level"}),
+                            source_priority=3,
+                        )
+                    )
+
+            # 4) Supplement from strict type-matched fallback bank (for grammar, English words, history, science, etc.)
+            type_matched = build_type_matched_quiz_options(target, due)
+            for idx_fb, opt_fb in enumerate(type_matched["options"]):
+                if opt_fb == target_ans:
+                    continue
                 candidates.append(
                     CandidateDistractor(
-                        key=f"pack:{frow['entry_key']}",
-                        option_text=opt_txt,
-                        answer_set=frozenset({opt_txt, str(frow["gloss_ko"])}),
+                        key=f"type_fb:{target_facet_key}:{idx_fb}",
+                        option_text=opt_fb,
+                        answer_set=frozenset({opt_fb}),
                         relations=frozenset({"same_radical"} if is_hanja else {"same_pos_level"}),
-                        source_priority=3,
+                        source_priority=4,
                     )
                 )
         finally:
@@ -665,6 +1296,8 @@ class AnkiStudioService:
             "question": str(target["rendered_question"]),
             "target_answer": target_ans,
             "question_facet": q_facet.value,
+            "question_facet_label": str(target_qtype["badge_label"]),
+            "question_type": target_qtype,
             "mode": mode,
             "options": options,
             "distractor_relations_used": sorted(set(selected_relations)),
@@ -688,7 +1321,11 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(raw)
+            if getattr(self, "command", "GET") != "HEAD":
+                try:
+                    self.wfile.write(raw)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
         def _read_json_body(self) -> Dict[str, Any]:
             length = int(self.headers.get("Content-Length") or 0)
@@ -713,10 +1350,30 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 self._send_json(svc.get_curriculum_catalog())
                 return
 
+            if path == "/api/store/packs":
+                cat_filter = qs.get("category", [None])[0]
+                age_filter = qs.get("age_tier", [None])[0]
+                self._send_json(
+                    svc.get_store_catalog(
+                        category_filter=cat_filter,
+                        age_tier_filter=age_filter,
+                    )
+                )
+                return
+
+            if path == "/api/bundle/offline-snapshot":
+                self._send_json(svc.get_offline_bundle_snapshot())
+                return
+
             if path == "/api/due":
                 deck_raw = qs.get("deck_id", [None])[0]
                 deck_id = int(deck_raw) if deck_raw and deck_raw.isdigit() else None
-                self._send_json(svc.get_due_cards(deck_id=deck_id))
+                shuffle_mode = str(qs.get("shuffle", ["sequential"])[0] or "sequential")
+                self._send_json(svc.get_due_cards(deck_id=deck_id, shuffle_mode=shuffle_mode))
+                return
+
+            if path == "/api/ollama-cloud/models":
+                self._send_json(svc.ai.list_ollama_cloud_models())
                 return
 
             if path == "/api/export.apkg":
@@ -732,6 +1389,39 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
+                return
+
+            if path.startswith("/download/") and path.endswith(".apk"):
+                root_dir = Path(__file__).resolve().parents[3]
+                candidates = [
+                    root_dir / "dist" / "BrainDeck-v5.4-Android.apk",
+                    root_dir / "dist" / "BrainDeck-v5.3-Android.apk",
+                    root_dir / "dist" / "BrainDeck-v5.2-Android.apk",
+                    root_dir / "android-app" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk",
+                    root_dir / "android-app" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk",
+                ]
+                apk_path = next((p for p in candidates if p.is_file()), candidates[0])
+                if not apk_path.is_file():
+                    self._send_json({"ok": False, "error": "apk_not_found"}, status=404)
+                    return
+                apk_size = apk_path.stat().st_size
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/vnd.android.package-archive")
+                self.send_header("Content-Disposition", 'attachment; filename="BrainDeck-v5.4-TDD-ExamScope.apk"')
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Content-Length", str(apk_size))
+                self.end_headers()
+                if getattr(self, "command", "GET") != "HEAD":
+                    try:
+                        with apk_path.open("rb") as fp:
+                            while True:
+                                chunk = fp.read(262144)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                 return
 
             # Static UI files
@@ -754,14 +1444,21 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(raw_bytes)))
             self.end_headers()
-            self.wfile.write(raw_bytes)
+            if getattr(self, "command", "GET") != "HEAD":
+                try:
+                    self.wfile.write(raw_bytes)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+        def do_HEAD(self) -> None:
+            self.do_GET()
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
             qs = parse_qs(parsed.query)
 
-            if path == "/api/ai/ingest-document":
+            if path in ("/api/ai/ingest-document", "/api/ingest/document"):
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > MAX_DOCUMENT_BYTES:
                     self._send_json(
@@ -781,6 +1478,8 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 max_cards = int(qs.get("max_cards", ["30"])[0] or 30)
                 auto_save = qs.get("auto_save", ["0"])[0] in ("1", "true", "True")
                 allow_cloud = qs.get("allow_cloud_vision", ["0"])[0] in ("1", "true", "True")
+                difficulty_level = str(qs.get("difficulty_level", ["standard"])[0] or "standard")
+                ollama_cloud_model = qs.get("ollama_cloud_model", [None])[0]
 
                 res = svc.ingest_document(
                     data=raw_bytes,
@@ -789,8 +1488,15 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     max_cards=max_cards,
                     auto_save=auto_save,
                     allow_cloud_vision=allow_cloud,
+                    difficulty_level=difficulty_level,
+                    ollama_cloud_model=ollama_cloud_model,
                 )
-                http_code = 200 if res.get("status") == "OK" else 422
+                if res.get("error_code") in ("CLOUD_VISION_LOCKED", "BLOCKED_MODEL"):
+                    http_code = 403
+                elif res.get("status") == "OK":
+                    http_code = 200
+                else:
+                    http_code = 422
                 self._send_json(res, status=http_code)
                 return
 
@@ -808,6 +1514,24 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     res = svc.submit_review(
                         card_id=int(body["card_id"]),
                         rating=int(body["rating"]),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/review/undo":
+                    res = svc.undo_review()
+                    status_code = 200 if res.get("ok") else 409
+                    self._send_json(res, status=status_code)
+                    return
+
+                if path == "/api/cards/suspend":
+                    res = svc.suspend_card(card_id=int(body["card_id"]))
+                    self._send_json(res)
+                    return
+
+                if path == "/api/profile/age-tier":
+                    res = svc.set_profile_age_tier(
+                        age_tier=str(body.get("age_tier") or ""),
                     )
                     self._send_json(res)
                     return
@@ -844,7 +1568,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     self._send_json(res)
                     return
 
-                if path == "/api/ai/generate-cards":
+                if path in ("/api/ai/generate-cards", "/api/cards/generate"):
                     deck_id = int(body["deck_id"]) if body.get("deck_id") is not None else None
                     res = svc.generate_ai_cards(
                         raw_text=str(body.get("raw_text") or ""),
@@ -852,8 +1576,11 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         deck_id=deck_id,
                         auto_save=bool(body.get("auto_save", True)),
                         max_cards=int(body.get("max_cards") or 10),
+                        difficulty_level=str(body.get("difficulty_level") or "standard"),
+                        ollama_cloud_model=body.get("ollama_cloud_model"),
                     )
-                    self._send_json(res)
+                    http_code = 403 if res.get("error_code") == "BLOCKED_MODEL" else 200
+                    self._send_json(res, status=http_code)
                     return
 
                 if path == "/api/decks/batch-save":
@@ -880,6 +1607,8 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         collection_id=str(body.get("collection_id") or ""),
                         limit=int(body.get("limit") or 25),
                         deck_name=str(body.get("deck_name") or "") or None,
+                        difficulty_level=str(body.get("difficulty_level") or "standard"),
+                        shuffle_mode=str(body.get("shuffle_mode") or "sequential"),
                     )
                     self._send_json(res)
                     return
@@ -894,6 +1623,19 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         page_end=p_end,
                         max_importance_tier=int(body.get("max_importance_tier") or 2),
                         deck_name=str(body.get("deck_name") or "") or None,
+                        difficulty_level=str(body.get("difficulty_level") or "standard"),
+                        shuffle_mode=str(body.get("shuffle_mode") or "sequential"),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/catalog/generate-combined-exam-deck":
+                    res = svc.generate_combined_exam_deck(
+                        scopes=list(body.get("scopes") or []),
+                        deck_name=str(body.get("deck_name") or "") or None,
+                        difficulty_level=str(body.get("difficulty_level") or "mixed"),
+                        shuffle_mode=str(body.get("shuffle_mode") or "interleaved"),
+                        max_cards=int(body.get("max_cards") or 120),
                     )
                     self._send_json(res)
                     return
@@ -906,7 +1648,54 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     self._send_json(res)
                     return
 
+                if path == "/api/store/purchase":
+                    res = svc.purchase_store_pack(
+                        pack_id=str(body.get("pack_id") or ""),
+                        auto_create_deck=bool(body.get("auto_create_deck", True)),
+                        payment_channel=str(body.get("payment_channel") or "braindeck_store"),
+                        payment_token=str(body["payment_token"]) if body.get("payment_token") is not None else None,
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/store/purchase-bundle":
+                    raw_ids = body.get("pack_ids") or []
+                    if not isinstance(raw_ids, list):
+                        raise ValueError("pack_ids must be a list")
+                    res = svc.purchase_store_bundle(
+                        pack_ids=[str(x) for x in raw_ids],
+                        auto_create_decks=bool(body.get("auto_create_decks", True)),
+                        payment_channel=str(body.get("payment_channel") or "braindeck_bundle"),
+                        payment_token=str(body["payment_token"]) if body.get("payment_token") is not None else None,
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/store/refund":
+                    res = svc.refund_store_pack(
+                        pack_id=str(body.get("pack_id") or ""),
+                    )
+                    self._send_json(res)
+                    return
+
                 self._send_json({"ok": False, "error": "not_found"}, status=404)
+            except PermissionError as exc:
+                raw_msg = str(exc)
+                try:
+                    decision_obj = json.loads(raw_msg)
+                    err_code = str(decision_obj.get("error_code") or "FORBIDDEN")
+                except Exception:
+                    decision_obj = {"detail": raw_msg}
+                    err_code = "FORBIDDEN"
+                self._send_json(
+                    {
+                        "ok": False,
+                        "error": err_code,
+                        "error_code": err_code,
+                        "decision": decision_obj,
+                    },
+                    status=403,
+                )
             except KeyError as exc:
                 self._send_json({"ok": False, "error": "not_found", "detail": str(exc)}, status=404)
             except (ValueError, TypeError) as exc:
@@ -925,7 +1714,10 @@ def create_http_server(
 
 
 if __name__ == "__main__":
-    srv = create_http_server(host="127.0.0.1", port=4390)
-    print("Anki Studio 2.0 running on http://127.0.0.1:4390")
+    import os
+    bind_host = os.environ.get("BRAINDECK_HOST", "0.0.0.0")
+    bind_port = int(os.environ.get("BRAINDECK_PORT", "4390"))
+    srv = create_http_server(host=bind_host, port=bind_port)
+    print(f"BrainDeck 2.0 (Apple PWA & Web Server) running on http://{bind_host}:{bind_port}")
     srv.serve_forever()
 

@@ -4,13 +4,16 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,54 +27,95 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
+import com.ankistudio.domain.catalog.BrainPackStoreCatalog
 import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import com.ankistudio.domain.fsrs.Fsrs5Engine
+import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
+import com.ankistudio.domain.quiz.AdaptiveQuizEngine
+import com.ankistudio.domain.rea.ReaV56Engine
+import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedUnderstandingVerdict
+import java.util.Locale
 
-private val StudioDarkColors = darkColorScheme(
-    primary = Color(0xFF38BDF8),
-    secondary = Color(0xFF818CF8),
-    background = Color(0xFF0B0F19),
-    surface = Color(0xFF111827),
-    onPrimary = Color(0xFF090D16),
-    onBackground = Color(0xFFF9FAFB),
-    onSurface = Color(0xFFF3F4F6)
+// Toss / 말해보카 / 듀오링고 스타일 클린 라이트 컬러 시스템 (네온 제거 + WCAG AA 4.5:1 명도비 준수)
+private val TossCleanLightColors = lightColorScheme(
+    primary = Color(0xFF1B64DA),       // Toss Accessible Deep Blue (5.3:1 on White)
+    onPrimary = Color(0xFFFFFFFF),
+    secondary = Color(0xFF008A50),     // Accessible Emerald Green
+    background = Color(0xFFF2F4F6),    // Soft Warm Off-White Background
+    surface = Color(0xFFFFFFFF),       // Crisp Pure White Card Surface
+    onBackground = Color(0xFF191F28),  // Deep Charcoal Primary Text
+    onSurface = Color(0xFF191F28),
+    surfaceVariant = Color(0xFFF9FAFB)
 )
 
+private val TextPrimary = Color(0xFF191F28)
+private val TextSecondary = Color(0xFF4E5968)
+private val TextMuted = Color(0xFF6B7684)
+private val TossBlue = Color(0xFF1B64DA)
+private val TossBlueSoft = Color(0xFFE8F3FF)
+private val MintGreen = Color(0xFF008A50)
+private val MintGreenSoft = Color(0xFFE8FAF0)
+private val CoralRed = Color(0xFFBE123C)
+private val CoralRedSoft = Color(0xFFFFF0F0)
+
 private val CATEGORY_LABELS = listOf(
-    "law" to "법학·행정",
-    "medical" to "의학·간호",
-    "engineering" to "공학·IT",
-    "language" to "어학·회화",
-    "exam" to "자격증·수험"
+    "law" to "법학",
+    "medical" to "의학",
+    "engineering" to "공학",
+    "language" to "어학",
+    "exam" to "수험"
+)
+
+private val NAV_TABS = listOf(
+    Triple("study", "🏠", "학습"),
+    Triple("curriculum", "🏫", "시험·급수"),
+    Triple("create", "➕", "만들기"),
+    Triple("store", "🛒", "스토어"),
+    Triple("stats", "📊", "내 정보")
 )
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: AnkiStudioViewModel
+    private var tts: TextToSpeech? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.KOREAN
+            }
+        }
 
         viewModel = ViewModelProvider(
             this,
@@ -83,7 +127,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(colorScheme = StudioDarkColors) {
+            MaterialTheme(colorScheme = TossCleanLightColors) {
                 val state by viewModel.uiState.collectAsState()
 
                 val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -116,12 +160,52 @@ class MainActivity : ComponentActivity() {
                     onPickPdf = {
                         pdfPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                     },
+                    onSelectTab = viewModel::selectTab,
+                    onOpenOnboarding = viewModel::openOnboardingModeSelector,
+                    onCompleteOnboarding = viewModel::completeOnboarding,
+                    onSelectDeckForStudy = viewModel::selectDeckForStudy,
+                    onSelectAgeTier = viewModel::selectAgeTier,
+                    onUndoLastReview = viewModel::undoLastReview,
+                    onToggleQuizMode = viewModel::toggleQuizMode,
+                    onSetStudyFilterMode = viewModel::setStudyFilterMode,
+                    onSetQuestionTypeFilter = viewModel::setQuestionTypeFilter,
+                    onStartWrongOnlyRetry = viewModel::startWrongOnlyRetrySession,
+                    onUpdateTypedAnswer = viewModel::updateTypedAnswerInput,
+                    onSubmitTypedAnswer = viewModel::submitTypedAnswer,
+                    onOverrideTypedAnswerCorrect = viewModel::overrideTypedAnswerCorrect,
+                    onSubmitDontKnowQuick = viewModel::submitDontKnowQuick,
+                    onToggleMarkCard = viewModel::toggleMarkCurrentCard,
+                    onBuryCardToday = viewModel::buryCurrentCardToday,
+                    onSpeakText = { textToSpeak ->
+                        val clean = textToSpeak.replace(Regex("[【】\\[\\]]"), " ")
+                        val hasKorean = Regex("[가-힣]").containsMatchIn(clean)
+                        tts?.language = if (hasKorean) Locale.KOREAN else Locale.US
+                        tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "braindeck_tts")
+                    },
+                    onUpdateNewCardFront = viewModel::updateNewCardFrontInput,
+                    onUpdateNewCardBack = viewModel::updateNewCardBackInput,
+                    onInsertClozeTemplate = viewModel::insertClozeTemplateIntoFront,
+                    onAddCustomCardDirect = viewModel::addCustomCardDirect,
+                    onPurchaseTop3Bundle = viewModel::purchaseTop3Bundle,
                     onSelectCategory = viewModel::selectCategoryOverride,
+                    onSelectOllamaCloudModel = viewModel::selectOllamaCloudModel,
                     onDeckTitleChange = viewModel::updateCustomDeckTitle,
                     onToggleExamUnit = viewModel::toggleExamUnit,
                     onSelectCollection = viewModel::selectStarterCollection,
+                    onSelectStoreCategory = viewModel::selectStoreCategory,
+                    onPurchaseBrainPack = viewModel::purchaseBrainPack,
                     onGenerateExamScopeDeck = viewModel::generateExamScopeDeck,
                     onGenerateCollectionDeck = viewModel::generateCollectionDeck,
+                    onToggleInterleavedShuffle = viewModel::toggleInterleavedShuffle,
+                    onRequestHint = viewModel::requestProgressiveHint,
+                    onSelectQuizOption = viewModel::submitMultipleChoiceOption,
+                    onSelectDifficultyLevel = viewModel::selectDifficultyLevel,
+                    onSelectTextbook = viewModel::selectTextbook,
+                    onAddTextbookToCombo = viewModel::addCurrentTextbookToCombinedScope,
+                    onAddCollectionToCombo = viewModel::addCurrentCollectionToCombinedScope,
+                    onLoadMidtermComboPreset = viewModel::loadMidtermComboPreset,
+                    onClearComboScopes = viewModel::clearCombinedExamScopes,
+                    onGenerateCombinedExamDeck = viewModel::generateCombinedExamScopeDeck,
                     onUpdatePreviewCard = viewModel::updatePreviewCard,
                     onRemovePreviewCard = viewModel::removePreviewCard,
                     onSavePreviewDeck = viewModel::savePreviewAsDeck,
@@ -130,6 +214,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -165,353 +255,1953 @@ fun AnkiStudioScreen(
     state: AnkiStudioUiState,
     onPickPhoto: () -> Unit,
     onPickPdf: () -> Unit,
+    onSelectTab: (String) -> Unit = {},
+    onOpenOnboarding: () -> Unit = {},
+    onCompleteOnboarding: (String) -> Unit = {},
+    onSelectDeckForStudy: (Long?) -> Unit = {},
+    onSelectAgeTier: (String) -> Unit = {},
+    onUndoLastReview: () -> Unit = {},
+    onToggleQuizMode: () -> Unit = {},
+    onSetStudyFilterMode: (String) -> Unit = {},
+    onSetQuestionTypeFilter: (String) -> Unit = {},
+    onStartWrongOnlyRetry: () -> Unit = {},
+    onUpdateTypedAnswer: (String) -> Unit = {},
+    onSubmitTypedAnswer: () -> Unit = {},
+    onOverrideTypedAnswerCorrect: () -> Unit = {},
+    onSubmitDontKnowQuick: () -> Unit = {},
+    onToggleMarkCard: () -> Unit = {},
+    onBuryCardToday: () -> Unit = {},
+    onSpeakText: (String) -> Unit = {},
+    onUpdateNewCardFront: (String) -> Unit = {},
+    onUpdateNewCardBack: (String) -> Unit = {},
+    onInsertClozeTemplate: () -> Unit = {},
+    onAddCustomCardDirect: () -> Unit = {},
+    onPurchaseTop3Bundle: () -> Unit = {},
     onSelectCategory: (String?) -> Unit,
+    onSelectOllamaCloudModel: (String) -> Unit = {},
     onDeckTitleChange: (String) -> Unit,
     onToggleExamUnit: (String) -> Unit,
     onSelectCollection: (String) -> Unit,
+    onSelectStoreCategory: (String) -> Unit = {},
+    onPurchaseBrainPack: (String) -> Unit = {},
     onGenerateExamScopeDeck: () -> Unit,
     onGenerateCollectionDeck: () -> Unit,
+    onToggleInterleavedShuffle: () -> Unit = {},
+    onRequestHint: () -> Unit = {},
+    onSelectQuizOption: (String) -> Unit = {},
+    onSelectDifficultyLevel: (String) -> Unit = {},
+    onSelectTextbook: (String) -> Unit = {},
+    onAddTextbookToCombo: () -> Unit = {},
+    onAddCollectionToCombo: () -> Unit = {},
+    onLoadMidtermComboPreset: () -> Unit = {},
+    onClearComboScopes: () -> Unit = {},
+    onGenerateCombinedExamDeck: () -> Unit = {},
     onUpdatePreviewCard: (Int, String, String) -> Unit,
     onRemovePreviewCard: (Int) -> Unit,
     onSavePreviewDeck: () -> Unit,
     onRevealAnswer: () -> Unit,
     onRateCard: (Rating) -> Unit
 ) {
-    val activeTextbook = BuiltInCurriculumCatalog.textbooks.firstOrNull { it.textbookId == state.selectedTextbookId }
-        ?: BuiltInCurriculumCatalog.textbooks.first()
+    // 1. Dedicated Full-Screen Initial Setup (Junior / Teen / Adult Mode Selector)
+    if (state.showOnboarding) {
+        OnboardingModeSelectorScreen(
+            onSelectMode = onCompleteOnboarding
+        )
+        return
+    }
 
+    val tierBadgeLabel = when (state.ageTier) {
+        "junior" -> "🌱 주니어"
+        "adult" -> "🎓 성인"
+        else -> "🚀 중고등"
+    }
+
+    // 2. Multi-Page Scaffold with Clean White Bottom Navigation Bar
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFFF2F4F6)),
+        containerColor = Color(0xFFF2F4F6),
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFFFFFFFF),
+                contentColor = TextPrimary,
+                tonalElevation = 8.dp
+            ) {
+                NAV_TABS.forEach { (tabId, icon, label) ->
+                    NavigationBarItem(
+                        selected = state.activeTab == tabId,
+                        onClick = { onSelectTab(tabId) },
+                        icon = { Text(text = icon, fontSize = 19.sp) },
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = if (state.activeTab == tabId) FontWeight.ExtraBold else FontWeight.Medium
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = TossBlue,
+                            selectedTextColor = TossBlue,
+                            indicatorColor = TossBlueSoft,
+                            unselectedIconColor = TextMuted,
+                            unselectedTextColor = TextMuted
+                        )
+                    )
+                }
+            }
+        }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp)
         ) {
-            item {
-                Text(
-                    text = "Anki Studio · Photo & PDF Auto-Deck",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "전공 요약본 사진·교재 스캔·강의안 PDF를 넣으면 온디바이스 AI가 즉시 FSRS-5 암기 덱을 생성합니다.",
-                    fontSize = 13.sp,
-                    color = Color(0xFF9CA3AF)
-                )
-            }
-
-            state.statusBannerMessage?.let { msg ->
-                item {
+            // Minimal, Clean Toss-Style Top Header Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "브레인덱",
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
                     Surface(
-                        color = if (state.isErrorBanner) Color(0xFF3F1D24) else Color(0xFF102A3A),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        color = TossBlueSoft,
+                        shape = RoundedCornerShape(999.dp),
+                        modifier = Modifier.clickable { onOpenOnboarding() }
                     ) {
                         Text(
-                            text = msg,
-                            color = if (state.isErrorBanner) Color(0xFFFCA5A5) else Color(0xFF7DD3FC),
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(12.dp)
+                            text = "$tierBadgeLabel ▾",
+                            color = TossBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp)
                         )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (state.canUndoLastReview) {
+                        OutlinedButton(
+                            onClick = onUndoLastReview,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("↩️ 되돌리기", fontSize = 12.sp, color = TextSecondary)
+                        }
                     }
                 }
             }
 
-            // Textbook Exam-Scope & Hanja Grade / Starter Collections Card
+            // Soft Pastel Toast Banner
+            state.statusBannerMessage?.let { msg ->
+                Surface(
+                    color = if (state.isErrorBanner) CoralRedSoft else TossBlueSoft,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Text(
+                        text = msg,
+                        color = if (state.isErrorBanner) CoralRed else TossBlue,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
+                    )
+                }
+            }
+
+            // Dedicated Single-Focus Page Content per Navigation Tab
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (state.activeTab) {
+                    "study" -> StudyTabScreen(
+                        state = state,
+                        onSelectDeckForStudy = onSelectDeckForStudy,
+                        onToggleQuizMode = onToggleQuizMode,
+                        onSetStudyFilterMode = onSetStudyFilterMode,
+                        onSetQuestionTypeFilter = onSetQuestionTypeFilter,
+                        onToggleInterleavedShuffle = onToggleInterleavedShuffle,
+                        onStartWrongOnlyRetry = onStartWrongOnlyRetry,
+                        onUpdateTypedAnswer = onUpdateTypedAnswer,
+                        onSubmitTypedAnswer = onSubmitTypedAnswer,
+                        onOverrideTypedAnswerCorrect = onOverrideTypedAnswerCorrect,
+                        onSubmitDontKnowQuick = onSubmitDontKnowQuick,
+                        onRequestHint = onRequestHint,
+                        onSelectQuizOption = onSelectQuizOption,
+                        onToggleMarkCard = onToggleMarkCard,
+                        onBuryCardToday = onBuryCardToday,
+                        onSpeakText = onSpeakText,
+                        onRevealAnswer = onRevealAnswer,
+                        onRateCard = onRateCard,
+                        onGoToStore = { onSelectTab("store") },
+                        onGoToCurriculum = { onSelectTab("curriculum") }
+                    )
+                    "curriculum" -> CurriculumTabScreen(
+                        state = state,
+                        onSelectDifficultyLevel = onSelectDifficultyLevel,
+                        onSelectTextbook = onSelectTextbook,
+                        onToggleExamUnit = onToggleExamUnit,
+                        onGenerateExamScopeDeck = onGenerateExamScopeDeck,
+                        onSelectCollection = onSelectCollection,
+                        onGenerateCollectionDeck = onGenerateCollectionDeck,
+                        onAddTextbookToCombo = onAddTextbookToCombo,
+                        onAddCollectionToCombo = onAddCollectionToCombo,
+                        onLoadMidtermComboPreset = onLoadMidtermComboPreset,
+                        onClearComboScopes = onClearComboScopes,
+                        onGenerateCombinedExamDeck = onGenerateCombinedExamDeck
+                    )
+                    "create" -> CreateDeckTabScreen(
+                        state = state,
+                        onSelectCategory = onSelectCategory,
+                        onSelectOllamaCloudModel = onSelectOllamaCloudModel,
+                        onDeckTitleChange = onDeckTitleChange,
+                        onPickPhoto = onPickPhoto,
+                        onPickPdf = onPickPdf,
+                        onUpdateNewCardFront = onUpdateNewCardFront,
+                        onUpdateNewCardBack = onUpdateNewCardBack,
+                        onInsertClozeTemplate = onInsertClozeTemplate,
+                        onAddCustomCardDirect = onAddCustomCardDirect,
+                        onUpdatePreviewCard = onUpdatePreviewCard,
+                        onRemovePreviewCard = onRemovePreviewCard,
+                        onSavePreviewDeck = onSavePreviewDeck
+                    )
+                    "store" -> StoreTabScreen(
+                        state = state,
+                        onPurchaseTop3Bundle = onPurchaseTop3Bundle,
+                        onSelectStoreCategory = onSelectStoreCategory,
+                        onPurchaseBrainPack = onPurchaseBrainPack
+                    )
+                    "stats" -> StatsAndModeTabScreen(
+                        state = state,
+                        onSelectDeckForStudy = onSelectDeckForStudy,
+                        onSelectAgeTier = onSelectAgeTier,
+                        onOpenOnboarding = onOpenOnboarding
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingModeSelectorScreen(
+    onSelectMode: (String) -> Unit
+) {
+    val modes = listOf(
+        Triple("junior", "🌱 주니어 (초등)", "큰 글씨 · 쉬운 3버튼 · 4지선다 퀴즈"),
+        Triple("teen", "🚀 중고등 (내신·수능)", "학교 교과서 시험범위 · 스피드 암기"),
+        Triple("adult", "🎓 성인 (자격증·어학·전공)", "핵심 요약 · 정밀 복습 · 고밀도 카드")
+    )
+
+    Surface(
+        color = Color(0xFFF2F4F6),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Surface(
+                color = TossBlueSoft,
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Text(
+                    text = "맞춤 학습 세팅",
+                    color = TossBlue,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "누가 학습하나요?",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "선택한 모드에 맞춰 글자 크기와 퀴즈가 세팅됩니다.",
+                fontSize = 14.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(26.dp))
+
+            modes.forEach { (tierCode, title, desc) ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 7.dp)
+                        .clickable { onSelectMode(tierCode) }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = desc,
+                                fontSize = 13.sp,
+                                color = TextSecondary
+                            )
+                        }
+                        Text(
+                            text = "선택 ➔",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TossBlue
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudyTabScreen(
+    state: AnkiStudioUiState,
+    onSelectDeckForStudy: (Long?) -> Unit,
+    onToggleQuizMode: () -> Unit,
+    onSetStudyFilterMode: (String) -> Unit,
+    onSetQuestionTypeFilter: (String) -> Unit = {},
+    onToggleInterleavedShuffle: () -> Unit = {},
+    onStartWrongOnlyRetry: () -> Unit,
+    onUpdateTypedAnswer: (String) -> Unit,
+    onSubmitTypedAnswer: () -> Unit,
+    onOverrideTypedAnswerCorrect: () -> Unit = {},
+    onSubmitDontKnowQuick: () -> Unit,
+    onRequestHint: () -> Unit = {},
+    onSelectQuizOption: (String) -> Unit = {},
+    onToggleMarkCard: () -> Unit,
+    onBuryCardToday: () -> Unit,
+    onSpeakText: (String) -> Unit,
+    onRevealAnswer: () -> Unit,
+    onRateCard: (Rating) -> Unit,
+    onGoToStore: () -> Unit,
+    onGoToCurriculum: () -> Unit
+) {
+    val activeRaw = state.rawDueCards.filter { it.cardId !in state.buriedCardIds }
+    val qCounts = AdaptiveQuizEngine.computeAnkiQueueCounts(
+        activeRaw.map { it.state to it.lapses }
+    )
+    val wrongCount = buildSet {
+        activeRaw.filter {
+            it.lapses > 0 ||
+                it.state.equals("learning", ignoreCase = true) ||
+                it.state.equals("relearning", ignoreCase = true)
+        }.forEach { add(it.cardId) }
+        state.sessionWrongCards.forEach { if (it.cardId !in state.buriedCardIds) add(it.cardId) }
+    }.size
+
+    var showSummarySheet by remember { mutableStateOf(false) }
+    var revealedIndices by remember { mutableStateOf(setOf<Int>()) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (state.decks.isNotEmpty()) {
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    item {
+                        FilterChip(
+                            selected = state.selectedDeckId == null,
+                            onClick = { onSelectDeckForStudy(null) },
+                            label = { Text("전체 (${activeRaw.size})") }
+                        )
+                    }
+                    items(state.decks) { deck ->
+                        FilterChip(
+                            selected = state.selectedDeckId == deck.id,
+                            onClick = { onSelectDeckForStudy(deck.id) },
+                            label = { Text(deck.name) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Study Filter Mode Bar (전체 학습 · 🔥 오답·모르는 것만 · ⭐ 별표 카드만)
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                item {
+                    FilterChip(
+                        selected = state.studyFilterMode == "all",
+                        onClick = { onSetStudyFilterMode("all") },
+                        label = { Text("📚 전체 학습 (${activeRaw.size})") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = state.studyFilterMode == "wrong_only",
+                        onClick = { onSetStudyFilterMode("wrong_only") },
+                        label = { Text("🔥 오답·모르는 것만 ($wrongCount)") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = state.studyFilterMode == "marked_only",
+                        onClick = { onSetStudyFilterMode("marked_only") },
+                        label = { Text("⭐ 별표만 (${state.markedCardIds.size})") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = state.isInterleavedShuffleEnabled,
+                        onClick = onToggleInterleavedShuffle,
+                        label = {
+                            Text(
+                                if (state.isInterleavedShuffleEnabled) "🔀 스마트 랜덤 ON" else "📋 순차 학습"
+                            )
+                        }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = showSummarySheet,
+                        onClick = { showSummarySheet = !showSummarySheet },
+                        label = { Text("🟥 전자 셀로판지 요약시트") }
+                    )
+                }
+            }
+        }
+
+        // Gate T43: Question-Type Filter Bar (전체 유형 | 단어·어휘만 | 문법·구문만 | 한자·성어만 | 역사·과학·전공)
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val qtypeChips = listOf(
+                    "all" to "🗂️ 전체 유형",
+                    "vocab" to "📘 단어·어휘만",
+                    "grammar" to "📐 문법·구문만",
+                    "hanja" to "漢字 한자·성어만",
+                    "history_sci" to "🏛️ 역사·과학·전공"
+                )
+                items(qtypeChips) { (code, label) ->
+                    FilterChip(
+                        selected = state.questionTypeFilter == code,
+                        onClick = { onSetQuestionTypeFilter(code) },
+                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    )
+                }
+            }
+        }
+
+        if (showSummarySheet && activeRaw.isNotEmpty()) {
+            val summaryRows = ReaV56Engine.buildSummarySheetRows(
+                activeRaw.take(30).map { it.front to it.back }
+            )
             item {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF5F5)),
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "🏫 교과서 시험범위 & 漢字 급수별·전 연령 기본 팩",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "① ${activeTextbook.title} (${activeTextbook.publisher} · ${activeTextbook.author}) 단원 선택",
-                            fontSize = 13.sp,
-                            color = Color(0xFF38BDF8),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(activeTextbook.units) { unit ->
-                                FilterChip(
-                                    selected = unit.unitId in state.selectedUnitIds,
-                                    onClick = { onToggleExamUnit(unit.unitId) },
-                                    label = { Text("${unit.unitId} (p.${unit.pageStart}~${unit.pageEnd})") }
-                                )
+                            Text(
+                                "🟥 전자 셀로판지 요약시트 (탭하여 확인)",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFFBE123C)
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    revealedIndices = if (revealedIndices.size == summaryRows.size) {
+                                        emptySet()
+                                    } else {
+                                        summaryRows.map { it.index }.toSet()
+                                    }
+                                }
+                            ) {
+                                Text("전체 보기/가리기", fontSize = 11.sp)
                             }
                         }
-                        Button(
-                            onClick = onGenerateExamScopeDeck,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("⚡ 선택한 시험범위 단원(${state.selectedUnitIds.size}개) 암기 덱 생성")
+                        summaryRows.forEach { r ->
+                            val isRev = r.index in revealedIndices
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White, RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        revealedIndices = if (isRev) revealedIndices - r.index else revealedIndices + r.index
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "${r.index}. ${r.prompt}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF191F28),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isRev) Color(0xFFFFF0F0) else Color(0xFFBE123C),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        r.cleanAnswer,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFFBE123C)
+                                    )
+                                }
+                            }
                         }
+                    }
+                }
+            }
+        }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "② 한자 급수별(8급~3급) 및 전 연령 기본 학습 팩",
-                            fontSize = 13.sp,
-                            color = Color(0xFF38BDF8),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(BuiltInCurriculumCatalog.collections) { col ->
-                                FilterChip(
-                                    selected = state.selectedCollectionId == col.collectionId,
-                                    onClick = { onSelectCollection(col.collectionId) },
-                                    label = { Text(col.title) }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Anki 3-Color Queue Counter Pills + 4-Choice Quiz Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(color = TossBlueSoft, shape = RoundedCornerShape(999.dp)) {
+                                Text(
+                                    text = "새 카드 ${qCounts.newCount}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = TossBlue,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                )
+                            }
+                            Surface(color = CoralRedSoft, shape = RoundedCornerShape(999.dp)) {
+                                Text(
+                                    text = "학습·오답 $wrongCount",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = CoralRed,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                )
+                            }
+                            Surface(color = MintGreenSoft, shape = RoundedCornerShape(999.dp)) {
+                                Text(
+                                    text = "복습 ${qCounts.reviewCount}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MintGreen,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                                 )
                             }
                         }
                         OutlinedButton(
-                            onClick = onGenerateCollectionDeck,
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = onToggleQuizMode,
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("📚 선택한 급수·기본 컬렉션 덱 즉시 생성")
+                            Text(
+                                text = if (state.isQuizModeOpen) "기본" else "🎯 퀴즈",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TossBlue
+                            )
                         }
                     }
-                }
-            }
 
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    val currentDue = state.dueCards.firstOrNull()
+                    if (currentDue == null) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "📄 사진 & PDF 자동 덱 생성기",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = if (state.studyFilterMode == "wrong_only") {
+                                "🎉 오답·모르는 문제를 모두 정복했어요!"
+                            } else {
+                                "🎉 오늘 학습을 모두 마쳤어요!"
+                            },
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
                         )
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            FilterChip(
-                                selected = state.selectedCategoryOverride == null,
-                                onClick = { onSelectCategory(null) },
-                                label = { Text("자동 감지") }
-                            )
-                            CATEGORY_LABELS.forEach { (catId, label) ->
-                                FilterChip(
-                                    selected = state.selectedCategoryOverride == catId,
-                                    onClick = { onSelectCategory(catId) },
-                                    label = { Text(label.substringBefore("·")) }
-                                )
+                        if (wrongCount > 0 && state.studyFilterMode != "wrong_only") {
+                            Surface(
+                                color = CoralRedSoft,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = "🔥 방금 학습 중 모르거나 헷갈린 카드가 ${wrongCount}장 있어요!",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CoralRed
+                                    )
+                                    Button(
+                                        onClick = onStartWrongOnlyRetry,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CoralRed,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                                    ) {
+                                        Text("🔥 틀린·모르는 ${wrongCount}장만 다시 복습하기", fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
+                        } else {
+                            Text(
+                                text = "새로운 시험범위나 단어를 추가해 볼까요?",
+                                fontSize = 14.sp,
+                                color = TextSecondary
+                            )
                         }
-
-                        OutlinedTextField(
-                            value = state.customDeckTitle,
-                            onValueChange = onDeckTitleChange,
-                            label = { Text("덱 제목 (비워두면 문서 제목으로 자동 설정)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
 
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Button(
-                                onClick = onPickPhoto,
-                                enabled = !state.isIngesting,
-                                modifier = Modifier.weight(1f)
+                                onClick = onGoToCurriculum,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f).height(48.dp)
                             ) {
-                                Text("📷 사진/교재 스캔 선택")
+                                Text("🏫 시험·급수 덱", fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
-                                onClick = onPickPdf,
-                                enabled = !state.isIngesting,
-                                modifier = Modifier.weight(1f)
+                                onClick = onGoToStore,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f).height(48.dp)
                             ) {
-                                Text("📑 강의안 PDF 선택")
+                                Text("🛒 스토어", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else {
+                        val questionDisplay = if (currentDue.noteType == "cloze") {
+                            Fsrs5Engine.renderClozeCard(
+                                frontText = currentDue.front,
+                                ordinal = currentDue.ord,
+                                reveal = state.isAnswerRevealed
+                            )
+                        } else {
+                            currentDue.front
+                        }
+
+                        val currentQType = AdaptiveQuizEngine.classifyCardQuestionType(
+                            frontText = currentDue.front,
+                            backText = currentDue.back
+                        )
+                        val isMarked = currentDue.cardId in state.markedCardIds
+                        // Anki Core Action Bar: Question Type Badge + TTS (발음), Hint (힌트), Star (별표), Bury (오늘 숨김)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${currentQType.badgeLabel} · 남은 ${state.dueCards.size}장 · 오답 ${currentDue.lapses}회",
+                                fontSize = 12.sp,
+                                color = TossBlue,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Surface(
+                                    color = if (state.hintStep > 0) Color(0xFFFFF8E6) else Color(0xFFF9FAFB),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.clickable { onRequestHint() }
+                                ) {
+                                    Text(
+                                        text = if (state.hintStep == 0) "💡 힌트" else "💡 힌트 ${state.hintStep}/2",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (state.hintStep > 0) Color(0xFFD97706) else TossBlue,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                    )
+                                }
+                                Surface(
+                                    color = Color(0xFFF9FAFB),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.clickable {
+                                        onSpeakText(if (state.isAnswerRevealed) currentDue.back else questionDisplay)
+                                    }
+                                ) {
+                                    Text(
+                                        text = "🔊 발음",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                    )
+                                }
+                                Surface(
+                                    color = if (isMarked) Color(0xFFFFF8E6) else Color(0xFFF9FAFB),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.clickable { onToggleMarkCard() }
+                                ) {
+                                    Text(
+                                        text = if (isMarked) "⭐ 별표됨" else "☆ 별표",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isMarked) Color(0xFFD97706) else TextSecondary,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                    )
+                                }
+                                Surface(
+                                    color = Color(0xFFF9FAFB),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.clickable { onBuryCardToday() }
+                                ) {
+                                    Text(
+                                        text = "💤 숨김",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        state.hintText?.let { hintMsg ->
+                            Surface(
+                                color = Color(0xFFFFF8E6),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = hintMsg,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB45309),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = questionDisplay,
+                            fontSize = if (state.ageTier == "junior") 25.sp else 21.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary,
+                            lineHeight = if (state.ageTier == "junior") 33.sp else 29.sp
+                        )
+
+                        val (conciseAnswer, extraExplanation) = AdaptiveQuizEngine.extractCleanTargetAnswer(
+                            frontText = currentDue.front,
+                            backText = currentDue.back
+                        )
+
+                        // Frame 2: 1-Card 1-Mode Active Solve Mode Resolution (Choice OR Typing, never both simultaneously)
+                        val activeSolveMode = if (state.isQuizModeOpen) {
+                            "choice"
+                        } else {
+                            AdaptiveQuizEngine.resolveCardSolveMode(
+                                solveMode = if (state.ageTier == "junior") "choice" else "adaptive",
+                                reps = currentDue.reps,
+                                lapses = currentDue.lapses,
+                                state = currentDue.state
+                            )
+                        }
+
+                        if (!state.isAnswerRevealed) {
+                            if (activeSolveMode == "choice" && state.quizOptions.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "🎯 [1단계: 4지선다 인지 모드] 알맞은 정답을 골라보세요",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TossBlue
+                                    )
+                                    state.quizOptions.forEachIndexed { idx, optText ->
+                                        Surface(
+                                            color = Color(0xFFF9FAFB),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onSelectQuizOption(optText) }
+                                        ) {
+                                            Text(
+                                                text = "${idx + 1}.  $optText",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = TextPrimary,
+                                                modifier = Modifier.padding(16.dp)
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Button(
+                                            onClick = onSubmitDontKnowQuick,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = CoralRedSoft,
+                                                contentColor = CoralRed
+                                            ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Text("❓ 모름 (정답 확인)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = onRevealAnswer,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Text("정답 보기", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "✍️ [2단계: 서술형 능동 인출 모드] 정답을 직접 떠올려 입력해 보세요",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TossBlue
+                                    )
+                                    OutlinedTextField(
+                                        value = state.typedAnswerInput,
+                                        onValueChange = onUpdateTypedAnswer,
+                                        label = { Text("✍️ 정답을 타이핑해 이해도를 체크해보세요") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Button(
+                                            onClick = onSubmitDontKnowQuick,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = CoralRedSoft,
+                                                contentColor = CoralRed
+                                            ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Text("❓ 모름 (바로 정답)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Button(
+                                            onClick = onSubmitTypedAnswer,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = TossBlue,
+                                                contentColor = Color.White
+                                            ),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Text("🎯 타이핑 채점 확인", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // 3-Tier Understanding Verdict Badge (shown after reveal)
+                            state.typedEvaluation?.let { ev ->
+                                val badgeBg = when (ev.verdict) {
+                                    TypedUnderstandingVerdict.EXACT -> MintGreenSoft
+                                    TypedUnderstandingVerdict.PARTIAL -> Color(0xFFFFF8E6)
+                                    TypedUnderstandingVerdict.UNKNOWN -> CoralRedSoft
+                                }
+                                val badgeFg = when (ev.verdict) {
+                                    TypedUnderstandingVerdict.EXACT -> MintGreen
+                                    TypedUnderstandingVerdict.PARTIAL -> Color(0xFFB45309)
+                                    TypedUnderstandingVerdict.UNKNOWN -> CoralRed
+                                }
+                                Surface(
+                                    color = badgeBg,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "${ev.badgeLabel} (${ev.scorePct}%)",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = badgeFg
+                                        )
+                                        Text(
+                                            text = ev.feedback,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = TextPrimary
+                                        )
+                                        if (ev.verdict != TypedUnderstandingVerdict.EXACT) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            OutlinedButton(
+                                                onClick = onOverrideTypedAnswerCorrect,
+                                                shape = RoundedCornerShape(10.dp),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "✅ 내 답이 맞아요 (정답 인정)",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MintGreen
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Surface(
+                                color = MintGreenSoft,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(18.dp)) {
+                                    Text(
+                                        text = "🎯 핵심 정답",
+                                        fontSize = 12.sp,
+                                        color = MintGreen,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = conciseAnswer.ifBlank { currentDue.back },
+                                        fontSize = 19.sp,
+                                        color = TextPrimary,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+                            if (extraExplanation.isNotBlank()) {
+                                Surface(
+                                    color = TossBlueSoft,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Text(
+                                            text = "💡 해설 및 문맥 예문",
+                                            fontSize = 12.sp,
+                                            color = TossBlue,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = extraExplanation,
+                                            fontSize = 13.sp,
+                                            color = TextPrimary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Compute Exact FSRS Next Interval Previews for Rating Buttons
+                            val mem = CardMemoryState(
+                                difficulty = currentDue.difficulty,
+                                stability = currentDue.stability,
+                                reps = currentDue.reps,
+                                lapses = currentDue.lapses,
+                                state = currentDue.state
+                            )
+                            val lblAgain = Fsrs5Engine.stepFsrs(mem, Rating.AGAIN).scheduledLabel
+                            val lblHard = Fsrs5Engine.stepFsrs(mem, Rating.HARD).scheduledLabel
+                            val lblGood = Fsrs5Engine.stepFsrs(mem, Rating.GOOD).scheduledLabel
+                            val lblEasy = Fsrs5Engine.stepFsrs(mem, Rating.EASY).scheduledLabel
+
+                            // Frame 3: EvidenceRatingGuard (Metacognitive Calibration)
+                            val tierEnum = when (state.ageTier) {
+                                "junior" -> AdaptiveQuizEngine.AgeTier.JUNIOR
+                                "teen" -> AdaptiveQuizEngine.AgeTier.TEEN
+                                else -> AdaptiveQuizEngine.AgeTier.ADULT
+                            }
+                            val ratingGuard = AdaptiveQuizEngine.resolveAllowedRatings(
+                                isRevealed = state.isAnswerRevealed,
+                                typedVerdict = state.typedEvaluation?.verdict,
+                                hintStep = state.hintStep,
+                                ageTier = tierEnum
+                            )
+                            val rec = ratingGuard.recommendedRating ?: state.recommendedRating
+
+                            if (ratingGuard.bannerText.isNotBlank()) {
+                                Text(
+                                    text = ratingGuard.bannerText,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (state.ageTier == "junior") {
+                                    Button(
+                                        onClick = { onRateCard(Rating.AGAIN) },
+                                        enabled = Rating.AGAIN in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CoralRedSoft,
+                                            contentColor = CoralRed
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.AGAIN) "★ " else ""}다시\n$lblAgain",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onRateCard(Rating.HARD) },
+                                        enabled = Rating.HARD in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFFF8E6),
+                                            contentColor = Color(0xFFD97706)
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.HARD) "★ " else ""}헷갈림\n$lblHard",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onRateCard(Rating.GOOD) },
+                                        enabled = Rating.GOOD in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = TossBlue,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.GOOD || rec == Rating.EASY) "★ " else ""}맞혔어요\n$lblGood",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { onRateCard(Rating.AGAIN) },
+                                        enabled = Rating.AGAIN in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = CoralRedSoft,
+                                            contentColor = CoralRed
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.AGAIN) "★ " else ""}다시\n$lblAgain",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onRateCard(Rating.HARD) },
+                                        enabled = Rating.HARD in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFFF8E6),
+                                            contentColor = Color(0xFFD97706)
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.HARD) "★ " else ""}어려움\n$lblHard",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onRateCard(Rating.GOOD) },
+                                        enabled = Rating.GOOD in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = TossBlue,
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.GOOD) "★ " else ""}알맞음\n$lblGood",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onRateCard(Rating.EASY) },
+                                        enabled = Rating.EASY in ratingGuard.allowedRatings,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = TossBlueSoft,
+                                            contentColor = TossBlue
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).height(54.dp)
+                                    ) {
+                                        Text(
+                                            text = "${if (rec == Rating.EASY) "★ " else ""}쉬움\n$lblEasy",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            val preview = state.previewPlan
-            if (preview != null && preview.cards.isNotEmpty()) {
-                item {
+@Composable
+private fun CurriculumTabScreen(
+    state: AnkiStudioUiState,
+    onSelectDifficultyLevel: (String) -> Unit = {},
+    onSelectTextbook: (String) -> Unit = {},
+    onToggleExamUnit: (String) -> Unit,
+    onGenerateExamScopeDeck: () -> Unit,
+    onSelectCollection: (String) -> Unit,
+    onGenerateCollectionDeck: () -> Unit,
+    onAddTextbookToCombo: () -> Unit = {},
+    onAddCollectionToCombo: () -> Unit = {},
+    onLoadMidtermComboPreset: () -> Unit = {},
+    onClearComboScopes: () -> Unit = {},
+    onGenerateCombinedExamDeck: () -> Unit = {}
+) {
+    val allTextbooks = BuiltInCurriculumCatalog.listTextbooks()
+    val activeTextbook = allTextbooks.firstOrNull { it.textbookId == state.selectedTextbookId }
+        ?: allTextbooks.first()
+    val difficultyModes = listOf(
+        "mixed" to "🔥 통합 (Lv.1~3)",
+        "lv1" to "🌱 Lv.1 기초",
+        "lv2" to "🚀 Lv.2 빈칸",
+        "lv3" to "🎓 Lv.3 심화",
+        "standard" to "📋 표준"
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 0. Difficulty Level Selector Card
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "🎚️ 난이도별 맞춤형 카드 생성 모드",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "기초 개념(Lv.1) · 문맥 핵심 빈칸(Lv.2) · 역방향·함정 변별(Lv.3) 카드를 수준에 맞게 생성합니다.",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(difficultyModes) { (modeId, label) ->
+                            FilterChip(
+                                selected = state.selectedDifficultyLevel == modeId,
+                                onClick = { onSelectDifficultyLevel(modeId) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. Multi-Combination Exam-Scope Random Deck Builder
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "추출된 카드 프리뷰 (${preview.cards.size}장 · ${preview.category})",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            text = "🎯 다중 조합 시험범위 랜덤 덱",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
                         )
-                        Button(onClick = onSavePreviewDeck) {
-                            Text("⚡ 덱 일괄 생성 (${preview.cards.size}장)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = onLoadMidtermComboPreset,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("⚡ 중간고사 예시", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TossBlue)
+                            }
+                            if (state.combinedExamScopes.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = onClearComboScopes,
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("비우기", fontSize = 11.sp, color = TextSecondary)
+                                }
+                            }
                         }
                     }
-                }
-
-                itemsIndexed(preview.cards) { idx, card ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                        shape = RoundedCornerShape(10.dp),
+                    Text(
+                        text = "여러 과목·단원·한자 급수를 한 바구니에 담으면 같은 단원이 뭉치지 않게 지능형 교차 랜덤(Interleaved Shuffle)으로 출제합니다.",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    Surface(
+                        color = Color(0xFFF9FAFB),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            if (state.combinedExamScopes.isEmpty()) {
                                 Text(
-                                    text = "${card.pattern} · p.${card.sourcePage} · ${card.spec.noteType.uppercase()}",
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    text = "아직 담긴 범위가 없습니다. 아래 교과서/급수에서 [➕ 통합 범위에 담기]나 [⚡ 중간고사 예시]를 눌러보세요.",
+                                    fontSize = 12.sp,
+                                    color = TextMuted
                                 )
-                                OutlinedButton(onClick = { onRemovePreviewCard(idx) }) {
-                                    Text("제외", fontSize = 11.sp)
+                            } else {
+                                state.combinedExamScopes.forEachIndexed { idx, item ->
+                                    Text(
+                                        text = "${idx + 1}. 📚 ${item.label}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TossBlue
+                                    )
                                 }
                             }
-                            OutlinedTextField(
-                                value = card.spec.frontText,
-                                onValueChange = { updatedFront ->
-                                    onUpdatePreviewCard(idx, updatedFront, card.spec.backText)
-                                },
-                                label = { Text("질문 (Front)") },
-                                modifier = Modifier.fillMaxWidth()
+                        }
+                    }
+                    Button(
+                        onClick = onGenerateCombinedExamDeck,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = TossBlue),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) {
+                        Text(
+                            text = "🎲 조합 출제범위(${maxOf(1, state.combinedExamScopes.size)}개) 랜덤 통합 덱 생성",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. School Textbook Selector & Unit Picker
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "🏫 학교 교과서 시험범위",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(allTextbooks) { tb ->
+                            FilterChip(
+                                selected = tb.textbookId == activeTextbook.textbookId,
+                                onClick = { onSelectTextbook(tb.textbookId) },
+                                label = { Text(tb.title) }
                             )
-                            OutlinedTextField(
-                                value = card.spec.backText,
-                                onValueChange = { updatedBack ->
-                                    onUpdatePreviewCard(idx, card.spec.frontText, updatedBack)
-                                },
-                                label = { Text("정답 (Back)") },
-                                modifier = Modifier.fillMaxWidth()
+                        }
+                    }
+                    Text(
+                        text = activeTextbook.title,
+                        fontSize = 14.sp,
+                        color = TossBlue,
+                        fontWeight = FontWeight.Bold
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(activeTextbook.units) { unit ->
+                            FilterChip(
+                                selected = unit.unitId in state.selectedUnitIds,
+                                onClick = { onToggleExamUnit(unit.unitId) },
+                                label = { Text(unit.unitCodeLabel) }
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = onGenerateExamScopeDeck,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(50.dp)
+                        ) {
+                            Text("단원(${state.selectedUnitIds.size}개) 학습 시작", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = onAddTextbookToCombo,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.height(50.dp)
+                        ) {
+                            Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Collections (Hanja, Korean History, Idioms)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "漢字 급수 한자 · 한국사 · 기초 팩",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(BuiltInCurriculumCatalog.listCollections()) { col ->
+                            FilterChip(
+                                selected = state.selectedCollectionId == col.collectionId,
+                                onClick = { onSelectCollection(col.collectionId) },
+                                label = { Text(col.title) }
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = onGenerateCollectionDeck,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(50.dp)
+                        ) {
+                            Text("선택한 팩 학습 시작", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = onAddCollectionToCombo,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.height(50.dp)
+                        ) {
+                            Text("➕ 범위 담기", fontWeight = FontWeight.Bold, color = TossBlue)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateDeckTabScreen(
+    state: AnkiStudioUiState,
+    onSelectCategory: (String?) -> Unit,
+    onSelectOllamaCloudModel: (String) -> Unit = {},
+    onDeckTitleChange: (String) -> Unit,
+    onPickPhoto: () -> Unit,
+    onPickPdf: () -> Unit,
+    onUpdateNewCardFront: (String) -> Unit,
+    onUpdateNewCardBack: (String) -> Unit,
+    onInsertClozeTemplate: () -> Unit,
+    onAddCustomCardDirect: () -> Unit,
+    onUpdatePreviewCard: (Int, String, String) -> Unit,
+    onRemovePreviewCard: (Int) -> Unit,
+    onSavePreviewDeck: () -> Unit
+) {
+    val ollamaModels = listOf(
+        "glm-5.3-flash" to "☁️ GLM 5.3 Flash (초고속·추천)",
+        "deepseek-v4.1-flash" to "☁️ DeepSeek V4.1 Flash",
+        "gemma4:31b" to "☁️ Gemma 4 31B",
+        "glm-5.3" to "☁️ GLM 5.3",
+        "local_rule" to "⚡ 기기 내장 엔진"
+    )
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. Direct Card Add (Basic + {{c1::빈칸}} Cloze)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "✍️ 카드 직접 추가",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                        OutlinedButton(
+                            onClick = onInsertClozeTemplate,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("+ {{c1::빈칸}}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TossBlue)
+                        }
+                    }
+                    OutlinedTextField(
+                        value = state.newCardFrontInput,
+                        onValueChange = onUpdateNewCardFront,
+                        label = { Text("앞면 질문 또는 {{c1::빈칸}} 문장") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = state.newCardBackInput,
+                        onValueChange = onUpdateNewCardBack,
+                        label = { Text("뒷면 정답 또는 해설") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = onAddCustomCardDirect,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("➕ 단어장에 카드 추가하기", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // 2. Photo / PDF Auto-Deck Builder
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "➕ 사진 · PDF로 나만의 단어장",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = "☁️ 올라마 클라우드 모델 선택 (사진·PDF 문서 핵심 개념 정밀 생성)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TossBlue
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(ollamaModels) { (modelId, label) ->
+                            FilterChip(
+                                selected = state.selectedOllamaCloudModel == modelId,
+                                onClick = { onSelectOllamaCloudModel(modelId) },
+                                label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = state.selectedCategoryOverride == null,
+                                onClick = { onSelectCategory(null) },
+                                label = { Text("자동") }
+                            )
+                        }
+                        items(CATEGORY_LABELS) { (catId, label) ->
+                            FilterChip(
+                                selected = state.selectedCategoryOverride == catId,
+                                onClick = { onSelectCategory(catId) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = state.customDeckTitle,
+                        onValueChange = onDeckTitleChange,
+                        label = { Text("단어장 이름 (선택)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = onPickPhoto,
+                            enabled = !state.isIngesting,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(50.dp)
+                        ) {
+                            Text("📷 사진 선택", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = onPickPdf,
+                            enabled = !state.isIngesting,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(50.dp)
+                        ) {
+                            Text("📄 PDF 선택", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        val preview = state.previewPlan
+        if (preview != null && preview.cards.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "추출된 카드 (${preview.cards.size}장)",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 16.sp,
+                        color = TextPrimary
+                    )
+                    Button(
+                        onClick = onSavePreviewDeck,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("저장하기", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            itemsIndexed(preview.cards) { idx, card ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "카드 #${idx + 1}",
+                                color = TossBlue,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            OutlinedButton(onClick = { onRemovePreviewCard(idx) }) {
+                                Text("제외", fontSize = 11.sp)
+                            }
+                        }
+                        OutlinedTextField(
+                            value = card.spec.frontText,
+                            onValueChange = { updatedFront ->
+                                onUpdatePreviewCard(idx, updatedFront, card.spec.backText)
+                            },
+                            label = { Text("질문") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = card.spec.backText,
+                            onValueChange = { updatedBack ->
+                                onUpdatePreviewCard(idx, card.spec.frontText, updatedBack)
+                            },
+                            label = { Text("정답") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoreTabScreen(
+    state: AnkiStudioUiState,
+    onPurchaseTop3Bundle: () -> Unit,
+    onSelectStoreCategory: (String) -> Unit,
+    onPurchaseBrainPack: (String) -> Unit
+) {
+    val storePacks = BrainPackStoreCatalog.filterCatalog(categoryFilter = state.selectedStoreCategory)
+    val lockedPaidCount = BrainPackStoreCatalog.products.count { !it.isFreeStarter && it.packId !in state.unlockedPackIds }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🛒 브레인팩 스토어",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary
+                )
+                Surface(
+                    color = TossBlueSoft,
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = "보유 ${state.unlockedPackIds.size}/${BrainPackStoreCatalog.products.size}",
+                        fontSize = 12.sp,
+                        color = TossBlue,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        if (lockedPaidCount >= 3) {
+            item {
+                Button(
+                    onClick = onPurchaseTop3Bundle,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("🎁 3팩 골라담기 15% 자동 할인 장착", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        item {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val storeTabs = listOf(
+                    "all" to "전체",
+                    "starter_free" to "🎁 무료",
+                    "k12_textbook" to "🏫 교과서",
+                    "hanja_history" to "漢字 한자·역사",
+                    "language_exam" to "🗣️ 어학",
+                    "pro_cert" to "⚖️ 자격증"
+                )
+                items(storeTabs) { (catCode, catLabel) ->
+                    FilterChip(
+                        selected = state.selectedStoreCategory == catCode,
+                        onClick = { onSelectStoreCategory(catCode) },
+                        label = { Text(catLabel) }
+                    )
+                }
+            }
+        }
+
+        items(storePacks) { pack ->
+            val isUnlocked = pack.isFreeStarter || pack.packId in state.unlockedPackIds
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                        Text(
+                            text = pack.title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "${pack.estimatedCardCount}문항 · ${pack.priceLabel}",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { onPurchaseBrainPack(pack.packId) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isUnlocked) TossBlueSoft else TossBlue,
+                            contentColor = if (isUnlocked) TossBlue else Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (isUnlocked) "바로 학습" else pack.priceLabel,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsAndModeTabScreen(
+    state: AnkiStudioUiState,
+    onSelectDeckForStudy: (Long?) -> Unit,
+    onSelectAgeTier: (String) -> Unit,
+    onOpenOnboarding: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text("오늘 남은 카드", fontSize = 13.sp, color = TextSecondary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("${state.dueCards.size}장", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TossBlue)
+                    }
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text("내 단어장", fontSize = 13.sp, color = TextSecondary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("${state.decks.size}개", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("👤 학습자 모드", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                        OutlinedButton(
+                            onClick = onOpenOnboarding,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("모드 선택 화면 열기", fontSize = 12.sp)
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val tiers = listOf(
+                            "junior" to "🌱 주니어",
+                            "teen" to "🚀 중고등",
+                            "adult" to "🎓 성인"
+                        )
+                        tiers.forEach { (code, label) ->
+                            FilterChip(
+                                selected = state.ageTier == code,
+                                onClick = { onSelectAgeTier(code) },
+                                label = { Text(label) }
                             )
                         }
                     }
                 }
             }
+        }
 
-            // Active FSRS-5 Review Arena (Cloze-safe rendering before reveal)
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
+        item {
+            Text(
+                text = "📚 내 단어장 (터치하여 바로 학습)",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextPrimary
+            )
+        }
+
+        items(state.decks) { deck ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectDeckForStudy(deck.id) }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "🧠 FSRS-5 오늘의 복습 (${state.dueCards.size}장 대기)",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        val currentDue = state.dueCards.firstOrNull()
-                        if (currentDue == null) {
-                            Text(
-                                text = "현재 복습 대기 중인 카드가 없습니다. 위에서 사진이나 PDF를 추가해 새 덱을 만들어 보세요!",
-                                color = Color(0xFF9CA3AF),
-                                fontSize = 13.sp
-                            )
-                        } else {
-                            val questionDisplay = if (currentDue.noteType == "cloze") {
-                                Fsrs5Engine.renderClozeCard(
-                                    frontText = currentDue.front,
-                                    ordinal = currentDue.ord,
-                                    reveal = state.isAnswerRevealed
-                                )
-                            } else {
-                                currentDue.front
-                            }
-
-                            Text(
-                                text = "출처: ${currentDue.sourceFilename} (p.${currentDue.sourcePage})",
-                                color = Color(0xFF38BDF8),
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = questionDisplay,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (!state.isAnswerRevealed) {
-                                Button(
-                                    onClick = onRevealAnswer,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("정답 확인 (Space)")
-                                }
-                            } else {
-                                Text(
-                                    text = currentDue.back,
-                                    fontSize = 16.sp,
-                                    color = Color(0xFF6EE7B7),
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (currentDue.sourceExcerpt.isNotBlank()) {
-                                    Text(
-                                        text = "📄 원문 발췌 (p.${currentDue.sourcePage}): ${currentDue.sourceExcerpt}",
-                                        fontSize = 12.sp,
-                                        color = Color(0xFF9CA3AF)
-                                    )
-                                }
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { onRateCard(Rating.AGAIN) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Again") }
-                                    OutlinedButton(
-                                        onClick = { onRateCard(Rating.HARD) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Hard") }
-                                    Button(
-                                        onClick = { onRateCard(Rating.GOOD) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Good") }
-                                    OutlinedButton(
-                                        onClick = { onRateCard(Rating.EASY) },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Easy") }
-                                }
-                            }
-                        }
-                    }
+                    Text(
+                        text = deck.name,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "학습 ➔",
+                        fontSize = 13.sp,
+                        color = TossBlue,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

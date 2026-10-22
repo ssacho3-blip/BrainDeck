@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BrainDeck v5.5.0 & 상용 SW 개발 현황 마스터 종합 리포트 (2026-10-22)</title>
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #111827;
+      --bg-card: rgba(17, 24, 39, 0.86);
+      --bg-card-hover: rgba(31, 41, 55, 0.92);
+      --border-subtle: rgba(148, 163, 184, 0.16);
+      --border-accent: rgba(99, 102, 241, 0.45);
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+      --accent-indigo: #6366f1;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #a855f7;
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --shadow-card: 0 12px 32px -8px rgba(0, 0, 0, 0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: radial-gradient(circle at 15% 0%, rgba(99, 102, 241, 0.16), transparent 40%),
+                  radial-gradient(circle at 85% 10%, rgba(6, 182, 212, 0.12), transparent 35%),
+                  var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.65;
+      padding: 36px 24px 80px;
+    }
+
+    .container {
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+
+    /* Header / Hero */
+    .hero {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.95));
+      border: 1px solid var(--border-accent);
+      border-radius: 20px;
+      padding: 36px 40px;
+      box-shadow: var(--shadow-card);
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+
+    .badge-emerald {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+
+    .badge-indigo {
+      background: rgba(99, 102, 241, 0.18);
+      color: #818cf8;
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    .badge-cyan {
+      background: rgba(6, 182, 212, 0.16);
+      color: #22d3ee;
+      border-color: rgba(6, 182, 212, 0.38);
+    }
+
+    .badge-amber {
+      background: rgba(245, 158, 11, 0.16);
+      color: #fbbf24;
+      border-color: rgba(245, 158, 11, 0.38);
+    }
+
+    .badge-rose {
+      background: rgba(244, 63, 94, 0.16);
+      color: #fb7185;
+      border-color: rgba(244, 63, 94, 0.38);
+    }
+
+    .hero h1 {
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+      background: linear-gradient(90deg, #ffffff, #a5b4fc, #67e8f9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p.subtitle {
+      color: var(--text-secondary);
+      font-size: 1.02rem;
+      max-width: 980px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 26px;
+    }
+
+    .kpi-card {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+    }
+
+    .kpi-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .kpi-value {
+      font-size: 1.55rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .kpi-sub {
+      font-size: 0.82rem;
+      color: var(--accent-emerald);
+      margin-top: 4px;
+    }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 28px;
+      background: rgba(17, 24, 39, 0.75);
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid var(--border-subtle);
+      position: sticky;
+      top: 14px;
+      z-index: 50;
+      backdrop-filter: blur(14px);
+    }
+
+    .nav-tab {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid transparent;
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-tab:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+    }
+
+    .nav-tab.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.28), rgba(6, 182, 212, 0.22));
+      color: #fff;
+      border-color: var(--border-accent);
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+    }
+
+    /* Sections */
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 28px 32px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .section-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 0.94rem;
+      margin-bottom: 20px;
+    }
+
+    /* Grid cards */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 18px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+
+    .feature-card {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px 22px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-accent);
+      transform: translateY(-2px);
+    }
+
+    .feature-card h3 {
+      font-size: 1.06rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .feature-card p, .feature-card li {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .feature-card ul {
+      padding-left: 18px;
+      margin-top: 8px;
+    }
+
+    .feature-card li {
+      margin-bottom: 5px;
+    }
+
+    /* Tables */
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      margin-top: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      background: rgba(15, 23, 42, 0.65);
+    }
+
+    th, td {
+      padding: 13px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(30, 41, 59, 0.85);
+      color: #e2e8f0;
+      font-weight: 700;
+      font-size: 0.84rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(99, 102, 241, 0.06);
+    }
+
+    code {
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+      font-size: 0.83rem;
+      background: rgba(99, 102, 241, 0.14);
+      color: #a5b4fc;
+      padding: 2px 6px;
+      border-radius: 5px;
+    }
+
+    pre {
+      background: #090d16;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+      font-size: 0.83rem;
+      color: #cbd5e1;
+      line-height: 1.55;
+      margin-top: 10px;
+    }
+
+    .callout {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(6, 182, 212, 0.08));
+      border-left: 4px solid var(--accent-emerald);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 0.93rem;
+      color: var(--text-secondary);
+    }
+
+    .callout-warn {
+      background: linear-gradient(90deg, rgba(245, 158, 11, 0.14), rgba(244, 63, 94, 0.08));
+      border-left: 4px solid var(--accent-amber);
+    }
+
+    .price-tag {
+      font-weight: 800;
+      color: #34d399;
+      font-size: 0.98rem;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 40px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    a {
+      color: #38bdf8;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+      .hero { padding: 24px 20px; }
+      .hero h1 { font-size: 1.55rem; }
+      .section { padding: 20px 18px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- HERO -->
+    <header class="hero">
+      <div class="hero-badges">
+        <span class="badge badge-emerald">🟢 BrainDeck v5.5.0 최종 마감</span>
+        <span class="badge badge-indigo">📱 Apple Standalone PWA + Android APK (24.1MB)</span>
+        <span class="badge badge-cyan">🧪 150 / 150 TDD·BDD·DDT PASS</span>
+        <span class="badge badge-amber">🛡️ 12 / 12 변이 방어 100% Killed</span>
+        <span class="badge badge-rose">📓 Notion 마스터 설계서 100% 동기화</span>
+      </div>
+      <h1>BrainDeck (브레인덱) v5.5.0 & 상용 SW·시스템 현황 종합 리포트</h1>
+      <p class="subtitle">
+        어제(2026-10-21 18:04) 마감된 <strong>BrainDeck v5.5.0 (FSRS-5 & AI Active Recall + In-App BrainPack Store Edition)</strong>의 아키텍처·5대 핵심 기억 프레임·브레인팩 스토어·34대 재작업 방지 가드와, 오늘(2026-10-22) 수행한 <strong>내재화 SW 포트폴리오(Top 1~4) · 노션 동기화 · 원격 접속(Jump Desktop) 최적화</strong> 내역을 하나로 통합한 HTML 정본입니다.
+      </p>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">BrainDeck 최신 버전</div>
+          <div class="kpi-value">v5.5.0 (Code 55)</div>
+          <div class="kpi-sub">BrainDeck-v5.5.apk (24.1 MB)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">자동화 테스트 통과율</div>
+          <div class="kpi-value">150 / 150 PASS</div>
+          <div class="kpi-sub">9개 스위트 · 실패 0건 (0 failed)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">아키텍처 방어 가드</div>
+          <div class="kpi-value">34대 함정 (T1~T34)</div>
+          <div class="kpi-sub">+ 12/12 프로덕션 변이 사살</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">브레인팩 스토어 카탈로그</div>
+          <div class="kpi-value">9종 (무료 + 유료 8종)</div>
+          <div class="kpi-sub">₩0 무료 · ₩990~₩1,900 (3팩 15% 할인)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">라이선스 무결성</div>
+          <div class="kpi-value">100% Clean-Room</div>
+          <div class="kpi-sub">AGPLv3 오염 0줄 · 상용 배포 즉시 가능</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- NAVIGATION TABS -->
+    <nav class="nav-tabs" aria-label="보고서 섹션 내비게이션">
+      <button class="nav-tab active" onclick="switchTab('tab-all')">📋 전체 한눈에 보기</button>
+      <button class="nav-tab" onclick="switchTab('tab-rea')">🔬 6. Anki REA & 경쟁앱 벤치마킹 (신규)</button>
+      <button class="nav-tab" onclick="switchTab('tab-v55')">🚀 1. BrainDeck v5.5 핵심 기능 & 5대 프레임</button>
+      <button class="nav-tab" onclick="switchTab('tab-store')">🏪 2. 브레인팩 스토어 & 교과서 시험범위</button>
+      <button class="nav-tab" onclick="switchTab('tab-arch')">🏛️ 3. Clean 아키텍처 & 34대 함정 방어</button>
+      <button class="nav-tab" onclick="switchTab('tab-portfolio')">🛠️ 4. 상용 SW 포트폴리오 (Top 1~4)</button>
+      <button class="nav-tab" onclick="switchTab('tab-ops')">⚡ 5. 오늘 원격 최적화 & Antigravity 1.4.4</button>
+    </nav>
+
+    <!-- SECTION 1: BRAINDECK V5.5 CORE FRAMES -->
+    <div id="panel-v55" class="section-group">
+      <section class="section">
+        <div class="section-title">🚀 1. BrainDeck v5.5.0 — 5대 핵심 기억·학습 프레임 (Python ↔ JS ViewModel ↔ Android Kotlin 1:1 패리티)</div>
+        <p class="section-desc">
+          단일 Clean Architecture 도메인에서 Python 백엔드(<code>src/anki_studio/domain/</code>), Apple 웹어플(PWA <code>viewmodel.js</code>), Android 네이티브 앱(<code>:domain</code> Kotlin)이 100% 동일한 채점·힌트·스케줄링 결과를 보장합니다.
+        </p>
+
+        <div class="grid-3">
+          <div class="feature-card">
+            <h3>Frame 1 · 전 연령 학습자 프로파일 <span>LearnerProfile v2</span></h3>
+            <ul>
+              <li><strong>🌱 Junior (초등 1~6)</strong>: 앞면 ≤40자 / 뒷면 ≤60자, 일일 신규 10장·복습 50장, 목표기억률 <code>0.85</code>, 4지선다 기본(<code>solveMode: "choice"</code>).</li>
+              <li><strong>🚀 Teen (중·고등 내신/수능)</strong>: 앞면 ≤100자 / 뒷면 ≤150자, 일일 20/150장, 목표기억률 <code>0.90</code>, 적응형 풀이(<code>adaptive</code>).</li>
+              <li><strong>🎓 Adult/Pro (대학생·성인)</strong>: 앞면 ≤220자 / 뒷면 ≤400자, 일일 25/150장, 백지 서술형 인출 우선.</li>
+              <li><strong>🔒 아동 보호 하드락</strong>: Junior 모드는 외부 클라우드 비전/LLM 잠금(<code>cloud_vision_locked = 1</code>) 및 자기평가 <code>Easy(4)</code> 버튼 전역 비활성화.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>Frame 2 · 1-Card 1-Mode 적응형 풀이 <span>resolveCardSolveMode</span></h3>
+            <ul>
+              <li><strong>신규 카드 (<code>reps == 0, state == 'new'</code>)</strong>: 처음 보는 개념은 <strong>4지선다 객관식(<code>choice</code>)</strong>으로 출제해 초기 진입 장벽과 포기율을 낮춤.</li>
+              <li><strong>복습 카드 (<code>reps >= 1, state == 'review'</code>)</strong>: 한 번 이상 학습한 카드는 자동으로 <strong>주관식 타이핑 인출(<code>typing</code>)</strong>로 승격하여 진짜 장기기억 회상 유도.</li>
+              <li><strong>수동 오버라이드 지원</strong>: 사용자가 <code>flip</code>(암기장 넘기기), <code>choice</code>, <code>typing</code> 모드를 명시적으로 고정할 수도 있음.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>Frame 3 · 객관적 채점 가드 & 정밀 채점 <span>EvidenceRatingGuard</span></h3>
+            <ul>
+              <li><strong>정답 공개 전 평점 잠금 (<code>pre_reveal</code>)</strong>: 뒷면 정답을 확인하기 전에는 <code>1~4</code> 평점 버튼 클릭 원천 차단.</li>
+              <li><strong>오답 / '모름' 클릭 시 <code>Again(1)</code> 고정</strong>: 객관식 오답, 주관식 <code>UNKNOWN</code>, 또는 <code>모름</code> 클릭 시 <code>Again(1)</code>만 활성화.</li>
+              <li><strong>힌트 사용 시 <code>Hard(2)</code> 상한 클램프</strong>: 힌트(<code>hint_step >= 1</code>)를 열람한 뒤 맞힌 카드는 <code>Good(3)</code>·<code>Easy(4)</code>를 잠그고 최대 <code>Hard(2)</code>로 제한.</li>
+              <li><strong>괄호 병기 제외 핵심 정답 100점 판정</strong>: <code>훈민정음 (訓民正音)</code>, <code>강화도 조약 (1876)</code>, <code>소개하다 (동사)</code>에서 <code>훈민정음</code>, <code>강화도 조약</code>, <code>소개하다</code>만 입력해도 <strong>100점(<code>EXACT</code>)</strong> 판정 및 2단계 초성/글자수 힌트와 정확히 일치.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>Frame 4 · 형제 카드 자동 유예 <span>Sibling Burying</span></h3>
+            <ul>
+              <li>동일 개념 태그(<code>concept:&lt;id&gt;</code>)에서 파생된 난이도별 카드(<code>Lv.1 기초 재인</code>, <code>Lv.2 문맥 빈칸</code>, <code>Lv.3 백지 인출</code>)가 한 세션에 동시에 등장해 앞 카드가 뒷 카드의 스포일러가 되는 현상 방지.</li>
+              <li><code>deduplicate_session_siblings</code>가 세션 큐 구성 시 동일 <code>concept:&lt;id&gt;</code> 그룹당 가장 우선순위가 높은 <strong>단 1장의 카드만 남기고 나머지는 자동 유예</strong>.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>Frame 5 · Apple Standalone 오프라인 엔진 <span>createStandaloneEngine</span></h3>
+            <ul>
+              <li>아이폰·아이패드·맥 Safari에서 백엔드 Python 서버 없이도 100% 동작하는 클라이언트 내장형 엔진(<code>viewmodel.js</code> + <code>BrainDeckLocalVault</code>).</li>
+              <li>오프라인 상태에서 ① 내장 교과서/한자 카탈로그 조회, ② 다중 과목 통합 시험대비 덱 생성(<code>buildCombinedExamDeck</code>), ③ 스마트 텍스트 덱 추출(<code>buildSmartTextDeck</code>), ④ FSRS-5 복습 스케줄링 완벽 수행.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>다중 과목 통합 시험대비 덱 & 인터리빙 <span>Anti-Streak ≤ 2</span></h3>
+            <ul>
+              <li>중간·기말고사 대비 시 여러 과목(예: <code>중1 영어 1단원</code> + <code>8급 한자</code> + <code>역사 연표</code>)을 하나의 시험대비 덱으로 묶어 생성(<code>build_combined_exam_deck</code>).</li>
+              <li>과목별 카드 수가 <code>6 : 2 : 2</code>처럼 불균형해도 <strong>Greedy Largest-Bucket-First Anti-Streak(<code>&lt;= 2</code>) 알고리즘(<code>interleave_study_cards</code>)</strong>이 동일 과목이 3연속 이상 나오지 않도록 교차 섞기 수행.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>💡 기존 Anki 대비 핵심 차별점 요약:</strong> SM-2의 Ease Hell을 <strong>FSRS-5 (DSR 19-파라미터 평균회귀 모델)</strong>로 해결해 복습량을 30% 절감하고, 휴가 후 밀린 카드는 <strong>Smart Backlog Decompressor(<code>plan_backlog_decompression</code>)</strong>로 평탄화하며, 8번 이상 틀리는 거머리 카드는 <strong>AI Leech 원자 분할기(<code>decompose_leech_card</code>)</strong>가 2~3장의 단일 개념 마이크로 카드로 자동 쪼개고 부모 카드를 자동 일시중지(<code>suspended=1</code>)합니다.
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 2: BRAINPACK STORE & K-12 EXAM SCOPE -->
+    <div id="panel-store" class="section-group">
+      <section class="section">
+        <div class="section-title">🏪 2. 인앱 『브레인팩 스토어 (BrainPack Store)』 9종 카탈로그 & 비즈니스 모델</div>
+        <p class="section-desc">
+          본인이 직접 촬영/업로드하는 교재 사진·PDF·프린트물과 기본 스타터팩은 <strong>무제한 무료(₩0)</strong>로 제공하고, 정교하게 검증된 교과서·한자·한국사·어학·자격증 마스터 데이터팩은 <strong>₩990 ~ ₩1,900 초소액 인앱 구매(3팩 이상 동시 구매 시 15% 자동 할인)</strong>로 즉시 앱 내부에 영구 장착합니다.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>브레인팩 ID (<code>pack_id</code>)</th>
+                <th>상품명 (<code>title</code>)</th>
+                <th>대상 트랙</th>
+                <th>가격</th>
+                <th>핵심 수록 데이터 및 학습 기능</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>pack.free.starter_k12</code></td>
+                <td><strong>🎁 [무료 기본] 초등 받아쓰기·기초 영단어 & 한자 8급 입문 브레인팩</strong></td>
+                <td>전 연령 (<code>all</code>)</td>
+                <td><span class="price-tag">무료 (₩0)</span></td>
+                <td>앱 설치 시 기본 내장 — 어문회 8급 한자(50자), 초등 1~2학년 받아쓰기, 교육부 초등 영단어 + 본인 사진/PDF 업로드 무제한 무료</td>
+              </tr>
+              <tr>
+                <td><code>pack.mid1.eng.donga_yoon.full</code></td>
+                <td><strong>📦 [중1 내신] 동아(윤정미) 영어 Lesson 1~8 전 단원 마스터 브레인팩</strong></td>
+                <td>중등 (<code>teen</code>)</td>
+                <td><span class="price-tag">₩990</span></td>
+                <td>2022 개정 Lesson 1~8 전 단원 필수 어휘·숙어·핵심 문법 + 단원·쪽수별 시험범위 슬라이싱 및 Lv.1~Lv.3 카드 생성</td>
+              </tr>
+              <tr>
+                <td><code>pack.mid2.eng.donga_yoon.full</code></td>
+                <td><strong>📦 [중2 내신] 동아(윤정미) 영어 전 단원·쪽수 마스터 브레인팩</strong></td>
+                <td>중등 (<code>teen</code>)</td>
+                <td><span class="price-tag">₩990</span></td>
+                <td>중2 영어 단원·쪽수 슬라이싱 & 4지선다 ➔ 단어블록 ➔ 스펠링 타이핑 3단계 자동 승격</td>
+              </tr>
+              <tr>
+                <td><code>pack.mid2.hist.miraeen.full</code></td>
+                <td><strong>📦 [중2 내신] 미래엔 역사① 연표·사료·문화재 브레인팩</strong></td>
+                <td>중등 (<code>teen</code>)</td>
+                <td><span class="price-tag">₩990</span></td>
+                <td>미래엔 역사① 단원·쪽수별 사건·연표·조약 정리 + 실제 역사 사건 연도 기반 4지선다 매력적 오답 자동 구성</td>
+              </tr>
+              <tr>
+                <td><code>pack.high1.sci.visang.full</code></td>
+                <td><strong>📦 [고1 내신] 비상 통합과학1 공식·핵심개념 브레인팩</strong></td>
+                <td>고등 (<code>teen</code>)</td>
+                <td><span class="price-tag">₩990</span></td>
+                <td>비상 통합과학1 단원·쪽수별 핵심 공식 및 주기율표 원소·물리/화학 공식 동시 잠금해제</td>
+              </tr>
+              <tr>
+                <td><code>pack.exam.hanja_master</code></td>
+                <td><strong>📦 [급수한자] 어문회 7급~3급 필수 한자 & 사자성어 올인원 브레인팩</strong></td>
+                <td>전 연령 (<code>all</code>)</td>
+                <td><span class="price-tag">₩1,500</span></td>
+                <td>어문회 7급·6급·5급·4급·3급 급수별 필수 한자 및 고전 출전 사자성어 전체 잠금해제 (CJK 호환 한자 두음법칙·다음자 보존)</td>
+              </tr>
+              <tr>
+                <td><code>pack.exam.khist_master</code></td>
+                <td><strong>📦 [한국사] 한국사능력검정 심화(1~3급) 핵심 연표·사료·문화재 브레인팩</strong></td>
+                <td>전 연령 (<code>all</code>)</td>
+                <td><span class="price-tag">₩1,500</span></td>
+                <td>시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze + 같은 왕의 다른 업적이 오답 보기로 섞이지 않는 정답 집합 비중첩 보장</td>
+              </tr>
+              <tr>
+                <td><code>pack.exam.lang_toeic_jlpt</code></td>
+                <td><strong>📦 [어학] 토익(TOEIC) 고득점 빈출 & JLPT N5~N3 필수 어휘 브레인팩</strong></td>
+                <td>성인 (<code>adult</code>)</td>
+                <td><span class="price-tag">₩1,900</span></td>
+                <td>토익 빈출 어휘(CEFR B2~C1) 및 JLPT N5~N3 핵심 어휘 동시 수록 + 원어민 TTS 스피킹 드릴</td>
+              </tr>
+              <tr>
+                <td><code>pack.pro.law_it_cert</code></td>
+                <td><strong>📦 [성인/전문] 헌법 핵심 조문 & 정보처리기사·컴활 마스터 브레인팩</strong></td>
+                <td>성인 (<code>adult</code>)</td>
+                <td><span class="price-tag">₩1,900</span></td>
+                <td>대한민국 헌법 핵심 조문 숫자/기간 빈칸 카드 및 정보처리기사·컴활 핵심 개념 탑재</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 3: ARCHITECTURE & 34 TRAPS -->
+    <div id="panel-arch" class="section-group">
+      <section class="section">
+        <div class="section-title">🏛️ 3. Clean / Hexagonal 아키텍처 & 34대 재작업 방지 함정(T1~T34) 선제 방어</div>
+        <p class="section-desc">
+          모든 핵심 비즈니스 로직(<code>src/anki_studio/domain/*.py</code> 및 <code>android-app/domain/</code>)은 외부 DB·네트워크·OS 프레임워크 의존성이 <strong>0건(Zero-I/O)</strong>이며 AST 정적 분석 테스트로 강제됩니다.
+        </p>
+
+        <div class="grid-2">
+          <div>
+            <pre>BrainDeck (/Users/choyoungseo/Documents/개발/BrainDeck)
+├── dist/
+│   └── BrainDeck-v5.5.apk              # Android 5.5.0 설치 패키지 (24.1 MB)
+├── src/anki_studio/
+│   ├── domain/                         # [Pure Domain — 외부 I/O import 0건]
+│   │   ├── fsrs_math.py                # FSRS-5 19-Weight DSR 수식 · 백로그 평탄화
+│   │   ├── adaptive_quiz.py            # 연령별 ProfilePolicy · 4지선다/블록/받아쓰기 채점
+│   │   ├── ai_learning.py              # 핵심정답 추출 · 2단계 초성힌트 · Anti-Streak 인터리빙
+│   │   ├── document_deck_builder.py    # 6대 분야 · 5대 패턴 · 페이지별 Grounding 검증
+│   │   └── pack_store.py               # 브레인팩 스토어 카탈로그 · 번들 15% 할인 견적
+│   ├── adapters/                       # [Hexagonal Ports & Adapters]
+│   │   ├── sqlite_store.py             # Tier U 사용자 원장 (WAL, BEGIN IMMEDIATE, .apkg)
+│   │   ├── reference_pack_store.py     # Tier R 내장 팩 · 교과서 시험범위 · 스토어 권한 원장
+│   │   ├── document_ingestor.py        # 20MB/50p 가드 · PDF 페이지 트리 · Vision OCR
+│   │   └── ai_engine.py                # LLM + 결정론적 NLP 폴백 카드 합성기
+│   ├── service/studio_server.py        # REST API & Offline Snapshot 번들 서버
+│   └── ui/static/                      # [Apple Standalone PWA & Desktop Studio]
+│       ├── viewmodel.js                # 5대 프레임 & createStandaloneEngine 오프라인 코어
+│       ├── app.js                      # UI 컨트롤러 & BrainDeckLocalVault 동기화
+│       └── index.html / manifest.json  # 3-Tier 연령별 적응형 UI & PWA 매니페스트
+├── android-app/                        # [Native Android — Kotlin 2.0 + Compose M3]
+│   ├── domain/                         # Pure JVM (:domain, android.* import 0건)
+│   └── app/                            # Room SQLite + ML Kit Korean OCR + Compose UI
+└── tests/                              # 9개 스위트 · 150개 ATDD/BDD/TDD/DDT 테스트</pre>
+          </div>
+
+          <div class="table-wrap" style="margin-top: 10px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>방어군</th>
+                  <th>대표 함정 (Traps) 및 구현된 해법</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>T1 ~ T15</strong><br><span class="badge badge-indigo">코어 & 문서 추출</span></td>
+                  <td>
+                    • <strong>T2/T3</strong>: <code>revlog</code> 비연쇄 보존 + Revision-Safe 그룹 Undo<br>
+                    • <strong>T4</strong>: <code>new/learning</code> 상태에서 <code>AGAIN(1)</code> 시 <code>lapses</code> 오증가 차단<br>
+                    • <strong>T8/T9</strong>: PDF <code>/Catalog ➔ /Pages ➔ /Kids</code> 물리 페이지 순서 보장 & 2단 정렬<br>
+                    • <strong>T12/T15</strong>: 희소 Cloze 재조정 & Python↔Kotlin 골든 픽스처 1:1 패리티
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>T16 ~ T19</strong><br><span class="badge badge-emerald">전 연령 교육공학</span></td>
+                  <td>
+                    • <strong>T16</strong>: 재인(객관식 최대 Good) vs 회상(주관식) 점수 오염 차단 & 첫 시도만 FSRS 반영<br>
+                    • <strong>T17</strong>: Cold-Start 소규모 덱 오답 부족 시 <code>tap_block ➔ button_2</code> 결정론적 폴백<br>
+                    • <strong>T18/T19</strong>: 한글 NFC/자모 편집거리 채점 + 주니어 PII 마스킹 및 프로필 간 DB 격리 트리거
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>T20 ~ T28</strong><br><span class="badge badge-cyan">2-Tier 팩 & 교과서</span></td>
+                  <td>
+                    • <strong>T20/T21</strong>: Tier R 읽기 전용 팩 지연 실체화(Lazy Materialization) & 저작권 게이트<br>
+                    • <strong>T22~T26</strong>: CJK 호환 한자(樂/率) 독음 보존 & 동음 한자/동일 왕 업적 중복 보기 차단<br>
+                    • <strong>T27/T28</strong>: 출판사별 단원·비연속 쪽수 시험범위 슬라이싱 & 큐 비침투형 범위 재조정
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>T29 ~ T34</strong><br><span class="badge badge-amber">PWA & 인앱 스토어</span></td>
+                  <td>
+                    • <strong>T29/T30</strong>: iOS Safari 7일 ITP 증발 방어 & L1(<code>localStorage</code>)/L2(<code>IndexedDB</code>) 분리<br>
+                    • <strong>T31</strong>: 결제 영수증 Fail-Closed 검증 + 멱등 덱 마운트 + 환불 시 <code>revlog</code> 동결 보존<br>
+                    • <strong>T32~T34</strong>: iOS 첫 터치 TTS 언락, 모바일 고해상도 이미지 순차 디코딩, 3팩 15% 자동 할인
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 4: PORTFOLIO TOP 1~4 -->
+    <div id="panel-portfolio" class="section-group">
+      <section class="section">
+        <div class="section-title">🛠️ 4. 내재화 & 상용 SW 개발 마스터 포트폴리오 현황 (`/Users/choyoungseo/Documents/개발`)</div>
+        <p class="section-desc">
+          <code>LifeOS-System</code>과 물리적으로 분리된 독립 상용 SW 워크스페이스의 Top 1 ~ 4 프로젝트 전체 현황입니다.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>순위</th>
+                <th>프로젝트명 & 경로</th>
+                <th>현재 상태</th>
+                <th>핵심 엔지니어링 완료 사양</th>
+                <th>검증 지표</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>🥇 제 1 항목</strong></td>
+                <td><strong>HQAudio Studio 6.4</strong><br><code>./HQAudio-Studio</code></td>
+                <td><span class="badge badge-emerald">🟢 v6.4 완료 · 33p 사업계획서 완결</span></td>
+                <td>
+                  • 64-Bit 419만 탭 영위상/혼합위상 FIR + 드라이버 모달 공진 역위상 제동<br>
+                  • 센터 보컬 왜곡 <code>0.000 dB</code> 4-Path 스피커 매트릭스 + 3중 포렌식 DRM (<code>Ed25519</code> + <code>-140/-250 dBFS</code> 대역확산)<br>
+                  • 공동창업자 및 핵심 파트너 초청용 정식 마스터 사업계획서(<code>PDF/DOCX/MD</code>) 완비
+                </td>
+                <td><code>105 / 105 PASS</code><br><a href="https://app.notion.com/p/3fee1e1a1037810d9730caf00314b1ad" target="_blank">AUDIO-1019-01 ↗</a></td>
+              </tr>
+              <tr>
+                <td><strong>🥈 제 2 항목</strong></td>
+                <td><strong>BrainDeck v5.5.0</strong><br><code>./BrainDeck</code> (<code>./Anki-Studio</code>)</td>
+                <td><span class="badge badge-emerald">🟢 v5.5 완료 · PWA & APK 빌드 완료</span></td>
+                <td>
+                  • 본인 자료(사진·교재 스캔·PDF·텍스트) 무제한 무료 + 인앱 <code>BrainPack Store</code>(<code>₩990~₩1,900</code>) 장착<br>
+                  • Apple Standalone PWA(<code>createStandaloneEngine</code>) + Android 네이티브 앱(<code>BrainDeck-v5.5.apk</code>)<br>
+                  • 5대 핵심 기억 프레임 & 다중 과목 Anti-Streak(<code>&lt;= 2</code>) 통합 시험대비 덱
+                </td>
+                <td><code>150 / 150 PASS</code><br><code>12/12 변이 Killed</code><br><a href="https://app.notion.com/p/3fee1e1a10378166b23ce99ec8d0fdd2" target="_blank">BRAINDECK-1020-02 ↗</a></td>
+              </tr>
+              <tr>
+                <td><strong>🥉 제 3 항목</strong></td>
+                <td><strong>Hermes Fold Command Center</strong><br><code>./Hermes-Fold</code> (예정)</td>
+                <td><span class="badge badge-amber">🟡 사전 기술 조사 완료 · 대기</span></td>
+                <td>
+                  • 갤럭시 Z 폴드 7 대화면 전용 올인원 커맨드 앱<br>
+                  • 노션 업무 & 구글 캘린더 동기화 · 예습/복습(<code>BrainDeck</code> 연동)<br>
+                  • <code>[출근!/퇴근!/자차!/대중교통!]</code> 원터치 사내 통근버스·실시간 대중교통·자차 최적 루트 비교
+                </td>
+                <td>사전 설계 완료<br><a href="https://app.notion.com/p/3fee1e1a1037817c8d2ad2aaa9c871ff" target="_blank">FOLD-1019-03 ↗</a></td>
+              </tr>
+              <tr>
+                <td><strong>🏅 제 4 항목</strong></td>
+                <td><strong>JigForge Studio 1.0 (Sketch2Jig)</strong><br><code>./JigForge-Studio</code></td>
+                <td><span class="badge badge-emerald">🟢 v1.0 코어 엔진 & DFM 게이트 완료</span></td>
+                <td>
+                  • 스케치/자연어 아이디어 ➔ 파라메트릭 CAD(<code>build123d</code> STEP / <code>OpenSCAD</code> / <code>DXF</code> / <code>3면도 SVG</code>) 자동 설계 및 실시간 치수 수정<br>
+                  • 3D 프린팅 소재별(<code>PLA/PETG/ABS/ASA/TPU/PA-CF</code>) 수축률·체결 공차 자동 보정 & 7대 DFM 검증(자동 도브테일 분할)<br>
+                  • 수밀 매니폴드 <code>.3mf</code> / <code>.stl</code> 및 슬라이서(<code>OrcaSlicer</code>/<code>PrusaSlicer</code>) G-code 원스톱 생산 자동화
+                </td>
+                <td><code>45 / 45 PASS</code><br><code>CAD-1021-04</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 5: TODAY'S OPS & ANTIGRAVITY 1.4.4 -->
+    <div id="panel-ops" class="section-group">
+      <section class="section">
+        <div class="section-title">⚡ 5. 오늘(2026-10-22) 점검 및 조치 완료 내역 — 원격 접속 최적화 & Antigravity CLI v1.4.4</div>
+        <p class="section-desc">
+          회사에서 집 맥북 프로(M3 Max)로 Jump Desktop 원격 접속 시 발생한 체감 지연 원인을 규명하고 즉시 최적화한 내역과 Antigravity 1.4.4 업데이트 요약입니다.
+        </p>
+
+        <div class="grid-2">
+          <div class="feature-card">
+            <h3>🖥️ Jump Desktop 원격 접속 지연 원인 & 해결 완료 <span>완료</span></h3>
+            <ul>
+              <li><strong>원인 1 (가상 디스플레이 충돌 루프)</strong>: <code>BetterDisplay</code> 가상 화면(<code>id 7</code>)과 Jump Desktop 내장 가상 화면(<code>vd.0</code>)이 서로 메인 디스플레이 권한을 뺏으며 <code>Frame properties changed - realloc</code> 루프를 유발 ➔ <strong><code>BetterDisplay</code> 종료로 <code>Jump Desktop Display 1 (2048x1536 @ 120Hz)</code> 단일 가상 화면으로 안정화 완료</strong>.</li>
+              <li><strong>원인 2 (셀룰러 망 대역폭 변동 & AV1 CPU 인코딩)</strong>: 접속 기기가 셀룰러(<code>cellular</code>) 망으로 연결되어 대역폭이 순간 240~380kbps로 떨어질 때 비트레이트 스로틀링 및 14스레드 AV1 소프트웨어 인코딩이 작동함을 규명.</li>
+              <li><strong>원인 3 (불필요 백그라운드 프로세스)</strong>: 유휴 중복 <code>agy</code> 인스턴스 및 뱅킹 보안 에이전트(<code>nosmain</code>, <code>delfino</code>, <code>astxAgent</code>) 정리 완료.</li>
+              <li><strong>절전·클램쉘 안전성 검증</strong>: <code>pmset -g</code>에서 <code>sleep 0</code>, <code>displaysleep 0</code>, <code>womp 1</code> 및 <code>AppleClamshellCausesSleep = No</code> 적용 확인 완료 (하단 상태바의 불필요 <code>caffeinate</code> 백그라운드 태스크도 깔끔히 정리 완료).</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>🤖 Google Antigravity CLI v1.4.4 주요 변경점 <span>v1.4.4</span></h3>
+            <ul>
+              <li><strong>Reactive Wakeup & 백그라운드 태스크 관리 고도화</strong>: 서브에이전트 및 백그라운드 명령 완료 시 폴링(<code>sleep</code> 루프) 없이 즉시 깨어나는 이벤트 기반 실행 및 <code>manage_task</code> / <code>schedule</code> 도구 정밀화.</li>
+              <li><strong>표준 샌드박스(Standard Sandbox) & 프리픽스 승인 매칭 개선</strong>: 기본 샌드박스 자동 실행 안정성 강화 및 명령어 프리픽스 매칭을 통한 승인 피로도 최소화.</li>
+              <li><strong>멀티에이전트 워크스페이스 격리 (<code>inherit / branch / share</code>)</strong>: 서브에이전트 호출 시 Git worktree 방식(<code>share</code>) 또는 브랜치 복제(<code>branch</code>)를 통한 독립 작업 공간 지원.</li>
+              <li><strong>Interactive Sidecar & 아티팩트 뷰어 연동 강화</strong>: 과학/구조 시각화 등 인터랙티브 사이드카 링크(<code>sidecar://</code>) 및 캐러셀/다이어그램 렌더링 지원.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- SECTION 6: ANKI REA ANALYSIS & COMPETITOR BENCHMARKING -->
+    <div id="panel-rea" class="section-group">
+      <section class="section">
+        <div class="section-title">🔬 6. Anki REA(역공학 & Resource-Event-Agent) 심층 해부 및 국내·외 경쟁 앱 벤치마킹 반영 포인트 (v5.6 ~ v6.0 로드맵)</div>
+        <p class="section-desc">
+          Anki 생태계(Desktop · AnkiMobile · AnkiDroid · 필수 애드온 Top 10)를 <strong>REA 이중 프레임워크(① Reverse Engineering Analysis 구조 역공학 해부 + ② Resource-Event-Agent 도메인 온톨로지 모델링)</strong>로 분해하고, 글로벌(<strong>Quizlet, RemNote, Gizmo/Knowt, Mochi, Duolingo</strong>) 및 국내 1위권(<strong>클래스카드, 말해보카, 암기고래</strong>) 경쟁 앱을 전수 비교하여 도출한 <strong>BrainDeck 차기 도입 리스트업 12선</strong>입니다.
+        </p>
+
+        <div class="callout">
+          <strong>🎯 핵심 진단 (BrainDeck v5.5 현재 위치 vs 차기 도약 포인트):</strong><br>
+          현재 <code>v5.5.0</code>은 <strong>FSRS-5 19-파라미터 엔진, 핵심정답 자동정규화(<code>extract_clean_target_answer</code>), 2단계 초성 힌트, 증거기반 평점 가드, 다중 과목 Anti-Streak(&le;2) 인터리빙, Leech 자동 분할</strong>까지 코어 알고리즘에서 이미 순정 Anki를 앞서 있습니다. 여기에 <strong>Anki 최상위 파워유저 생태계(Note➔Multi-Card 파생, Image Occlusion, 비파괴 Cram/Filtered 덱, FSRS Helper 평탄화)</strong>와 <strong>클래스카드/말해보카/Quizlet의 킬러 학습 루프(7장 마이크로 스프린트, 인쇄용 시험지 PDF 생성, 핸즈프리 통학 오디오 루프, 문맥 뉘앙스 비교)</strong>를 결합하면 진입장벽 0%의 압도적 완성도를 달성합니다.
+        </div>
+
+        <h3 style="margin: 22px 0 12px; color: #f8fafc; font-size: 1.12rem;">🅰️ Part 1. Anki REA (Resource-Event-Agent & 역공학) 분석 기반 6대 도입 포인트</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>REA 분류 & 코드</th>
+                <th>Anki 원본 메커니즘 (역공학 해부)</th>
+                <th>Anki의 한계 / 진입장벽</th>
+                <th>BrainDeck 도입 및 고도화 포인트 (반영 사양)</th>
+                <th>타겟 모듈 & 우선순위</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>[REA-R1] Resource</strong><br><span class="badge badge-indigo">1 Note ➔ N Facet Cards</span></td>
+                <td><strong>Note(지식 원천) vs Card(학습 뷰) 분리</strong><br>하나의 Note(`notes`)에서 템플릿(`ord`)에 따라 앞뒤 양방향·빈칸 등 여러 Card(`cards`)가 자동 파생되며 `note_id`로 묶여 <strong>Sibling Burying(형제 카드 당일 동시 출제 차단)</strong> 작동</td>
+                <td>복잡한 HTML/CSS/Mustache 카드 템플릿 문법을 사용자가 직접 코딩해야 함</td>
+                <td><strong>코딩 없는 원터치 다면(Multi-Facet) 카드 자동 파생</strong><br>단어/개념 1개 입력 시 체크박스 하나로 <code>① 정방향(영➔한)</code> · <code>② 역방향(한➔영/발음)</code> · <code>③ 리스닝(TTS➔뜻)</code> · <code>④ 예문 Cloze</code> 4종의 카드가 동일 <code>note_id</code>로 자동 생성되고, 이미 구현된 <code>deduplicate_session_siblings()</code>와 자동 연동</td>
+                <td><code>document_deck_builder.py</code><br><code>sqlite_store.py</code><br><span class="badge badge-rose">P0 즉시 도입</span></td>
+              </tr>
+              <tr>
+                <td><strong>[REA-R2] Resource</strong><br><span class="badge badge-cyan">Image Occlusion</span></td>
+                <td><strong>Image Occlusion (이미지 가리기)</strong><br>해부학 도표, 생물 세포도, 지리 지도, 역사 문화재, 회로도 위 라벨 텍스트를 사각형 박스로 가려 <code>Hide All, Guess One</code>(전부 가리고 1개만 질문) 또는 <code>Hide One, Guess One</code> 모드로 출제</td>
+                <td>박스를 일일이 수동 마우스 드래그로 그려야 하는 노가다 발생</td>
+                <td><strong>OCR 바운딩 박스 기반 Zero-Click 자동 Image Occlusion</strong><br>이미 내장된 <code>anki_vision_ocr</code>(macOS) 및 <code>ML Kit Korean OCR</code>(Android)의 텍스트 좌표(Bounding Box)를 활용해 과학 도표·지도·교과서 그림 촬영 시 핵심 용어 라벨 박스를 AI가 자동 마스킹하여 1초 만에 이미지 빈칸 카드로 변환</td>
+                <td><code>document_ingestor.py</code><br><code>viewmodel.js</code><br><span class="badge badge-rose">P0 즉시 도입</span></td>
+              </tr>
+              <tr>
+                <td><strong>[REA-R3] Resource</strong><br><span class="badge badge-emerald">Non-Destructive Cram Deck</span></td>
+                <td><strong>Filtered Deck / Custom Study (비파괴 벼락치기 덱)</strong><br>시험 직전 특정 태그·오답(`is:due`, `tag:leech`, `flag:1`) 카드만 임시 덱으로 끌어와 무한 반복 학습 후 원래 덱으로 복귀 (`reschedule=False` 옵션 지원)</td>
+                <td>검색 쿼리 문법(`prop:ivl<7 -is:suspended`)을 외워야 해서 일반 학생/성인은 사용 불가</td>
+                <td><strong>원터치 D-Day 시험 직전 벼락치기 샌드박스 (Non-Destructive Cram Mode)</strong><br><code>[🔥 오늘 틀린 문제만]</code> · <code>[🩸 거머리(Leech) 집중]</code> · <code>[⭐ 별표(Flag) 카드만]</code> · <code>[📅 시험범위 전체 1회독]</code> 원터치 프리셋 제공. <code>reschedule=False</code> 모드로 시험 전날 10번 반복해도 정규 FSRS 장기기억 스케줄(`stability`)이 오염되지 않도록 보호</td>
+                <td><code>sqlite_store.py</code><br><code>fsrs_math.py</code><br><span class="badge badge-rose">P0 즉시 도입</span></td>
+              </tr>
+              <tr>
+                <td><strong>[REA-E1] Event</strong><br><span class="badge badge-amber">FSRS4Anki Helper</span></td>
+                <td><strong>Load Balancer & Easy Days & Speed Focus</strong><br>복습 예정일 선정 시 주변 날짜의 큐 부하를 보고 평탄화(Fuzz Load Balancing), 주말 복습량 감축(Easy Days), 카드당 8~12초 초과 시 알림/자동 힌트(Speed Focus Mode)</td>
+                <td>별도 서드파티 애드온(FSRS4Anki Helper, Speed Focus)을 수동 설치·설정해야 하며 모바일에서는 미작동</td>
+                <td><strong>네이티브 Load Balancer + 주말 Easy Days + Speed Focus 타이머 내장</strong><br>① <code>FSRS-5</code> 간격 계산 시 특정 요일에 복습이 몰리지 않게 <code>±5%</code> 범위 내 최소 부하 날짜로 자동 분산<br>② 주말/공휴일 복습 할당량 50% 감축 옵션<br>③ 카드당 10초 무응답 시 <strong>초성 힌트 1단계 자동 팝업(Auto-Nudge)</strong>으로 멍때림 방지</td>
+                <td><code>fsrs_math.py</code><br><code>ai_learning.py</code><br><span class="badge badge-indigo">P1 핵심 고도화</span></td>
+              </tr>
+              <tr>
+                <td><strong>[REA-E2] Event</strong><br><span class="badge badge-indigo">Retention & Optimizer</span></td>
+                <td><strong>Review Heatmap + True Retention + FSRS Optimizer</strong><br><code>revlog</code> 전체 이력을 L-BFGS/경사하강법으로 분석해 개인별 망각곡선에 맞춘 19개 가중치(`w0~w18`) 자동 최적화 및 잔디밭 히트맵 시각화</td>
+                <td>복잡한 통계 그래프가 학습 의욕보다 피로감을 유발하며 초보자는 해석 불가</td>
+                <td><strong>GitHub 스타일 학습 잔디 히트맵 + True Retention(%) + 개인화 가중치 튜닝</strong><br>누적 복습 로그(`revlog`) 300건 돌파 시 사용자 고유의 기억 유지율을 계산해 목표 기억률(기본 90%, 시험대비 95%) 대비 실제 적중률을 보여주고, 과목별 망각 속도에 맞춰 <code>FSRSWeights</code>를 온디바이스 자동 보정</td>
+                <td><code>fsrs_math.py</code><br><code>viewmodel.js</code><br><span class="badge badge-indigo">P1 핵심 고도화</span></td>
+              </tr>
+              <tr>
+                <td><strong>[REA-A1] Agent</strong><br><span class="badge badge-cyan">Flag & Context Breadcrumb</span></td>
+                <td><strong>4~7색 Flag(깃발) 즉시 마킹 & 계층형 태그 트리</strong><br>학습 도중 단축키(`Ctrl+1~4`)로 오타 수정 필요·시험 유력·심화 확인 카드를 즉시 색깔 플래그로 마킹</td>
+                <td>카드 화면에 상위 목차/맥락이 안 보여서 지엽적 암기 시 '어느 단원의 내용인지' 맥락 상실(Context Loss) 발생</td>
+                <td><strong>인라인 4색 퀵 플래그(⭐중요 / ❓헷갈림 / 🔥시험유력 / ✏️수정) + 계층형 브레드크럼(Breadcrumb) 헤더</strong><br>카드 상단에 <code>[역사① &gt; 2단원 근대국가 수립 &gt; p.48 강화도 조약]</code> 상위 개념 경로를 상시 표시하여 맥락 상실 원천 차단</td>
+                <td><code>document_deck_builder.py</code><br><code>index.html</code><br><span class="badge badge-indigo">P1 핵심 고도화</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin: 26px 0 12px; color: #f8fafc; font-size: 1.12rem;">🅱️ Part 2. 국내·외 주요 유사/경쟁 암기 앱 벤치마킹 기반 6대 도입 포인트</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>벤치마킹 대상 앱</th>
+                <th>해당 앱의 핵심 킬러 기능 (성공 요인)</th>
+                <th>경쟁 앱의 한계점</th>
+                <th>BrainDeck 흡수 및 초격차 반영 포인트</th>
+                <th>우선순위</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>🇰🇷 클래스카드 (ClassCard)</strong><br><span class="badge badge-emerald">국내 초중고·학원 1위</span></td>
+                <td><strong>① 3단계 세트 학습 (암기 ➔ 리콜 ➔ 스펠)</strong><br><strong>② 인쇄용 단어/개념 시험지(PDF) 즉시 생성</strong><br><strong>③ 매칭 게임 / 크래시 타임어택</strong></td>
+                <td>장기기억 스케줄러(FSRS) 부재로 시험 끝나면 단기 기억 증발, 서술형·교과서 PDF 자동 추출 미약</td>
+                <td><strong>[CC-1] 원클릭 『인쇄용 학교/학원 시험지 & 정답지 PDF 생성기』 탑재</strong><br>학생·학부모·선생님이 현재 시험범위 덱을 클릭 한 번으로 <strong>2단 편집 오프라인 단어/빈칸 시험지(문제지 + 정답지 분리 인쇄용 HTML/PDF)</strong>로 즉시 출력!<br><strong>[CC-2] 세션 내 『노출(Preview) ➔ 리콜(객관식) ➔ 스펠(타이핑)』 3단계 콤보 게이트</strong> 시각화</td>
+                <td><span class="badge badge-rose">P0 즉시 도입</span></td>
+              </tr>
+              <tr>
+                <td><strong>🇺🇸 Quizlet & Gizmo (Knowt)</strong><br><span class="badge badge-indigo">글로벌 EdTech 1위</span></td>
+                <td><strong>① 7장 단위 마이크로 라운드(Micro-Round Chunking)</strong>: 100장을 한 번에 안 풀고 7장씩 끊어서 작은 완주 쾌감 부여<br><strong>② Match (짝맞추기 스피드 게임)</strong></td>
+                <td>유료화 장벽 심화, 한국어 조사·초성·자모 채점 및 한국 교과서/어문회 한자 특화 부재</td>
+                <td><strong>[QZ-1] 7-Card 마이크로 스프린트 (Micro-Round Checkpoint)</strong><br>오늘 복습할 카드가 70장이어도 <strong>7~10장마다 중간 체크포인트 팡파르 + 오답 즉시 재확인 루프</strong>를 제공해 중도 이탈률을 획기적으로 낮춤<br><strong>[QZ-2] 60초 타임어택 카드 매칭 보드 (4x3 개념-정답 짝맞추기)</strong>를 주니어/틴 보너스 스테이지로 도입</td>
+                <td><span class="badge badge-rose">P0 즉시 도입</span></td>
+              </tr>
+              <tr>
+                <td><strong>🇰🇷 말해보카 & 🇺🇸 Duolingo</strong><br><span class="badge badge-amber">성인/학생 어학 1위</span></td>
+                <td><strong>① 문맥 예문 빈칸 + 뉘앙스/유의어 해설</strong><br><strong>② 스트릭 프리즈(Streak Freeze) & 일일 퀘스트</strong><br><strong>③ 드라이빙/통학 핸즈프리 리스닝 모드</strong></td>
+                <td>영어 회화/단어에만 국한되어 역사·과학·자격증·한자·전공 시험 대비 불가</td>
+                <td><strong>[MV-1] 핸즈프리 『통학/드라이빙 오디오 루프 모드 (Commute Hands-Free Mode)』</strong><br>화면 터치 없이 <code>질문 TTS 낭독 ➔ 사고 시간 3초(비프음) ➔ 정답·해설 TTS 낭독 ➔ 다음 카드 자동 이동</code> (Hermes Fold 통근 모드와도 완벽 시너지)<br><strong>[MV-2] 오답 시 『왜 헷갈렸을까?』 AI 유의어/반의어·비교 대조 한 줄 팁</strong> 자동 노출</td>
+                <td><span class="badge badge-indigo">P1 핵심 고도화</span></td>
+              </tr>
+              <tr>
+                <td><strong>🇺🇸 RemNote & Mochi</strong><br><span class="badge badge-cyan">의대생·고시생 노트 특화</span></td>
+                <td><strong>① 노트 필기 자체가 곧 암기카드 (`Concept :: Descriptor`)</strong><br><strong>② 계층형 아웃라인(Outline) 문맥 보존</strong></td>
+                <td>초중고 학생에게는 노션+안키 결합 UI가 너무 무겁고 복잡함</td>
+                <td><strong>[RN-1] 요약 노트(Study Sheet) ⇄ 암기카드 원터치 뷰 전환</strong><br>시험 직전 카드를 한 장씩 넘기는 것뿐 아니라, <strong>전체 시험범위 카드를 한 페이지의 핵심 요약정리 노트(형광펜 가림막 토글 포함)</strong> 형태로 한눈에 훑어보는 <code>Summary Sheet View</code> 제공</td>
+                <td><span class="badge badge-indigo">P1 핵심 고도화</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout-warn" style="margin-top: 20px;">
+          <strong>🚀 BrainDeck v5.6 우선 구현 Top 5 (임팩트 × 구현 효율 최상위 항목):</strong><br>
+          1️⃣ <strong>[CC-1 / RN-1] 시험직전 요약노트(형광펜 가림막) & 인쇄용 2단 단어/개념 시험지(문제지+정답지) 즉시 출력 뷰</strong><br>
+          2️⃣ <strong>[REA-R3] 비파괴 벼락치기 샌드박스 (Cram Mode: 오늘 틀린 카드 / 거머리 / 별표 카드 무한 연습 — FSRS 스케줄 오염 방지)</strong><br>
+          3️⃣ <strong>[QZ-1] 7장 단위 마이크로 스프린트 라운드 & 60초 타임어택 매칭 게임 보드</strong><br>
+          4️⃣ <strong>[REA-R1] 1 Note ➔ N 다면 카드 자동 파생 (정방향 · 역방향 · 리스닝 · 문맥 Cloze 원터치 동시 생성)</strong><br>
+          5️⃣ <strong>[MV-1 & REA-R2] 핸즈프리 통학/주행 오디오 루프 모드 + OCR 바운딩 박스 기반 자동 Image Occlusion(그림/도표 가리기)</strong>
+        </div>
+
+        <h3 style="margin: 28px 0 12px; color: #f8fafc; font-size: 1.15rem;">🆎 Part 3. Claude Opus 5.5 · Codex GPT-6.1 Sol · Grok 4.7 3대 프론티어 모델 추가 REA 심층 발굴</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>발굴 모델</th>
+                <th>코드 & 핵심 항목</th>
+                <th>REA 역공학 근거 (Anki / SuperMemo SM-18 / RemNote / 한국 시장 행동)</th>
+                <th>BrainDeck v5.6 반영 사양 & 불변식</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>🟣 Claude Opus 5.5</strong><br><span class="badge badge-indigo">Tech Lead & 도메인</span></td>
+                <td><strong>[REA-D1~D6]</strong><br>• Incremental Reading 계보<br>• 전제조건 DAG ($R \ge 0.85$)<br>• 의미 간섭쌍(`ConfusableEdge`)<br>• 동적 `target_R` [0.70, 0.97]<br>• `ReviewEvent` 불변 원장 Fold</td>
+                <td>• SuperMemo SM-18: 원문을 한 번에 다 카드로 만들면 카드 폭증 발생 ➔ `SourceDoc ➔ Extract ➔ Note ➔ Card` 점진 발췌<br>• 기초 개념 A($R &lt; 0.85$) 미숙지 상태에서 응용 B를 외우면 거머리(Leech) 발생<br>• Anki `revlog`는 append-only 정본 원장이며 상태는 `fold(events)` 투영임</td>
+                <td>• <strong>`fold_review_events` + `1e-6` 고정 양자화</strong>로 Python/JS/Kotlin 3플랫폼 부동소수점 오차(`1 ULP`) 완전 제거<br>• <strong>Tarjan SCC 순환 차단</strong> + 부모 $R \ge 0.85$ 도달 시에만 후속 응용 카드 해금, 반복 오답 시 전제 카드 역추적 진단<br>• 'A를 물었는데 B로 답한 오답'에서 `ConfusableEdge(A➔B)` 구축 후 <strong>`[A vs B 구별]` 대조 카드 자동 생성 & 2장 이내 인접 배치</strong></td>
+              </tr>
+              <tr>
+                <td><strong>🔵 Codex GPT-6.1 Sol</strong><br><span class="badge badge-cyan">Systems & DB 무결성</span></td>
+                <td><strong>[SYS-1~6]</strong><br>• 파생 카드 지연 GC<br>• `CRAM` vs `REVIEW_AHEAD` 수식 분리<br>• `sha256` CAS 미디어 분리<br>• `VOID` 보상 이벤트 Undo</td>
+                <td>• Anki는 노트 수정 시 빈 카드를 즉시 삭제하지 않아 수년간의 `revlog` 손실을 방지함<br>• FSRS-5는 당일 복습도 $S' = S e^{w_{17}(G-3+w_{18})}$로 $S$를 바꾸므로 벼락치기 반복을 넣으면 장기기억 $S$가 왜곡됨</td>
+                <td>• `diff_facets`로 `ACTIVE ➔ RETIRED ➔ TOMBSTONED` 지연 전이 (`review_events` 삭제 금지, 동일 `facet_key` 재등장 시 이력 부활)<br>• <strong>`CRAM` 모드는 $(D, S, due, reps, lapses)$ 바이트 단위 불변($S'=S$) 보장</strong> 및 옵티마이저에서 하드 제외<br>• 원본 이미지와 Image Occlusion 마스크를 `media_cas(sha256)`로 분리 및 `os.replace` 원자적 교체</td>
+              </tr>
+              <tr>
+                <td><strong>🟠 Grok 4.7</strong><br><span class="badge badge-amber">Product & 감사관</span></td>
+                <td><strong>[GRK-1~5]</strong><br>• `Exam Countdown Autopilot`<br>• QR 시험범위 스냅샷 & 학부모 리포트<br>• 키워드 루브릭(`RubricSpec`) 서술/구술<br>• 완주 기반 `Streak Shield`</td>
+                <td>• 한국 내신·수험 시장은 '습관 게이미피케이션'보다 <strong>'시험일 역산(D-14 ➔ D-7 ➔ D-1 ➔ 당일 아침 웜업)'</strong>이 스케줄을 지배함<br>• 내신 지필평가의 30~50%인 서술형·수행평가는 필수/부분/금기(오개념) 키워드 루브릭 채점이 필수</td>
+                <td>• <strong>`Exam Countdown Autopilot`</strong>: 불가능한 일정(과거 시험일·빈 범위·용량 초과)은 가짜 할당 대신 `PLAN_BLOCKED(reason)` 반환<br>• <strong>QR 스냅샷</strong>: PII 없이 `deck_rev + scope_hash`만 공유, 학부모 리포트에 가짜 예상 등급/상위 N% 전면 금지<br>• <strong>`RubricSpec`</strong>: STT/채점 장애 시 0점 처리 대신 `SCORE_UNAVAILABLE` 반환 (이벤트 0건)<br>• <strong>`Streak Shield`</strong>: 단순 출석/`CRAM`이 아닌 '그날 Autopilot 할당 100% 완주' 시에만 인정</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin: 28px 0 12px; color: #f8fafc; font-size: 1.15rem;">🛠️ Part 4. Claude Opus 5.5 설계 — 『WORKORDER-BRAINDECK-V56』 마스터 작업 지시서 및 구현 계약 (`docs/WORKORDER_V56_REA_MASTER.md`)</h3>
+        <div class="grid-2">
+          <div class="feature-card">
+            <h3>📋 Phase 1 ~ Phase 4 구현 순서 계약 <span>Track L</span></h3>
+            <ul>
+              <li><strong>Phase 1 (Core Ledger & Schedule)</strong>: <code>ReviewEvent</code> append-only 원장 + <code>fold_review_events</code>(<code>1e-6</code> 양자화), <code>CRAM</code>($S'=S$) vs <code>REVIEW_AHEAD</code>($t&lt;I$) 분리, <code>plan_exam</code>(D-14/D-7/D-1/당일웜업, <code>target_R ∈ [0.70, 0.97]</code>, <code>PLAN_BLOCKED</code>), <code>balance_due</code>(Load Balancer & Easy Days).</li>
+              <li><strong>Phase 2 (Resource Graph & Media)</strong>: <code>1 Note ➔ N Facet Cards</code> 무손실 재조정(<code>diff_facets</code>: <code>ACTIVE ➔ RETIRED ➔ TOMBSTONED</code>), OCR bbox 기반 자동 <code>Image Occlusion</code> + <code>media_cas(sha256)</code>, <code>SourceDoc ➔ Extract ➔ Note ➔ Card</code> 계보 & 상단 브레드크럼 + 4색 <code>flag(0..4)</code>.</li>
+              <li><strong>Phase 3 (Active Recall 2.0)</strong>: 방향성 혼동 간선(<code>ConfusableEdge A➔B</code>) & 대조 카드 인접 인터리빙(<code>interleave_contrastive</code>, <code>max_gap=2</code>), 전제조건 DAG(<code>find_cycles</code> Tarjan SCC, $R \ge 0.85$ 해금 게이트), 키워드 루브릭 채점(<code>score_rubric</code>, <code>SCORE_UNAVAILABLE</code>), 7장 스프린트 & 60초 4×3 매칭.</li>
+              <li><strong>Phase 4 (View & Viral Utility)</strong>: 전자 셀로판지 요약 시트, 인쇄용 2단 쪽지시험지(동일 시드 문제지+정답지), 통학 오디오 루프, QR 시험범위 스냅샷 & 학부모 완주 리포트 카드, 할당 완주 기반 <code>Streak Shield</code>.</li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <h3>🛡️ 신규 방어 게이트 (T35 ~ T42) & 테스트 스위트 (목표 210+ PASS) <span>Fail-Closed</span></h3>
+            <ul>
+              <li><strong>T35 (<code>test_v56_ledger.py</code>)</strong>: Python ↔ JS ↔ Kotlin 3개 플랫폼 Golden Vector <code>1e-6</code> 오차 이하 일치 & 순열 불변성.</li>
+              <li><strong>T36 (<code>test_v56_schedule.py</code>)</strong>: <code>CRAM</code> 100회 반복 시 <code>CardState</code> 바이트 단위 완전 불변 & <code>review_events</code> UPDATE/DELETE 트리거 차단.</li>
+              <li><strong>T37 (<code>test_v56_exam_autopilot.py</code>)</strong>: 과거 시험일·빈 범위·일일 한도 초과·DAG 사이클 시 조용한 축소 금지 ➔ <code>BLOCKED(reason)</code> 반환.</li>
+              <li><strong>T38 (<code>test_v56_facets.py</code>)</strong>: Facet 퇴역 시 <code>review_events</code> 행 수 불변 & 재등장 시 이력 자동 부활.</li>
+              <li><strong>T39 (<code>test_v56_media.py</code>)</strong>: <code>sha256</code> CAS 해시 불일치 거부 & <code>os.replace</code> 실패 시 staging 잔여물 0바이트.</li>
+              <li><strong>T40~T41 (<code>test_v56_recall.py</code>)</strong>: <code>A➔B ≠ B➔A</code> 비대칭 보존, Tarjan SCC 차단, 채점 장애 시 <code>SCORE_UNAVAILABLE</code>(이벤트 0건).</li>
+              <li><strong>T42 (<code>test_v56_views.py</code>)</strong>: AST Domain Purity, QR 페이로드 PII 0건, 데이터 부재 시 <code>'집계 없음'</code> 명시, <code>CRAM</code> 스트릭 제외.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      생성 일시: 2026-10-22 13:48 KST · 워크스페이스: <code>/Users/choyoungseo/Documents/개발</code> · 노션 정본: <a href="https://app.notion.com/p/3fee1e1a10378166b23ce99ec8d0fdd2" target="_blank">BRAINDECK-1020-02</a> · 작업지시서: <code>docs/WORKORDER_V56_REA_MASTER.md</code>
+    </footer>
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      const buttons = document.querySelectorAll('.nav-tab');
+      buttons.forEach(btn => btn.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      const panels = {
+        'tab-rea': document.getElementById('panel-rea'),
+        'tab-v55': document.getElementById('panel-v55'),
+        'tab-store': document.getElementById('panel-store'),
+        'tab-arch': document.getElementById('panel-arch'),
+        'tab-portfolio': document.getElementById('panel-portfolio'),
+        'tab-ops': document.getElementById('panel-ops')
+      };
+
+      if (tabId === 'tab-all') {
+        Object.values(panels).forEach(p => p.style.display = 'block');
+      } else {
+        Object.entries(panels).forEach(([key, panel]) => {
+          panel.style.display = (key === tabId) ? 'block' : 'none';
+        });
+      }
+    }
+  </script>
+</body>
+</html>

@@ -13,8 +13,19 @@ android {
         applicationId = "com.ankistudio.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.0"
+        versionCode = 56
+        versionName = "5.6.0"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     buildFeatures {

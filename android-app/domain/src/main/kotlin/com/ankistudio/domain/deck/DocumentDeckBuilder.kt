@@ -221,7 +221,11 @@ object DocumentDeckBuilder {
 
     private fun extractAnswerVerificationTokens(spec: GeneratedCardSpec): List<String> {
         val clozeTargets = CLOZE_EXTRACT_RE.findAll(spec.frontText).map { it.groupValues[1] }.toList()
-        val rawTarget = if (clozeTargets.isNotEmpty()) clozeTargets.joinToString(" ") else spec.backText
+        val rawTarget = if (clozeTargets.isNotEmpty()) {
+            clozeTargets.joinToString(" ")
+        } else {
+            spec.backText.substringBefore("💡 해설:").trim()
+        }
         val normTarget = Normalizer.normalize(rawTarget, Normalizer.Form.NFKC).lowercase()
         return TOKEN_RE.findAll(normTarget).map { it.value }.filter { it !in STOPWORDS }.toList()
     }
@@ -317,13 +321,83 @@ object DocumentDeckBuilder {
         return cleanedBlocks
     }
 
-    private fun synthesizeCardsFromBlock(block: DocumentBlock, category: String): List<SourcedCard> {
+    private val GENERIC_BOILERPLATE_SUFFIXES = listOf("시스템", "프로그램", "애플리케이션", "프로세스", "알고리즘", "메커니즘", "인터페이스", "네트워크", "데이터베이스")
+
+    fun selectSemanticHingeToken(candidates: List<String>, text: String, category: String): String {
+        if (candidates.isEmpty()) return ""
+        val catKeywords = CATEGORY_KEYWORDS[category] ?: emptySet()
+        fun scoreCandidate(tok: String): Double {
+            var score = min(tok.length, 6).toDouble() * 1.2
+            if (tok.any { it.isUpperCase() } && tok.any { it.isLetter() }) score += 3.0
+            if (tok.any { it.isDigit() }) score += 2.5
+            if (tok.lowercase() in catKeywords || catKeywords.any { it in tok.lowercase() }) score += 3.5
+            val pos = text.indexOf(tok)
+            if (pos in 0..(text.length / 2)) score += 1.5
+            if (GENERIC_BOILERPLATE_SUFFIXES.any { tok.endsWith(it) } && tok.length >= 4) score -= 2.5
+            return score
+        }
+        return candidates.maxByOrNull { scoreCandidate(it) } ?: candidates.first()
+    }
+
+    private fun synthesizeCardsFromBlock(
+        block: DocumentBlock,
+        category: String,
+        difficultyLevel: String = "standard"
+    ): List<SourcedCard> {
         val text = cleanLine(block.text)
         if (text.length < 8) return emptyList()
 
         val excerpt = text.take(140)
         val pattern = classifyBlockPattern(text)
-        val baseTags = listOf("auto-deck", category, pattern, "p${block.page}")
+        val diff = difficultyLevel.trim().lowercase()
+        val conceptTag = "concept:doc_${(text.take(36).hashCode() and 0x7fffffff)}"
+        val baseTags = listOf("auto-deck", category, pattern, "p${block.page}", conceptTag)
+
+        fun expandTermDefCards(term: String, desc: String, stdFront: String, stdBack: String, pat: String = "definition"): List<SourcedCard> {
+            val lv1 = SourcedCard(
+                spec = GeneratedCardSpec(
+                    noteType = "basic",
+                    frontText = "🌱 [Lv.1 기초 개념] '$term'의 핵심 정의·의미는 무엇인가?",
+                    backText = desc,
+                    tags = baseTags + "diff_lv1",
+                    rationale = "p.${block.page} Lv.1 기초 개념 인지"
+                ),
+                pattern = pat,
+                sourcePage = block.page,
+                sourceExcerpt = excerpt
+            )
+            val lv2 = SourcedCard(
+                spec = GeneratedCardSpec(
+                    noteType = "cloze",
+                    frontText = stdFront,
+                    backText = stdBack,
+                    tags = baseTags + "diff_lv2",
+                    rationale = "p.${block.page} Lv.2 문맥 빈칸 Cloze"
+                ),
+                pattern = pat,
+                sourcePage = block.page,
+                sourceExcerpt = excerpt
+            )
+            val lv3 = SourcedCard(
+                spec = GeneratedCardSpec(
+                    noteType = "basic",
+                    frontText = "🔥 [Lv.3 심화 역방향 인출] 다음 설명에 해당하는 정확한 핵심 개념(용어)을 쓰시오.\n\"$desc\"",
+                    backText = "$term\n💡 해설: $desc",
+                    tags = baseTags + "diff_lv3",
+                    rationale = "p.${block.page} Lv.3 역방향 능동 산출"
+                ),
+                pattern = pat,
+                sourcePage = block.page,
+                sourceExcerpt = excerpt
+            )
+            return when (diff) {
+                "lv1" -> listOf(lv1)
+                "lv2" -> listOf(lv2)
+                "lv3" -> listOf(lv3)
+                "mixed", "all" -> listOf(lv1, lv2, lv3)
+                else -> listOf(lv2.copy(spec = lv2.spec.copy(tags = baseTags)))
+            }
+        }
 
         if (pattern == "language_pair") {
             val m = ARROW_PAIR_RE.matchEntire(text)
@@ -413,58 +487,19 @@ object DocumentDeckBuilder {
         COLON_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return listOf(
-                SourcedCard(
-                    spec = GeneratedCardSpec(
-                        noteType = "cloze",
-                        frontText = "{{c1::$term::핵심 개념}}: $desc",
-                        backText = "$term — $desc",
-                        tags = baseTags,
-                        rationale = "p.${block.page} 용어 정의 Cloze"
-                    ),
-                    pattern = "definition",
-                    sourcePage = block.page,
-                    sourceExcerpt = excerpt
-                )
-            )
+            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}: $desc", "$term — $desc")
         }
 
         KOREAN_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return listOf(
-                SourcedCard(
-                    spec = GeneratedCardSpec(
-                        noteType = "cloze",
-                        frontText = "{{c1::$term::핵심 개념}}은(는) $desc",
-                        backText = "$term: $desc",
-                        tags = baseTags,
-                        rationale = "p.${block.page} 국문 개념 정의 Cloze"
-                    ),
-                    pattern = "definition",
-                    sourcePage = block.page,
-                    sourceExcerpt = excerpt
-                )
-            )
+            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}은(는) $desc", "$term: $desc")
         }
 
         ENGLISH_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return listOf(
-                SourcedCard(
-                    spec = GeneratedCardSpec(
-                        noteType = "cloze",
-                        frontText = "{{c1::$term::Concept}} is defined as $desc",
-                        backText = "$term: $desc",
-                        tags = baseTags,
-                        rationale = "p.${block.page} 영문 개념 정의 Cloze"
-                    ),
-                    pattern = "definition",
-                    sourcePage = block.page,
-                    sourceExcerpt = excerpt
-                )
-            )
+            return expandTermDefCards(term, desc, "{{c1::$term::Concept}} is defined as $desc", "$term: $desc")
         }
 
         CAUSAL_COMPARE_RE.find(text)?.let { m ->
@@ -487,25 +522,17 @@ object DocumentDeckBuilder {
             )
         }
 
-        // Fallback for general informative sentence: mask the longest domain noun/keyword
+        // Fallback for general informative sentence: mask the highest semantic-hinge domain noun/keyword
         if (block.kind == "heading") return emptyList()
         val candidates = FALLBACK_NOUN_RE.findAll(text).map { it.value }.filter { it.lowercase() !in STOPWORDS }.toList()
         if (candidates.isNotEmpty() && text.length >= 18) {
-            val target = candidates.maxByOrNull { it.length }!!
+            val target = selectSemanticHingeToken(candidates, text, category)
             val clozeSentence = text.replaceFirst(target, "{{c1::$target::핵심 키워드}}")
-            return listOf(
-                SourcedCard(
-                    spec = GeneratedCardSpec(
-                        noteType = "cloze",
-                        frontText = clozeSentence,
-                        backText = "정답: $target (p.${block.page})",
-                        tags = baseTags,
-                        rationale = "p.${block.page} 핵심 키워드 Cloze"
-                    ),
-                    pattern = "definition",
-                    sourcePage = block.page,
-                    sourceExcerpt = excerpt
-                )
+            return expandTermDefCards(
+                term = target,
+                desc = excerpt.replace(target, "[ ___ ]"),
+                stdFront = clozeSentence,
+                stdBack = "$target\n💡 해설: $excerpt (p.${block.page})"
             )
         }
 
@@ -548,7 +575,8 @@ object DocumentDeckBuilder {
         minConfidence: Double = 0.60,
         minTextChars: Int = 40,
         nowDateStr: String = "2026-10-19",
-        ocrPages: Int = 0
+        ocrPages: Int = 0,
+        difficultyLevel: String = "standard"
     ): DeckPlan {
         val cap = max(1, min(60, maxCards))
         var lowConfidenceLines = 0
@@ -589,10 +617,10 @@ object DocumentDeckBuilder {
             if (lines.size > 1 && lines.any { COLON_DEF_RE.matches(it) || ARROW_PAIR_RE.matches(it) }) {
                 for (ln in lines) {
                     val subBlock = block.copy(text = ln)
-                    rawCandidates.addAll(synthesizeCardsFromBlock(subBlock, category))
+                    rawCandidates.addAll(synthesizeCardsFromBlock(subBlock, category, difficultyLevel))
                 }
             } else {
-                rawCandidates.addAll(synthesizeCardsFromBlock(block, category))
+                rawCandidates.addAll(synthesizeCardsFromBlock(block, category, difficultyLevel))
             }
         }
 

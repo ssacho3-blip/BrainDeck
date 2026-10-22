@@ -1,9 +1,10 @@
-# 🏛️ Anki Studio 2.0 — 전 연령(초등~성인) & 내장 시험·교과서 시험범위 레퍼런스 DB 마스터 설계도 (`v3.1 Final`)
+# 🏛️ BrainDeck (브레인덱 · 구 Anki Studio 2.0) — 전 연령(초등~성인) · Apple 오프라인 웹앱(PWA) & 네이티브 Android · 인앱 브레인팩 스토어(`₩990~₩1,900`) 마스터 설계도 (`v4.0 Final`)
 
-- **문서 번호**: `ANKI-BLUEPRINT-2026-10-20` (**v3.1 Final All-Ages + Reference Pack + School Textbook Exam-Scope Edition** — 초등 `Junior` · 중고등 `Teen` · 성인 `Adult` + 어학·한자·한국사·자격증 + 중·고등 출판사별 교과서 단원/쪽수 시험범위 맞춤형 카드 생성 통합 설계)
-- **프로젝트 경로**: `/Users/choyoungseo/Documents/개발/Anki-Studio` (`src/anki_studio` + `android-app/`)
-- **아키텍처 표준**: Clean / Hexagonal Architecture + MVVM + State Machine + 2-Tier DB (Tier R Reference Pack + Tier U User Ledger) + ATDD/BDD/TDD/DDT
-- **설계 목적**: **초등학교 저학년부터 중고등 수험생, 대학생·성인 전문가까지 모두 사용할 수 있는 범용 AI 암기·학습 플랫폼**을 단일 클린 아키텍처 코어로 구축하고, 어학·한자·한국사·자격증 기본 데이터팩과 **중·고등학교 출판사별 교과서 시험범위(단원·쪽수·프린트물) 선택형 카드 생성 체계**를 탑재하면서 구현 후 재작업(삽질)을 유발하는 **28대 아키텍처 함정(T1~T28)**을 사전 차단한다.
+- **문서 번호**: `BRAINDECK-BLUEPRINT-2026-10-21` (**v4.0 Final All-Ages + Apple Standalone PWA & Android + In-App BrainPack Store (`₩990~₩1,900`) + UI/UX Master Edition**)
+- **프로젝트 경로**: `/Users/choyoungseo/Documents/개발/BrainDeck` (하위호환 심볼릭 경로: `/Users/choyoungseo/Documents/개발/Anki-Studio` · `src/anki_studio` + `android-app/`)
+- **연계 UI/UX 설계 정본**: [`docs/UI_UX_DESIGN_BLUEPRINT.md`](./UI_UX_DESIGN_BLUEPRINT.md)
+- **아키텍처 표준**: Clean / Hexagonal Architecture + MVVM + State Machine + 2-Tier DB (Tier R Reference Pack + Tier U User Ledger) + 2-Tier Offline Web Vault (`IndexedDB/OPFS` + `localStorage`) + ATDD/BDD/TDD/DDT
+- **설계 목적**: **초등학교 저학년부터 중고등 수험생, 대학생·성인 전문가까지 모두 사용할 수 있는 범용 AI 암기·학습 플랫폼 `BrainDeck(브레인덱)`**을 **Apple(iPhone·iPad·Mac) 오프라인 내장형 웹앱(PWA)과 네이티브 Android 앱(`android-app/`)**으로 동시 구축하고, **본인 자료(사진/PDF) 직접 업로드 무제한 무료(`₩0`) + 인앱 『브레인팩 스토어(BrainPack Store)』 초소액(`₩990 ~ ₩1,900`) 마스터 데이터팩 영구 장착 모델**을 탑재하면서 구현 후 재작업(삽질)을 유발하는 **34대 아키텍처 함정(T1~T34)**을 사전 차단한다.
 
 ---
 
@@ -111,11 +112,11 @@ flowchart TB
 
 ---
 
-## 3. 구현 후 '삽질(재작업)'을 유발하는 28대 아키텍처 함정과 선제 방어 설계 (T1 ~ T28)
+## 3. 구현 후 '삽질(재작업)'을 유발하는 34대 아키텍처 함정과 선제 방어 설계 (T1 ~ T34)
 
-기존 15대 기술 함정(T1~T15), 4대 전 연령 교육공학 함정(T16~T19), 7대 내장 레퍼런스 DB 함정(T20~T26)에 더해, **중·고등학교 출판사별 검·인정 교과서 매핑 및 내신 시험범위(단원·쪽수·프린트물) 선택형 카드 생성 시 발생하는 2대 저작권·커서 함정(T27~T28)**을 추가 방어합니다.
+기존 15대 기술 함정(T1~T15), 4대 전 연령 교육공학 함정(T16~T19), 7대 내장 레퍼런스 DB 함정(T20~T26), 2대 중·고등 교과서 시험범위 함정(T27~T28)에 더해, **Apple(iOS/iPadOS/macOS) 오프라인 내장형 웹앱(PWA) + Android 동시 운영 및 인앱 『브레인팩 스토어(`₩990~₩1,900`)』 상용화 시 발생하는 6대 크로스플랫폼·결제·스토리지 함정(T29~T34)**을 추가 방어합니다.
 
-| # | 재작업 위험 포인트 (Trap) | 현재 상태 및 위험 진단 | 선제 방어 설계 (Blueprint v3.1 Final Solution) |
+| # | 재작업 위험 포인트 (Trap) | 현재 상태 및 위험 진단 | 선제 방어 설계 (Blueprint v4.0 Final Solution) |
 | :-: | :--- | :--- | :--- |
 | **T1** | **Room 마이그레이션 불가 및 스키마 확장성 부재** | `version = 1, exportSchema = false`, 노트가 `front/back` 고정 컬럼 | `exportSchema = true`, `room.schemaLocation` 지정, `MigrationTestHelper` 의무화, v1→v2 마이그레이션 시 기본 프로필(`profile_id = 1`) 및 `subject_taxonomy` 선행 시드 후 전 테이블 확장 |
 | **T2** | **카드 삭제 시 `revlog` 연쇄 삭제로 통계·FSRS 표본 증발** | `RevlogEntity`의 `onDelete = CASCADE`로 카드 삭제 시 과거 복습 기록도 삭제됨 | `revlog`에서 `CASCADE` 외래키를 제거하고 `profile_id`를 비연쇄 보존하여 카드가 삭제/분할되더라도 프로필별 장기 기억 데이터 영구 보존 |
@@ -145,6 +146,12 @@ flowchart TB
 | **T26** | **[내장 DB 신규] 외부 다운로드 팩의 손상 · 공급망 변조 · 고정 버전 삭제 사고** | 다운로드 중 끊기거나 변조된 팩 SQLite가 마운트되거나, 활성 덱이 `pinned_version`으로 참조 중인 팩 버전이 삭제되면 오류 발생 | **루트 공개키 핀 고정 `Ed25519` 서명 + 4단계 무결성 검증 + Pinned 버전 보호 트리거**:<br>① 앱에 내장된 루트 공개키로 `manifest.json`의 정규화 페이로드(`pack_id, pack_version, file_sha256, content_sha256, license_spdx, min_app_schema`) `Ed25519` 서명 검증 ➔ 파일 `sha256` 대조 ➔ `PRAGMA quick_check` & `PRAGMA foreign_key_check`(0건) ➔ `.staging`에서 원자적 `rename` 후에만 `installed_packs.state`를 `'verified' ➔ 'active'`로 승격(앱 재시작 시 파일 누락/해시 불일치 팩은 `'quarantined'` 격리)<br>② `pack_activations` 및 `exam_scopes`가 참조 중인 `(pack_id, resolved_pack_version / pinned_version)`은 삭제 및 `'quarantined'` 전환을 차단하는 SQLite 트리거 강제 |
 | **T27** | **[중·고등 교과서 신규] 검·인정 교과서 출판사별 본문 저작권 침해 위험 & 2015/2022 개정 교육과정 혼재** | 중·고등학교는 학교마다 채택 출판사·저자(동아 윤정미, 비상 김진완, 미래엔, 천재 이재영 등)가 다르고 2015/2022 개정 교육과정이 학년별로 공존함. 또한 출판사 교과서 본문 지문 전문을 무단 내장 배포하면 저작권 침해 발생 | **2-Layer 하이브리드 교과서 아키텍처 (`Tier R 단원·개념 매핑 팩` + `Tier U 사적 스캔 오버레이`)**:<br>① **`Tier R` (`ref_textbooks`, `ref_curriculum_units`, `ref_unit_entries`)**: 교육과정(`2015`/`2022`)·학교급·학년·학기·출판사·저자별 **대/중/소단원 목차 트리, 쪽수 범위(`page_start..page_end`), 교육부 성취기준 코드(`[9영02-01]`)**와 단원별 등장 **필수 어휘·숙어·문법 개념·역사 연표/사건·과학/수학 공식·한자**(`ref_entries`) 매핑을 학기별 무선 팩으로 합법 업데이트(제휴 계약 `CONTRACT_LICENSED`/`PUBLIC_LAW_ART7`/`KOGL_1`이 아닌 출판사 본문 지문 `licensed_passage` 등록은 SQLite 트리거로 원천 차단)<br>② **`Tier U` (학생 직접 스캔 오버레이)**: 영어 본문 문장 통암기나 학교 선생님 프린트물·부교재는 학생이 카메라/PDF로 찍어 해당 교과서 단원(`textbook_id, curriculum_unit_id, textbook_page_no`)에 귀속시켜 본인 기기에서만 생성하며, `export_restricted = 1`로 외부 `.apkg` 유출을 자동 차단 |
 | **T28** | **[중·고등 시험범위 신규] 비연속 시험범위(예: 1단원 + 3단원, 동일 단원 내 비연속 쪽수 p.10~20 & p.30~40) 선택 불가 및 시험범위 축소 시 기학습/수동 유예 상태 파괴** | 단일 `next_ordinal` 커서만으로는 중간 단원이나 중간 쪽수를 건너뛰는 시험범위 선택이 불가능하며, 시험범위 축소 시 카드를 삭제하거나 `cards.queue = -2`를 덮어쓰면 기존 수동 정지(`-1`)/유예(`-2`) 상태와 FSRS 복습 이력이 훼손됨 | **결정론적 시험범위 엔진 (`exam_scopes` + `exam_scope_rules` + `exam_scope_items`) & 상태 비침투형 관계 필터링(`Queue-Preserving Scope Membership`)**:<br>① `exam_scope_rules`는 동일 단원 내 복수 비연속 쪽수 구간(`p.10~20`, `p.30~40`)을 허용하고 반쪽짜리 구간(`page_start`만 있고 `page_end IS NULL`)을 DB `CHECK`로 차단하며, `exam_scopes.textbook_id` 소속 단원인지 검증 후 `Tier R` 엔트리(`item_kind='pack_entry'`)와 학생 스캔 노트(`item_kind='user_note'`)를 모두 `exam_scope_items`로 통합 해석<br>② **원자적 재번호 부여 & 카드 큐 비침투 원칙**: 범위 재조정 시 `in_scope = 0` 행은 `scope_ordinal = NULL`로 먼저 비워 `UNIQUE(scope_id, scope_ordinal) WHERE in_scope = 1` 충돌을 원천 차단하고, 범위 밖으로 빠진 카드의 `cards.state`/`cards.queue`는 절대 덮어쓰지 않은 채 스케줄러 쿼리가 `exam_scope_items(in_scope = 1)` 소속 여부로만 출제를 필터링(수동 정지/유예 상태 및 FSRS 이력 100% 보존) |
+| **T29** | **[Apple PWA 신규] iOS/iPadOS Safari 7일 ITP 스토리지 증발(Storage Eviction) 함정** | 아이폰·아이패드 일반 사파리 브라우저 탭에서 웹앱을 열기만 하고 7일간 방문하지 않으면 WebKit ITP(Intelligent Tracking Prevention) 정책이 브라우저 내부 스토리지(`IndexedDB`/`CacheStorage`)를 자동 삭제할 위험이 있음 | **홈 화면 Standalone 설치 유도 + `navigator.storage.persist()` + 서버/로컬 SQLite 원장 자동 백업 3중 방어**:<br>① iOS/iPadOS에서 `standalone === false` 감지 시 `[공유 ⬆️ → 홈 화면에 추가]` 코치마크 배너를 노출하여 ITP 7일 삭제 면제 대상인 **Standalone Web-App(`apple-mobile-web-app-capable: yes`)**으로 설치 유도<br>② 앱 최초 진입 시 `navigator.storage.persist()`를 호출해 영구 보관 권한 획득<br>③ 복습 및 브레인팩 구매 즉시 백엔드 SQLite 원장(`TierULedgerStore`)과 자동 동기화하며, `GET /api/bundle/offline-snapshot`을 통해 언제든 1초 만에 기기 금고를 100% 재구축 |
+| **T30** | **[Apple PWA 신규] 브라우저 `localStorage` 5MB 용량 상한 폭발(`QuotaExceededError`) 함정** | `localStorage`는 동기식 UTF-16 문자열 약 5MB 상한만 허용하므로, 브레인팩 여러 개나 교과서 단원 데이터·원문 스냅샷을 `localStorage`에 통째로 넣으면 즉시 `QuotaExceededError`가 발생해 앱이 멈춤 | **2-Tier 웹 오프라인 금고 (`L1 Boot Metadata` + `L2 IndexedDB/OPFS Bulk Vault`) 분리**:<br>① `L1 (localStorage, <= 64KB 상한)`: 활성 `profile_id`, 연령 티어(`age_tier`), 잠금 해제된 `unlocked_pack_ids` 배열, 경량 부트 요약만 저장하고 `try/catch` 용량 가드로 예외 시에도 UI가 절대 멈추지 않도록 보호<br>② `L2 (IndexedDB 'braindeck_idb_v4' + OPFS/CacheStorage)`: 대용량 브레인팩 엔트리, 카드 본문, `revlog`, WebP 페이지 스냅샷을 비동기 트랜잭션으로 분리 저장 |
+| **T31** | **[인앱 스토어 신규] 결제 영수증 재사용(Replay) · 이중 마운트(Double-Mount) · 환불 시 FSRS 기억 상태 파괴 함정** | ① 네트워크 재시도로 구매 API가 두 번 호출될 때 동일 브레인팩 카드가 2배로 중복 생성되거나, ② 결제 검증 없이 유료 팩이 풀리거나, ③ 환불 시 해당 팩 카드를 `DELETE CASCADE`하면 그동안 쌓은 `revlog`와 FSRS 통계가 영구 파괴됨 | **Fail-Closed 결제 검증(`validate_store_purchase`) + `mounted_deck_id` 멱등성 마운트 + 환불 시 `refunded_frozen` 비파괴 동결**:<br>① 유료 브레인팩(`price_krw > 0`)은 유효 결제 토큰(`BDPAY-*` / `RECEIPT-*`) 미제출 시 즉시 `payment_verification_required`로 차단<br>② `store_entitlements` 테이블에 `mounted_deck_id`를 기록하여 재호출 시 새 덱을 중복 생성하지 않고 기존 덱을 멱등 반환(`already_mounted = True`)<br>③ 오프라인 번들(`GET /api/bundle/offline-snapshot`)도 잠금 해제된(`unlocked`) 팩만 필터링하며, 환불 발생 시 카드를 삭제하지 않고 `entitlement_status = 'refunded_frozen'`으로 전환해 복습 이력을 보존 |
+| **T32** | **[Apple PWA 신규] iOS/iPadOS WebKit 오디오·원어민 TTS 자동재생 차단(Autoplay Policy) 및 음성 비동기 로딩 함정** | iOS 사파리/PWA에서는 사용자의 직접 터치(`pointerdown`/`click`) 콜스택 밖에서 `speechSynthesis.speak()`를 호출하면 무음으로 무시되며, 한국어/영어/일본어 음성이 비동기로 늦게 로드됨 | **첫 터치 오디오 세션 언락(`unlockAudioSessionOnFirstTap`) + `voiceschanged` 로케일 매칭 + 시각 발음 가이드 병기**:<br>① `[복습 시작]` 또는 `[🔊 듣기]` 첫 터치 이벤트 핸들러 안에서 WebKit 오디오/TTS 세션을 즉시 언락<br>② `ko-KR`, `en-US`, `ja-JP` 최적 음성을 우선 바인딩하고, 무음 모드이거나 TTS 미지원 환경에서도 IPA 발음기호/히라가나/한자 독음을 화면에 동시 표시 |
+| **T33** | **[모바일 스캔 신규] 아이폰 고해상도 HEIC(48MP) 및 안드로이드 다중 촬영 시 메모리 폭주(WebKit Jetsam / Android OOM) 함정** | 스마트폰 카메라로 시험지 5~10장을 연속 촬영해 원본 해상도 비트맵을 동시에 메모리에 올리면 iOS WebKit Jetsam 강제종료나 Android `OutOfMemoryError`가 발생함 | **순차 스트림 디코딩(`concurrency = 1`) + 장변 `2048px` 자동 다운샘플링 + 즉시 메모리 반환**:<br>① 다중 사진 투입 시 한 번에 1장씩만 디코딩하며 장변 `maxDimension = 2048px`로 리사이즈 후 OCR 수행<br>② 페이지 추출 완료 즉시 `bitmap.recycle()`(Android) 및 `canvas.width = 0; imageBitmap.close()`(Web PWA)로 네이티브 메모리를 즉시 회수 |
+| **T34** | **[인앱 스토어 신규] `₩990 ~ ₩1,900` 초소액(Micro-Pricing) 단건 반복 결제 피로도 및 PG 수수료 함정** | 교과서 팩을 부담 없는 `₩990`으로 낮추었을 때 학생이 국·영·사·과 등 여러 과목을 사려면 매번 개별 결제를 반복해야 해 번거롭고 PG 고정 수수료 비중이 커짐 | **원터치 단건 구매(`₩990~₩1,900`) + 『학기 내신 골라담기 번들 장바구니(`calculate_bundle_quote`)』 동시 지원**:<br>① 단건 구매는 `교과서 팩 ₩990` · `한자/한국사 ₩1,500` · `어학/전문자격증 ₩1,900` 상한 유지<br>② 스토어에서 유료 브레인팩 **3개 이상 동시 선택 시 15% 번들 자동 할인(10원 단위 절사, 예: 교과서 3팩 `₩2,970 ➔ ₩2,500`)**을 제공하여 학부모/학생의 결제 편의성과 가성비를 극대화 |
 
 ---
 
@@ -1140,6 +1147,41 @@ END;
 3. **D-Day 맞춤 일일 신규 카드 자동 배분 (`calculateExamScopeDailyNew`)**:
    - `exam_study_day`가 지정된 경우 `remaining_days = max(1, (exam_study_day - current_study_day) - 3)` (시험 직전 3일은 전체 총복습 버퍼로 확보)로 계산하여, 매일 `ceil(unmaterialized_in_scope_count / remaining_days)`장씩 자동으로 카드를 실체화합니다.
 
+### 6.5 인앱 『브레인팩 스토어 (`BrainPack Store`)』 & 초소액(`₩990~₩1,900`) 라이선스 원장 계약 (`T29 ~ T34`)
+1. **가격 상한 불변식 (`Micro-Pricing Ceiling Invariant`)**:
+   - 본인 직접 업로드(카메라 촬영, 학원 유인물, PDF, 오답노트) 및 기본 스타터팩(`pack.free.starter_k12`)은 **영구 무료(`₩0`)**.
+   - 유료 브레인팩은 **중·고등 교과서 단원 마스터팩 `₩990`**, **급수한자(7~3급)·한능검 한국사 올인원팩 `₩1,500`**, **어학(TOEIC+JLPT)·전문자격증(헌법+정처기) 통합팩 `₩1,900`**으로 책정하며, 스토어 내 어떠한 단일 팩도 `₩1,900`을 초과하지 않습니다(`max(price_krw) <= 1900` TDD 강제).
+   - **다과목 골라담기 번들 할인 (`calculate_bundle_quote`, `T34`)**: 미보유 유료 팩을 **3개 이상** 동시 구매 시 합산 정가에서 **15% 할인을 적용하고 100원 미만을 절사**(예: `₩990 × 3팩 = ₩2,970 ➔ ₩2,500`)합니다.
+2. **라이선스 원장 스키마 (`store_entitlements`) 및 멱등 마운트**:
+   ```sql
+   CREATE TABLE IF NOT EXISTS store_entitlements (
+       profile_id INTEGER NOT NULL DEFAULT 1,
+       pack_id TEXT NOT NULL,
+       price_krw INTEGER NOT NULL DEFAULT 0 CHECK (price_krw >= 0 AND price_krw <= 1900),
+       payment_ref TEXT NOT NULL,
+       entitlement_status TEXT NOT NULL DEFAULT 'active'
+           CHECK (entitlement_status IN ('active', 'refunded_frozen')),
+       mounted_deck_id INTEGER,
+       unlocked_at_epoch_sec INTEGER NOT NULL,
+       PRIMARY KEY (profile_id, pack_id)
+   );
+   ```
+   - 이미 구매·장착(`mounted_deck_id IS NOT NULL`)된 팩에 대해 재구매/재장착 요청이 들어오면 새 덱을 중복 생성하지 않고 기존 `mounted_deck_id`를 그대로 반환합니다(`T31`).
+   - Apple PWA 오프라인 스냅샷(`GET /api/bundle/offline-snapshot`)은 `entitlement_status = 'active'`로 잠금 해제된 팩의 교과서·컬렉션 데이터만 내려주어 미구매 유료 데이터의 클라이언트 유출을 원천 차단합니다.
+
+---
+
+## 9. 전 연령 & 크로스플랫폼 UI/UX 마스터 설계 요약 (상세 정본: [`docs/UI_UX_DESIGN_BLUEPRINT.md`](./UI_UX_DESIGN_BLUEPRINT.md))
+
+1. **연령별 3-Tier 적응형 디자인 토큰 (`resolveUiUxTokens`)**:
+   - **🌱 초등 모드 (`Junior`)**: 질문 폰트 `22px`, 최소 터치 타겟 **`56px`**, 둥근 카드(`20px`), 기본 출제 `4지선다 객관식 / 오프라인 TTS 받아쓰기`, 자기평가 `Easy(4)` 버튼 숨김, 부드러운 격려 피드백.
+   - **🚀 중고등 모드 (`Teen`)**: 질문 폰트 `19px`, 최소 터치 타겟 **`48px`**, 내신 D-Day 배너 및 교과서 단원/쪽수 슬라이서 전면 배치, `4지선다 ➔ 단어블록 ➔ 직접 인출` 3단계 자동 승격.
+   - **🎓 성인/프로 모드 (`Adult`)**: 질문 폰트 `17px`, 최소 터치 타겟 **`44px`**, 다크 글래스모피즘 고밀도 스튜디오 레이아웃, 서술형 Active Recall 채점 및 키보드 단축키(`Space, 1~4, H, T, Z`) 전면 활성화.
+2. **폼팩터별 반응형 내비게이션 (`Compact / Medium / Expanded`)**:
+   - **스마트폰 (`< 768px`, iPhone / Android Phone)**: 엄지 영역(`Thumb Zone`) 하단 5탭 바 + 풀스크린 카드 아레나 + 바텀시트 드로어 + iOS `env(safe-area-inset-*)` 노치/홈바 보호.
+   - **태블릿 & 폴더블 (`768px ~ 1099px`, iPad / Galaxy Tab / Z Fold 펼침)**: 좌측 `NavigationRail` + 좌/우 2-Pane Split View (좌측 단원·쪽수 선택 시 우측 카드 실시간 프리뷰).
+   - **데스크톱 & 대화면 (`>= 1100px`, Mac Safari PWA / `BrainDeck.app`)**: 3-Pane 스튜디오 워크스페이스 (좌: 프로필·덱·스토어 필터 / 중: 액티브 리콜 아레나 / 우: 망각곡선·원문 `p.N` 뷰어).
+
 ---
 
 ## 7. 단계별 구현 로드맵 (Zero-Rework Engineering Roadmap: P0 ~ P6)
@@ -1173,3 +1215,12 @@ END;
 - **v3.1 Final (중·고등학교 출판사별 교과서 단원 매핑 & 내신 시험범위 선택형 카드 생성 아키텍처 확장 — `T27, T28` · Codex GPT-6.1 Sol 검증)**:
   1. **[2-Layer 하이브리드 교과서 아키텍처 (`Tier R 단원·개념 매핑 팩` + `Tier U 사적 스캔 오버레이`, `T27`)]** 중·고등학교 검·인정 교과서(2015/2022 개정 교육과정, 출판사·대표저자별)의 대/중/소단원 목차 트리와 쪽수 범위(`ref_textbooks`, `ref_curriculum_units`), 단원별 필수 어휘·한자·역사 연표·과학 공식 매핑(`ref_unit_entries`)을 학기별 무선 업데이트 팩으로 제공하고, 비제휴 출판사의 본문 산문 무단 수록 및 사후 라이선스 변경은 `INSERT/UPDATE` 트리거로 원천 차단하며, 학생이 직접 촬영한 교과서 본문·학교 프린트물은 단원(`curriculum_unit_id`)에 귀속시키고 `export_restricted = 1`로 외부 유출을 막음.
   2. **[비연속 시험범위(단원·쪽수·중요도·스캔본) 통합 해석 & 큐 비침투형 범위 재조정 (`exam_scopes` / `exam_scope_rules` / `exam_scope_items`, `T28`)]** 중간/기말고사에서 특정 단원이나 동일 단원 내 다중 비연속 쪽수 구간만 선택해 내장 엔트리(`pack_entry`)와 학생 스캔 노트(`user_note`)를 통합 구성하고, 시험 직전 범위가 축소되더라도 `in_scope = 0, scope_ordinal = NULL` 원자적 전환 및 관계형 필터링으로 `cards.queue`(수동 정지/유예)와 FSRS 복습 이력을 100% 무손실 보존.
+- **v4.0 Final (Apple Web/PWA & Android 크로스플랫폼 오프라인 금고 + 초저가(`₩990~₩1,900`) 브레인팩 스토어 + 전 연령 UI/UX 설계 — `T29 ~ T34`)**:
+  1. **[Apple iOS ITP 7일 증발 방어 & 2계층 오프라인 금고 (`T29, T30`)]** iOS Safari Standalone 홈 화면 웹앱 고정 및 `localStorage`(L1 경량 설정) + `IndexedDB/OPFS`(L2 대용량 팩/카드) 이원화로 5MB 쿼터 한계 극복.
+  2. **[초저가 과금(`₩990~₩1,900`) & 3팩 이상 15% 묶음 할인 (`T34`)]** 셀프 업로드 및 기본 스타터 팩 `₩0`, 중·고등 교과서 `₩990`, 급수 한자·한국사 `₩1,500`, 토익·JLPT·공무원·자격증 `₩1,900` + 3팩 이상 구매 시 15% 자동 할인.
+- **v5.0 Final (Claude Opus 5.5 구조적 무결성 감사 — 날림 방지 5대 결정론적 불변식 `I-1 ~ I-5` & `AC-1 ~ AC-5` 완비)**:
+  1. **[`I-1 / AC-1` 단일 권한 게이트 (`decide_entitlement_action` & `require_entitlement`)]** 카탈로그 표시뿐만 아니라 `generate_exam_scope_deck()` 및 `generate_collection_deck()` 첫 줄에서 권한을 강제 검사하여, 미구매(`PACK_LOCKED`) 또는 환불 동결(`PACK_REFUNDED_FROZEN`) 상태에서 API 직접 호출 시 HTTP `403`으로 원천 차단하고, 기존 FSRS 복습(`REVIEW`)만 허용.
+  2. **[`I-2 / AC-3` 최대 잉여법(`Largest Remainder`) 번들 원장 정합성 & 멱등 환불 동결 (`freeze_refunded_pack`)]** 3팩 이상 15% 묶음 할인 시 팩별 실결제 배분액 합계가 총 결제액과 1원 단위까지 100% 일치(`Σ allocated_prices_krw == final_price_krw`)하도록 원장에 기록하며, 환불(`POST /api/store/refund`) 시 기존 FSRS 복습 이력은 보존한 채 `status = 'refunded_frozen'`으로 멱등 전환.
+  3. **[`I-3 / AC-4` 서버 강제 연령·Cloud Vision 하드락 (`resolve_cloud_vision_policy`)]** 클라이언트 파라미터를 신뢰하지 않고 서버 DB의 프로필 정책(`age_tier`, `cloud_vision_locked`)을 조회해 `Junior` 또는 잠금 상태에서 `allow_cloud_vision=True` 요청 시 조용히 무시하지 않고 HTTP `403 CLOUD_VISION_LOCKED`로 명시적 차단(Zero Fabricated Status).
+  4. **[`I-4 / AC-2` 불변 `Tier R` 팩 생애주기 (`ensure_starter_k12_and_exam_pack`)]** 서버 부팅 때마다 팩 파일을 `unlink` 후 재빌드하던 프로토타입 방식을 폐기하고, 읽기 전용(`mode=ro`) `quick_check` + `foreign_key_check` + `content_sha256` 재계산 검증 통과 시 재빌드 없이 즉시 마운트(`mtime` 불변)하며, 최초/불일치 시에만 `.tmp.<pid>` 빌드 후 `os.replace()`로 원자적 교체.
+  5. **[`I-5 / AC-5` 3-플랫폼(Python ↔ JS ViewModel ↔ Android Kotlin) DTO 스키마 계약 통합 검증]** `schema_version` 및 번들 견적·권한·UI 토큰 필드를 양방향 BDD 계약 테스트(`100 passed`)로 고정.

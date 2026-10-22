@@ -93,4 +93,44 @@ class DocumentDeckBuilderTest {
         assertEquals("insufficient_text", plan.errorCode)
         assertTrue(plan.cards.isEmpty())
     }
+
+    @Test
+    fun `v54 TDD difficulty stratified document deck plan and semantic hinge token selection`() {
+        val doc = ExtractedDocument(
+            blocks = listOf(
+                DocumentBlock(
+                    kind = "paragraph",
+                    text = "광합성: 식물이 빛에너지를 이용해 이산화탄소와 물로 포도당과 산소를 합성하는 과정이다.",
+                    page = 1,
+                    confidence = 0.98
+                ),
+                DocumentBlock(
+                    kind = "paragraph",
+                    text = "세포호흡: 세포 내 미토콘드리아에서 영양소를 분해하여 ATP 생활 에너지를 얻는 작용이다.",
+                    page = 1,
+                    confidence = 0.97
+                )
+            ),
+            titleHint = "생물학 핵심 정리",
+            sourceKind = "pdf",
+            pageCount = 1
+        )
+        for (diff in listOf("lv1", "lv2", "lv3", "mixed")) {
+            val plan = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = diff)
+            assertEquals("OK", plan.status, "Failed for difficultyLevel=$diff")
+            assertTrue(plan.cards.size >= 2, "Expected >=2 cards for difficultyLevel=$diff")
+        }
+
+        // v5.5 Frame 4: lv1, lv2, lv3 must generate distinct cognitive facets + concept:<id> tags
+        val planLv1 = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = "lv1")
+        val planLv2 = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = "lv2")
+        val planLv3 = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = "lv3")
+        val planMixed = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = "mixed")
+
+        assertTrue(planLv1.cards.all { it.spec.noteType == "basic" && it.spec.tags.any { t -> t.startsWith("concept:") } })
+        assertTrue(planLv2.cards.all { it.spec.noteType == "cloze" && it.spec.frontText.contains("{{c1::") && it.spec.tags.any { t -> t.startsWith("concept:") } })
+        assertTrue(planLv3.cards.all { "diff_lv3" in it.spec.tags && it.spec.tags.any { t -> t.startsWith("concept:") } })
+        assertTrue(planLv1.cards.first().spec.frontText != planLv3.cards.first().spec.frontText, "lv1 and lv3 fronts must be distinct")
+        assertTrue(planMixed.cards.size >= planLv1.cards.size + planLv2.cards.size)
+    }
 }

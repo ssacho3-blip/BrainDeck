@@ -47,6 +47,20 @@ class AndroidDocumentIngestor(
         const val MAX_PDF_PAGES = 50
         const val MAX_PAGE_DIMENSION_PX = 2200
 
+        val OLLAMA_CLOUD_MODELS: List<Pair<String, String>> = listOf(
+            "glm-5.3-flash" to "☁️ GLM-5.3 Flash (추천)",
+            "deepseek-v4.1-flash" to "☁️ DeepSeek-v4.1 Flash",
+            "gemma4:31b" to "☁️ Gemma-4 31B",
+            "glm-5.3" to "☁️ GLM-5.3",
+            "local_rule" to "⚡ 기기 내장 엔진"
+        )
+
+        fun isOllamaCloudModelBlocked(modelId: String?): Boolean {
+            val norm = (modelId ?: "").trim().lowercase()
+            if (norm.isEmpty()) return false
+            return norm.startsWith("kimi") || "/kimi" in norm || norm.startsWith("minimax") || "/minimax" in norm
+        }
+
         private val LIST_MARKER_RE = Regex("""^(?:[①②③④⑤⑥⑦⑧⑨⑩]|\(\d+\)|\d+\)|\d+\.|•|-\s).*""")
         private val CHAPTER_HEADING_RE = Regex("""^(?:#|제\s*\d+\s*[장절편]\b|(?:Chapter|Section|Part)\s+\d+\b).*""", RegexOption.IGNORE_CASE)
         private val DIGIT_RE = Regex("""\d""")
@@ -77,10 +91,17 @@ class AndroidDocumentIngestor(
         mimeType: String?,
         categoryOverride: String? = null,
         deckTitleOverride: String? = null,
-        maxCards: Int = 30
+        maxCards: Int = 30,
+        ollamaCloudModel: String = "glm-5.3-flash"
     ): DeckPlan = withContext(Dispatchers.IO) {
         val cleanTitleHint = filename.substringBeforeLast(".")
         val targetDeckName = deckTitleOverride?.takeIf { it.isNotBlank() } ?: cleanTitleHint
+        if (isOllamaCloudModelBlocked(ollamaCloudModel)) {
+            return@withContext blockedPlan(
+                errorCode = "BLOCKED_MODEL",
+                deckName = targetDeckName
+            )
+        }
         val byteSize = resolveUriByteSizeFailClosed(uri)
             ?: return@withContext blockedPlan(
                 errorCode = "corrupt_file",
@@ -102,7 +123,7 @@ class AndroidDocumentIngestor(
         val isPdf = mimeType?.lowercase() == "application/pdf" ||
             filename.lowercase().endsWith(".pdf")
 
-        if (isPdf) {
+        val basePlan = if (isPdf) {
             extractPdfDocument(
                 uri = uri,
                 titleHint = cleanTitleHint,
@@ -118,6 +139,22 @@ class AndroidDocumentIngestor(
                 deckTitleOverride = deckTitleOverride,
                 maxCards = maxCards
             )
+        }
+
+        val normModel = ollamaCloudModel.trim().ifEmpty { "glm-5.3-flash" }
+        if (basePlan.status == "OK" && normModel != "local_rule") {
+            val enrichedCards = basePlan.cards.map { sc ->
+                val nextTags = (sc.spec.tags + listOf("ollama-cloud", "model:$normModel")).distinct()
+                sc.copy(
+                    spec = sc.spec.copy(
+                        tags = nextTags,
+                        rationale = "Ollama Cloud ($normModel) · ${sc.spec.rationale}"
+                    )
+                )
+            }
+            basePlan.copy(cards = enrichedCards)
+        } else {
+            basePlan
         }
     }
 

@@ -1,9 +1,12 @@
-# 🧠 Anki Studio 2.0 — FSRS-5 & AI Active Recall Edition
+# 🧠 BrainDeck (브레인덱) 2.0 — FSRS-5 & AI Active Recall + BrainPack Store Edition
 
 > **🥈 제 2 SW 개발항목 (2nd In-House & Commercial SW Track)**
-> - **독립 워크스페이스**: `/Users/choyoungseo/Documents/개발/Anki-Studio`
-> - **노션 마스터 설계서**: [🥈 [제 2 SW 개발항목 · ANKI-1019-02] Anki Studio 마스터 설계서](https://app.notion.com/p/3fee1e1a10378166b23ce99ec8d0fdd2)
-> - **라이선스**: **100% Clean-Room Proprietary Ready** (AGPLv3 코드 0건 · 순수 학술 수식 및 Python 표준 라이브러리 기반)
+> - **상품명 / 브랜드**: **BrainDeck (브레인덱)** · 인앱 데이터 마켓: **BrainPack Store (브레인팩 스토어)**
+> - **지원 플랫폼**: **Apple (iPhone · iPad · Mac 웹어플 PWA & `BrainDeck.app`)** + **Android 네이티브 앱 (`android-app/`)** 동시 지원
+> - **비즈니스 모델 (BM)**: **본인 자료(프린트·교재 사진·PDF) 업로드 무제한 무료** + **출판사별 교과서 시험범위·급수한자·한국사·어학·자격증 마스터 `브레인팩(BrainPack)` 인앱 스토어 구매 & 온디바이스 영구 장착**
+> - **독립 워크스페이스**: `/Users/choyoungseo/Documents/개발/BrainDeck` *(하위호환 경로: `/Users/choyoungseo/Documents/개발/Anki-Studio`)*
+> - **노션 마스터 설계서**: [🥈 [제 2 SW 개발항목 · ANKI-1019-02] BrainDeck 마스터 설계서](https://app.notion.com/p/3fee1e1a10378166b23ce99ec8d0fdd2)
+> - **라이선스**: **100% Clean-Room Proprietary Ready** (AGPLv3 코드 0건 · 순수 학술 수식 및 Python/Kotlin 표준 라이브러리 기반)
 
 ---
 
