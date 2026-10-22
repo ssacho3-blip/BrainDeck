@@ -1027,15 +1027,17 @@ object AdaptiveQuizEngine {
             )
         }
 
+        val combinedLower = "$front $back $tagStr".lowercase()
+        val historyKeywords = listOf(
+            "한국사", "세계사", "역사", "조약", "정변", "운동", "봉기", "독립협회",
+            "법전", "훈민정음", "경국대전", "카스트제", "왕조", "세조", "세종", "성종",
+            "전봉준", "김옥균", "서재필", "개화파", "조선", "일제", "바빌로니아"
+        )
         if (
             "hist" in tagStr ||
             "khist" in tagStr ||
-            "한국사" in front ||
-            "세계사" in front ||
-            "조약" in front ||
-            "법전" in front ||
-            "왕조" in front ||
-            "운동" in front
+            "kh_" in tagStr ||
+            historyKeywords.any { it in combinedLower }
         ) {
             return CardQuestionType(
                 categoryKey = "history_sci",
@@ -1045,17 +1047,15 @@ object AdaptiveQuizEngine {
             )
         }
 
+        val scienceKeywords = listOf(
+            "결합", "에너지", "트랜잭션", "헌법", "법칙", "미토콘드리아",
+            "교착상태", "계층", "정규화", "세포", "염색체", "전자쌍"
+        )
         if (
             "sci" in tagStr ||
             "law" in tagStr ||
             "cert" in tagStr ||
-            "결합" in front ||
-            "에너지" in front ||
-            "트랜잭션" in front ||
-            "헌법" in front ||
-            "법칙" in front ||
-            "세포" in front ||
-            "염색체" in front
+            scienceKeywords.any { it in combinedLower }
         ) {
             return CardQuestionType(
                 categoryKey = "history_sci",
@@ -1074,10 +1074,14 @@ object AdaptiveQuizEngine {
             )
         }
 
-        val frontWithoutCloze = front.replace(Regex("""\{\{c\d+::|::[^}]*\}\}|\}\}"""), " ")
+        val frontWithoutCloze = front.replace(
+            Regex("""\{\{c\d+::|::[^}]*\}\}|\}\}|\[Lv\.\d+[^\]]*\]|\bLv\.\d+\b""", RegexOption.IGNORE_CASE),
+            " "
+        )
+        val tagStrWithoutDefaultRole = tagStr.replace("role:core_vocab", " ")
         val hasEnglishInFront = frontWithoutCloze.any { it.code < 128 && it.isLetter() }
         val hasVocabSignal = hasEnglishInFront ||
-            listOf("eng", "vocab", "word", "toeic", "teps", "toefl", "opic", "lang", "mid1", "elem").any { it in tagStr } ||
+            listOf("eng", "vocab", "word", "toeic", "teps", "toefl", "opic", "lang", "mid1", "elem").any { it in tagStrWithoutDefaultRole } ||
             listOf("영단어", "어휘", "단어", "숙어").any { it in front }
         if (!hasVocabSignal) {
             return CardQuestionType(

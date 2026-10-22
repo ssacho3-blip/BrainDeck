@@ -1431,9 +1431,35 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
     if (
         "hist" in tags_str
         or "khist" in tags_str
+        or "kh_" in tags_str
         or "한국사" in combined_lower
+        or "세계사" in combined_lower
         or "역사" in combined_lower
-        or any(w in combined_lower for w in ("조약", "정변", "운동", "법전", "훈민정음", "카스트제", "왕조", "세조", "세종"))
+        or any(
+            w in combined_lower
+            for w in (
+                "조약",
+                "정변",
+                "운동",
+                "봉기",
+                "독립협회",
+                "법전",
+                "훈민정음",
+                "경국대전",
+                "카스트제",
+                "왕조",
+                "세조",
+                "세종",
+                "성종",
+                "전봉준",
+                "김옥균",
+                "서재필",
+                "개화파",
+                "조선",
+                "일제",
+                "바빌로니아",
+            )
+        )
     ):
         return {
             "facet_key": "history",
@@ -1446,7 +1472,25 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
         "sci" in tags_str
         or "law" in tags_str
         or "cert" in tags_str
-        or any(w in combined_lower for w in ("결합", "에너지", "미토콘드리아", "법칙", "헌법", "트랜잭션", "교착상태", "계층", "정규화"))
+        or any(
+            w in combined_lower
+            for w in (
+                "결합",
+                "에너지",
+                "미토콘드리아",
+                "법칙",
+                "헌법",
+                "트랜잭션",
+                "교착상태",
+                "계층",
+                "정규화",
+                "세포",
+                "염색체",
+                "전자쌍",
+                "양이온",
+                "음이온",
+            )
+        )
     ):
         return {
             "facet_key": "science",
@@ -1470,11 +1514,12 @@ def classify_card_question_type(card: Mapping[str, Any]) -> Dict[str, str]:
             "badge_label": "💡 핵심 개념·정의",
         }
 
-    front_Without_cloze = re.sub(r"\{\{c\d+::|::[^}]*\}\}|\}\}", " ", front)
-    has_english_in_front = any("a" <= ch.lower() <= "z" for ch in front_Without_cloze)
+    front_without_meta = re.sub(r"\{\{c\d+::|::[^}]*\}\}|\}\}|\[Lv\.\d+[^\]]*\]|\bLv\.\d+\b", " ", front, flags=re.IGNORECASE)
+    tags_without_default_role = tags_str.replace("role:core_vocab", " ")
+    has_english_in_front = any("a" <= ch.lower() <= "z" for ch in front_without_meta)
     has_vocab_signal = (
         has_english_in_front
-        or any(k in tags_str for k in ("eng", "vocab", "word", "toeic", "teps", "toefl", "opic", "lang", "mid1", "elem"))
+        or any(k in tags_without_default_role for k in ("eng", "vocab", "word", "toeic", "teps", "toefl", "opic", "lang", "mid1", "elem"))
         or any(k in front for k in ("영단어", "어휘", "단어", "숙어"))
     )
     if not has_vocab_signal:

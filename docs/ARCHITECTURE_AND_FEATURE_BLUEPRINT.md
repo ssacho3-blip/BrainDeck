@@ -1,7 +1,7 @@
-# 🏛️ BrainDeck (브레인덱 · 구 Anki Studio 2.0) — 전 연령(초등~성인) · Apple 오프라인 웹앱(PWA) & 네이티브 Android · 인앱 브레인팩 스토어(`₩990~₩1,900`) 마스터 설계도 (`v4.0 Final`)
+# 🏛️ BrainDeck (브레인덱 · 구 BrainDeck 2.0) — 전 연령(초등~성인) · Apple 오프라인 웹앱(PWA) & 네이티브 Android · 인앱 브레인팩 스토어(`₩990~₩1,900`) 마스터 설계도 (`v4.0 Final`)
 
 - **문서 번호**: `BRAINDECK-BLUEPRINT-2026-10-21` (**v4.0 Final All-Ages + Apple Standalone PWA & Android + In-App BrainPack Store (`₩990~₩1,900`) + UI/UX Master Edition**)
-- **프로젝트 경로**: `/Users/choyoungseo/Documents/개발/BrainDeck` (하위호환 심볼릭 경로: `/Users/choyoungseo/Documents/개발/Anki-Studio` · `src/anki_studio` + `android-app/`)
+- **프로젝트 경로**: `/Users/choyoungseo/Documents/개발/BrainDeck` (하위호환 심볼릭 경로: `/Users/choyoungseo/Documents/개발/BrainDeck` · `src/braindeck` + `android-app/`)
 - **연계 UI/UX 설계 정본**: [`docs/UI_UX_DESIGN_BLUEPRINT.md`](./UI_UX_DESIGN_BLUEPRINT.md)
 - **아키텍처 표준**: Clean / Hexagonal Architecture + MVVM + State Machine + 2-Tier DB (Tier R Reference Pack + Tier U User Ledger) + 2-Tier Offline Web Vault (`IndexedDB/OPFS` + `localStorage`) + ATDD/BDD/TDD/DDT
 - **설계 목적**: **초등학교 저학년부터 중고등 수험생, 대학생·성인 전문가까지 모두 사용할 수 있는 범용 AI 암기·학습 플랫폼 `BrainDeck(브레인덱)`**을 **Apple(iPhone·iPad·Mac) 오프라인 내장형 웹앱(PWA)과 네이티브 Android 앱(`android-app/`)**으로 동시 구축하고, **본인 자료(사진/PDF) 직접 업로드 무제한 무료(`₩0`) + 인앱 『브레인팩 스토어(BrainPack Store)』 초소액(`₩990 ~ ₩1,900`) 마스터 데이터팩 영구 장착 모델**을 탑재하면서 구현 후 재작업(삽질)을 유발하는 **34대 아키텍처 함정(T1~T34)**을 사전 차단한다.
@@ -23,7 +23,7 @@ flowchart TB
         GAL["🖼️ 갤러리 다중 사진 (PickMultipleVisualMedia)"]
         PDF["📑 강의안·교과서·전공서 PDF (물리 p.Start~End 구간)"]
         SHARE["📲 타 앱 공유 (ACTION_SEND / ACTION_SEND_MULTIPLE)"]
-        APKG["📦 기존 Anki 덱 (.apkg / .colpkg 미디어 포함 Import)"]
+        APKG["📦 기존 플래시카드 덱 (.apkg / .colpkg 미디어 포함 Import)"]
     end
 
     subgraph Adapters_In["🔌 Inbound / Extraction Adapters (Platform I/O)"]

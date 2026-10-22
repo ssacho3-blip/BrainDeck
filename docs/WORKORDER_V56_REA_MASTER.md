@@ -3,8 +3,8 @@
 > **문서 ID**: `WORKORDER-BRAINDECK-V56`
 > **작성 일시**: 2026-10-22 13:45 KST
 > **참여 모델 (4-Model Multi-Agent REA & Architecture Council)**:
-> - **Gemini 4 Argon High (Main Dev)**: Anki 생태계(Desktop/Mobile/Add-ons) 및 글로벌·국내 경쟁 앱 8종 1차 REA & 벤치마킹 12대 기능 발굴
-> - **Claude Opus 5.5 (Tech Lead & Architect)**: SuperMemo(SM-18)·RemNote·Anki 심층 도메인 REA 6대 축 발굴 + **마스터 작업 지시서(`WORKORDER-BRAINDECK-V56`) 및 구현 계약 설계**
+> - **Gemini 4 Argon High (Main Dev)**: BrainDeck 생태계(Desktop/Mobile/Add-ons) 및 글로벌·국내 경쟁 앱 8종 1차 REA & 벤치마킹 12대 기능 발굴
+> - **Claude Opus 5.5 (Tech Lead & Architect)**: SuperMemo(SM-18)·RemNote·BrainDeck 심층 도메인 REA 6대 축 발굴 + **마스터 작업 지시서(`WORKORDER-BRAINDECK-V56`) 및 구현 계약 설계**
 > - **Codex GPT-6.1 Sol (Senior Systems Reviewer)**: SQLite/IndexedDB 원장 정합성, FSRS-5 당일/비파괴 수식 분리, USN 충돌 해결, CAS 미디어 불변식 6대 발굴
 > - **Grok 4.7 (Unanchored Product & Release Auditor)**: 한국 K-12/성인 행동 기반 시험일 역산(`Exam Countdown Autopilot`), QR 스냅샷 공유/학부모 리포트, 서술형 루브릭 채점, 완주 기반 Streak Shield 및 3대 Fail-Closed 감사 게이트 수립
 
@@ -14,13 +14,13 @@
 
 ### 1. Claude Opus 5.5 심층 도메인 REA 발굴 (Resource 간 계보 · Event 정본성 · Agent 목표 모델)
 
-| 코드 | 발굴 항목 | REA 역공학 근거 (Anki / SuperMemo SM-18 / RemNote) | BrainDeck v5.6 도입 명세 |
+| 코드 | 발굴 항목 | REA 역공학 근거 (BrainDeck / SuperMemo SM-18 / RemNote) | BrainDeck v5.6 도입 명세 |
 | :--- | :--- | :--- | :--- |
 | **`REA-D1`** | **Incremental Reading (점진적 독해·발췌 계보)** | SuperMemo SM-18의 핵심: 원문 전체를 한 번에 카드로 만들면 카드 폭증(Deck Bloating) 발생. `원문(SourceDoc) ➔ 발췌(Extract) ➔ 노트(Note) ➔ 카드(Card)`로 점진 정제 | 사진/PDF 무제한 OCR 시 즉시 수백 장 카드로 쪼개지 않고 `SourceDoc ➔ Extract(anchor, priority) ➔ Note ➔ Card` 계보(`lineage_id`)를 보존. 카드에서 원문 페이지/문단으로 즉시 역추적 및 상단 브레드크럼 자동 바인딩 |
 | **`REA-D2`** | **전제조건 DAG (`Prerequisite DAG`) & 실패 원인 역추적** | RemNote 지식 계층 & SM '이해 선행' 원칙: 기초 개념 A를 모르는데 응용 카드 B를 외우면 거머리(Leech) 카드가 됨 | ① **정방향 해금 게이트**: 부모(전제) 카드의 회상 확률 $R \ge 0.85$ 도달 전까지 후속 응용 신규 카드 출제 보류 (Tarjan SCC 순환 차단)<br>② **역방향 실패 진단**: 응용 카드 반복 오답 시 원자 분할 전에 **전제 카드 결손 여부부터 역추적하여 진단 복습 큐에 선행 삽입** |
 | **`REA-D3`** | **의미 간섭쌍(`ConfusableEdge`) 감지 & 변별 대조 드릴** | SM 지식 구성 20원칙 중 '의미 간섭(Semantic Interference) 제거': 비슷한 개념(예: `임진왜란/정유재란`, `affect/effect`, `미토콘드리아/엽록체`)은 서로의 기억을 지움 | 주관식/객관식 오답 로그에서 **'A를 물었는데 B로 답한 이벤트'**를 감지하여 방향성 간선 `ConfusableEdge(A ➔ B)` 구축. 임계치 도달 시 **`[A vs B 핵심 차이 구별]` 대조 카드(Contrastive Card)**를 자동 파생하고 세션 내 **2장 이내 인접 배치** |
-| **`REA-D4`** | **목표 리텐션(`target_R`) 동적 설정 (CMRR & 마감일 역산)** | Anki CMRR(최적 리텐션) & SM 망각 지수(FI): 모든 카드를 똑같이 90%로 외우는 것은 비효율적 | `target_R(card) = clamp(f(priority, days_left, backlog), 0.70, 0.97)` 동적 산출. 상시 학습은 0.85~0.90 유지, 시험 D-n 구간에서는 시험 당일 적중률을 극대화하도록 역산 후 시험 종료 시 자동 복귀 |
-| **`REA-D5`** | **복습 이벤트 원장 정본화 (`ReviewEvent` Fold Architecture)** | Anki `revlog`는 append-only 정본 원장이며, FSRS 가중치 재최적화 시 원장을 처음부터 다시 접어(`fold`) 카드 상태를 재계산함 | `CardState = fold_review_events(events, params)` 순수 함수 정본화. 단계마다 `q(x) = round(x / 1e-6) * 1e-6` 고정 정밀도 양자화로 Python ↔ JS(PWA) ↔ Kotlin(Android) 3개 플랫폼의 부동소수점 오차(`1 ULP`)를 0으로 통제 |
+| **`REA-D4`** | **목표 리텐션(`target_R`) 동적 설정 (CMRR & 마감일 역산)** | BrainDeck CMRR(최적 리텐션) & SM 망각 지수(FI): 모든 카드를 똑같이 90%로 외우는 것은 비효율적 | `target_R(card) = clamp(f(priority, days_left, backlog), 0.70, 0.97)` 동적 산출. 상시 학습은 0.85~0.90 유지, 시험 D-n 구간에서는 시험 당일 적중률을 극대화하도록 역산 후 시험 종료 시 자동 복귀 |
+| **`REA-D5`** | **복습 이벤트 원장 정본화 (`ReviewEvent` Fold Architecture)** | BrainDeck `revlog`는 append-only 정본 원장이며, FSRS 가중치 재최적화 시 원장을 처음부터 다시 접어(`fold`) 카드 상태를 재계산함 | `CardState = fold_review_events(events, params)` 순수 함수 정본화. 단계마다 `q(x) = round(x / 1e-6) * 1e-6` 고정 정밀도 양자화로 Python ↔ JS(PWA) ↔ Kotlin(Android) 3개 플랫폼의 부동소수점 오차(`1 ULP`)를 0으로 통제 |
 | **`REA-D6`** | **음성 인출 4단계 승격 (발음 평가 GOP & 섀도잉)** | 말해보카·ELSA Speak 역공학: `4지선다 ➔ 블록조립 ➔ 받아쓰기` 다음의 최종 완전 인출은 **소리 내어 말하기(Speaking)** | 온디바이스 ASR 기반 발음/구술 채점을 Stage 3(4단계)로 추가. 단, 마이크 미권한·소음·만 14세 미만(`junior` 보호자 미동의) 시 `SpeechScore = NotRun(reason)` 합 타입으로 처리하고 가짜 0점/만점 부여 차단(Fail-Closed) |
 
 ---
@@ -29,8 +29,8 @@
 
 | 코드 | 발굴 항목 | 시스템 역공학 근거 (`col / notes / cards / revlog / graves`) | 핵심 불변식 (Invariants) |
 | :--- | :--- | :--- | :--- |
-| **`SYS-1`** | **노트 수정 시 파생 카드 무손실 재조정 & 지연 GC** | Anki는 노트 템플릿/필드 수정 시 빈 카드를 즉시 하드 삭제하지 않아 수년간 쌓인 `revlog` 증발을 방지함 | `diff_facets(expected, existing)`를 통해 `UNIQUE(note_id, facet_key)` 유지. 사라진 Facet은 `ACTIVE ➔ RETIRED ➔ TOMBSTONED`로 지연 전이하며 `review_events` 연쇄 삭제 절대 금지. 동일 `facet_key` 재등장 시 이력 자동 부활 |
-| **`SYS-2`** | **USN 증분 전송과 필드 단위 충돌 해결 분리** | Anki Rust 코어(`chunks.rs`) 역공학: USN은 전송 커서일 뿐 CRDT가 아님 | `entity_revision / base_revision / idem_key` 도입. 서로 다른 필드 수정은 자동 병합하되, 동일 필드 동시 수정이나 동일 상태 분기 복습은 양쪽 모두 보존(`CONCURRENT_REVIEW`)하고 임의 평균/덮어쓰기 금지 |
+| **`SYS-1`** | **노트 수정 시 파생 카드 무손실 재조정 & 지연 GC** | BrainDeck는 노트 템플릿/필드 수정 시 빈 카드를 즉시 하드 삭제하지 않아 수년간 쌓인 `revlog` 증발을 방지함 | `diff_facets(expected, existing)`를 통해 `UNIQUE(note_id, facet_key)` 유지. 사라진 Facet은 `ACTIVE ➔ RETIRED ➔ TOMBSTONED`로 지연 전이하며 `review_events` 연쇄 삭제 절대 금지. 동일 `facet_key` 재등장 시 이력 자동 부활 |
+| **`SYS-2`** | **USN 증분 전송과 필드 단위 충돌 해결 분리** | BrainDeck Rust 코어(`chunks.rs`) 역공학: USN은 전송 커서일 뿐 CRDT가 아님 | `entity_revision / base_revision / idem_key` 도입. 서로 다른 필드 수정은 자동 병합하되, 동일 필드 동시 수정이나 동일 상태 분기 복습은 양쪽 모두 보존(`CONCURRENT_REVIEW`)하고 임의 평균/덮어쓰기 금지 |
 | **`SYS-3`** | **비파괴 연습(`CRAM`) vs 선행 복습(`REVIEW_AHEAD`) 수식 분리** | FSRS-5 공식 수식: 당일 복습도 $S' = S e^{w_{17}(G-3+w_{18})}$로 $S$를 변경하므로, 벼락치기 반복을 일반 복습으로 넣으면 $S$가 왜곡됨 | `CRAM` 모드는 `(D, S, due, last_ts_ms, reps, lapses)` 바이트 단위 완전 불변($S'=S$) 보장 및 FSRS 옵티마이저/리텐션 통계에서 하드 제외. `REVIEW_AHEAD`는 실제 경과시간 $t < I$를 사용해 정식 수식으로 반영 |
 | **`SYS-4`** | **Image Occlusion 마스크와 원본 미디어 분리 CAS (`sha256`)** | 카드마다 이미지를 복제하면 모바일/PWA 저장소(IndexedDB/OPFS)가 즉시 포화됨 | 원본 이미지는 `media_cas(sha256)`에 단 1회 저장하고, 가리기 카드는 `base_sha256 + 정규화 bbox 좌표 + mask_id`만 참조. `STAGED ➔ VERIFIED ➔ READY`(`os.replace`) 원자적 저장 및 미동기화 원본 축출 금지 |
 | **`SYS-5`** | **방향성 오답 혼동 그래프 (`A ➔ B ≠ B ➔ A`)** | A를 물었을 때 B로 답할 확률과 B를 물었을 때 A로 답할 확률은 비대칭적임 | `confusion_edges(src, dst)`에서 `src <> dst` 방향성 유지. 단순 오타(자모 편집거리 1 이내)나 허용 동의어는 혼동 간선에서 분리 |

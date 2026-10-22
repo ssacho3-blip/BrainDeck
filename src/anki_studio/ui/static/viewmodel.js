@@ -1292,8 +1292,14 @@
 
   function expandStandaloneItemByDifficulty(item, sourceTag, difficultyLevel) {
     const diff = String(difficultyLevel || "standard").toLowerCase();
-    const conceptTag = `concept:${item.id}`;
-    const roleTag = `role:${item.role || "core_vocab"}`;
+    const itemId = String((item && item.id) || "");
+    const srcLower = String(sourceTag || "").toLowerCase();
+    const isNonVocabConcept =
+      /^(kh_|hist_|sci_|law_|it_|mh_|kd_|id_)/.test(itemId) ||
+      /khist|hist|sci|law|cert|hanja|idiom|dictation/.test(srcLower);
+    const defaultRole = isNonVocabConcept ? "core_concept" : "core_vocab";
+    const conceptTag = `concept:${itemId}`;
+    const roleTag = `role:${item.role || defaultRole}`;
     const baseTags = [sourceTag, conceptTag, roleTag];
     const explainSuffix = item.explain ? `\n\n💡 해설: ${item.explain}` : "";
     const isGrammar = item.role === "key_grammar";
@@ -1341,7 +1347,7 @@
   }
 
   function createStandaloneEngine(customStorage) {
-    const STORAGE_KEY = "braindeck_standalone_v55_db";
+    const STORAGE_KEY = "braindeck_standalone_v56_db";
     const storageObj = customStorage || (typeof localStorage !== "undefined" ? localStorage : null);
     let memoryDbRaw = null;
 
@@ -1371,9 +1377,16 @@
       // Seed initial starter deck so Apple/Web users can study immediately on first launch!
       const seedCards = [];
       let nextCardId = 1;
-      const defaultItems = STANDALONE_TEXTBOOKS[0].entries.slice(0, 4).concat(STANDALONE_COLLECTIONS[3].items.slice(0, 3));
-      defaultItems.forEach((it) => {
-        const expanded = expandStandaloneItemByDifficulty(it, "starter_pack", "lv1");
+      const engStarterItems = STANDALONE_TEXTBOOKS[0].entries.slice(0, 4).map((it) => ({
+        item: it,
+        srcTag: "textbook:mid1-eng-neungyul-kim",
+      }));
+      const histStarterItems = STANDALONE_COLLECTIONS[3].items.slice(0, 3).map((it) => ({
+        item: it,
+        srcTag: "khist:essential",
+      }));
+      engStarterItems.concat(histStarterItems).forEach(({ item: it, srcTag }) => {
+        const expanded = expandStandaloneItemByDifficulty(it, srcTag, "lv1");
         expanded.forEach((spec) => {
           seedCards.push({
             card_id: nextCardId++,
@@ -2196,14 +2209,37 @@
       };
     }
 
+    const combinedLower = `${front} ${back} ${tagStr}`.toLowerCase();
+    const historyKeywords = [
+      "한국사",
+      "세계사",
+      "역사",
+      "조약",
+      "정변",
+      "운동",
+      "봉기",
+      "독립협회",
+      "법전",
+      "훈민정음",
+      "경국대전",
+      "카스트제",
+      "왕조",
+      "세조",
+      "세종",
+      "성종",
+      "전봉준",
+      "김옥균",
+      "서재필",
+      "개화파",
+      "조선",
+      "일제",
+      "바빌로니아",
+    ];
     if (
       tagStr.includes("hist") ||
       tagStr.includes("khist") ||
-      front.includes("한국사") ||
-      front.includes("세계사") ||
-      front.includes("조약") ||
-      front.includes("법전") ||
-      front.includes("왕조")
+      tagStr.includes("kh_") ||
+      historyKeywords.some((kw) => combinedLower.includes(kw))
     ) {
       return {
         category_key: "history_sci",
@@ -2213,15 +2249,25 @@
       };
     }
 
+    const scienceKeywords = [
+      "결합",
+      "에너지",
+      "트랜잭션",
+      "헌법",
+      "법칙",
+      "미토콘드리아",
+      "교착상태",
+      "계층",
+      "정규화",
+      "세포",
+      "염색체",
+      "전자쌍",
+    ];
     if (
       tagStr.includes("sci") ||
       tagStr.includes("law") ||
-      tagStr.includes("cert-it") ||
-      front.includes("결합") ||
-      front.includes("에너지") ||
-      front.includes("트랜잭션") ||
-      front.includes("헌법") ||
-      front.includes("법칙")
+      tagStr.includes("cert") ||
+      scienceKeywords.some((kw) => combinedLower.includes(kw))
     ) {
       return {
         category_key: "history_sci",
@@ -2249,11 +2295,12 @@
       };
     }
 
-    const frontWithoutCloze = front.replace(/\{\{c\d+::|::[^}]*\}\}|\}\}/g, " ");
+    const frontWithoutCloze = front.replace(/\{\{c\d+::|::[^}]*\}\}|\}\}|\[Lv\.\d+[^\]]*\]|\bLv\.\d+\b/gi, " ");
+    const tagStrWithoutDefaultRole = tagStr.replace(/role:core_vocab/g, " ");
     const hasEnglishInFront = /[A-Za-z]/.test(frontWithoutCloze);
     const hasVocabSignal =
       hasEnglishInFront ||
-      /eng|vocab|word|toeic|teps|toefl|opic|lang|mid1|elem/.test(tagStr) ||
+      /eng|vocab|word|toeic|teps|toefl|opic|lang|mid1|elem/.test(tagStrWithoutDefaultRole) ||
       front.includes("영단어") ||
       front.includes("어휘") ||
       front.includes("단어") ||

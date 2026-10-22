@@ -1157,6 +1157,44 @@ private fun StudyTabScreen(
                                 }
                             }
                         } else {
+                            if (state.selectedQuizOption != null && state.quizOptions.isNotEmpty()) {
+                                val targetClean = conciseAnswer.ifBlank { currentDue.back }.trim()
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    state.quizOptions.forEachIndexed { idx, optText ->
+                                        val isTarget = optText.trim().equals(targetClean, ignoreCase = true) ||
+                                            (optText == state.selectedQuizOption && state.typedEvaluation?.verdict == TypedUnderstandingVerdict.EXACT)
+                                        val isChosenWrong = optText == state.selectedQuizOption && !isTarget
+                                        val optBg = when {
+                                            isTarget -> MintGreenSoft
+                                            isChosenWrong -> CoralRedSoft
+                                            else -> Color(0xFFF9FAFB)
+                                        }
+                                        val optFg = when {
+                                            isTarget -> MintGreen
+                                            isChosenWrong -> CoralRed
+                                            else -> TextSecondary
+                                        }
+                                        val prefix = when {
+                                            isTarget -> "✅ ${idx + 1}.  "
+                                            isChosenWrong -> "❌ ${idx + 1}.  "
+                                            else -> "${idx + 1}.  "
+                                        }
+                                        Surface(
+                                            color = optBg,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = "$prefix$optText",
+                                                fontSize = 14.sp,
+                                                fontWeight = if (isTarget || isChosenWrong) FontWeight.ExtraBold else FontWeight.Medium,
+                                                color = optFg,
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             // 3-Tier Understanding Verdict Badge (shown after reveal)
                             state.typedEvaluation?.let { ev ->
                                 val badgeBg = when (ev.verdict) {

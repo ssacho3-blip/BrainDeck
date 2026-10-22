@@ -267,17 +267,18 @@ class AnkiStudioViewModel(
             missingTerms = emptyList<String>(),
             recommendedRating = Rating.GOOD,
             badgeLabel = "✅ 내 답이 맞아요 (정답 인정)",
-            feedback = "오타·유의어를 정답으로 인정하고 알맞음(Good)으로 반영합니다."
+            feedback = "오타·유의어를 정답으로 인정했습니다. 아래 정답·해설을 확인한 뒤 난이도 버튼(★ 보통)을 눌러 다음 카드로 넘어가세요."
         )
         _uiState.update { st ->
             st.copy(
                 isAnswerRevealed = true,
                 typedEvaluation = overridden,
                 recommendedRating = Rating.GOOD,
-                sessionWrongCards = st.sessionWrongCards.filterNot { it.cardId == current.cardId }
+                sessionWrongCards = st.sessionWrongCards.filterNot { it.cardId == current.cardId },
+                statusBannerMessage = "✅ 정답으로 인정되었습니다! 해설 확인 후 하단 난이도 버튼(★ 보통)을 눌러주세요.",
+                isErrorBanner = false
             )
         }
-        submitReviewRating(Rating.GOOD)
     }
 
     fun selectOllamaCloudModel(modelId: String) {
@@ -309,7 +310,7 @@ class AnkiStudioViewModel(
                 badgeLabel = "🎯 4지선다 정답 · 개념 일치",
                 scorePct = 100,
                 recommendedRating = Rating.GOOD,
-                feedback = "✅ 정답('$expected')을 정확히 골랐습니다!"
+                feedback = "✅ 정답('$expected')을 정확히 골랐습니다! 아래 해설을 확인한 뒤 하단 난이도 버튼(★ 보통)을 눌러 다음 카드로 넘어가세요."
             )
         } else {
             eval.copy(
@@ -317,7 +318,7 @@ class AnkiStudioViewModel(
                 badgeLabel = "❓ 오답 선택 · 재복습 권장",
                 scorePct = 0,
                 recommendedRating = Rating.AGAIN,
-                feedback = "❌ 선택한 보기('$selectedOption')는 오답입니다. 정답은 '$expected' 입니다."
+                feedback = "❌ 선택한 보기('$selectedOption')는 오답입니다. 정답('$expected')과 해설을 확인한 뒤 '다시' 버튼을 눌러 복습하세요."
             )
         }
         _uiState.update { st ->
@@ -333,9 +334,6 @@ class AnkiStudioViewModel(
                 recommendedRating = finalEval.recommendedRating,
                 sessionWrongCards = updatedWrong
             )
-        }
-        if (isCorrect) {
-            submitReviewRating(Rating.GOOD)
         }
     }
 
@@ -455,14 +453,19 @@ class AnkiStudioViewModel(
             } else {
                 st.markedCardIds + current.cardId
             }
-            val filtered = resolveEffectiveDueCards(
-                rawDue = st.rawDueCards,
-                filterMode = st.studyFilterMode,
-                sessionWrong = st.sessionWrongCards,
-                markedIds = updatedMarked,
-                buriedIds = st.buriedCardIds,
-                interleavedShuffle = st.isInterleavedShuffleEnabled
-            )
+            val filtered = if (st.studyFilterMode == "marked_only") {
+                resolveEffectiveDueCards(
+                    rawDue = st.rawDueCards,
+                    filterMode = st.studyFilterMode,
+                    sessionWrong = st.sessionWrongCards,
+                    markedIds = updatedMarked,
+                    buriedIds = st.buriedCardIds,
+                    interleavedShuffle = st.isInterleavedShuffleEnabled,
+                    questionTypeFilter = st.questionTypeFilter
+                )
+            } else {
+                st.dueCards
+            }
             st.copy(
                 markedCardIds = updatedMarked,
                 dueCards = filtered,

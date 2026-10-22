@@ -1,7 +1,7 @@
 # Work Brief — 사진·PDF 자동 덱 생성 + Android 앱 (Implementation Contract)
 
 - 작성: 2026-10-19 · Claude Opus 5.5 (Tech Lead)
-- 대상 저장소: `~/Documents/개발/Anki-Studio`
+- 대상 저장소: `~/Documents/개발/BrainDeck`
 - 규칙 원천: `~/.grok/rules/07-sw-development-methodology.md` (5대 불변식)
 
 ---
@@ -48,7 +48,7 @@
 ### 3.1 서버 (Python, `dependencies = []` 유지 — 표준 라이브러리 전용)
 
 ```text
-src/anki_studio/
+src/braindeck/
 ├── domain/document_deck_builder.py   # [신규·순수] I/O 0, ai_learning·fsrs_math만 import
 ├── adapters/document_ingestor.py     # [신규] Port 구현: PDF 파서 · Apple Vision · LLM 비전
 ├── adapters/macos_ocr_helper/        # [신규] Swift CLI (Vision + PDFKit) → stdout JSON
@@ -93,7 +93,7 @@ ExtractionResult = ok(ExtractedDocument) | blocked(error_code, detail)
 ```text
 android-app/
 ├── settings.gradle.kts / build.gradle.kts (minSdk 26, targetSdk 최신, Kotlin 2.x, Compose BOM)
-└── app/src/main/java/.../ankistudio/
+└── app/src/main/java/.../braindeck/
     ├── domain/            # 순수 Kotlin (android.* import 0 — Gradle 모듈 분리 `:domain`, JVM 전용)
     │   ├── fsrs/Fsrs5.kt              # DEFAULT_FSRS5_WEIGHTS 19개 그대로 포팅
     │   └── deck/DocumentDeckBuilder.kt # Python 도메인 1:1 포팅
@@ -126,7 +126,7 @@ error_code 목록: `unsupported_mime, too_large, too_many_pages, encrypted_pdf, 
 
 ## 5. Test Design (BDD + DDT + TDD)
 
-명령: `cd ~/Documents/개발/Anki-Studio && python3.12 -m pytest -q` · Android: `./gradlew :domain:test :app:testDebugUnitTest`
+명령: `cd ~/Documents/개발/BrainDeck && python3.12 -m pytest -q` · Android: `./gradlew :domain:test :app:testDebugUnitTest`
 
 | # | Given | When | Then |
 |---|---|---|---|
@@ -153,7 +153,7 @@ error_code 목록: `unsupported_mime, too_large, too_many_pages, encrypted_pdf, 
 ## 6. Out of Scope / Do NOT
 
 - 서버에 서드파티 패키지 추가 금지(pypdf, PyMuPDF, Pillow, Tesseract 등). `dependencies = []` 유지.
-- AGPL 코드(Anki 원본, AnkiDroid) 복사·참조 구현 금지 — 클린룸 원칙 유지.
+- AGPL 코드(BrainDeck 원본, 안드로이드 플래시카드) 복사·참조 구현 금지 — 클린룸 원칙 유지.
 - Android WebView 하이브리드로 기존 웹 UI를 감싸는 방식 금지(네이티브 Compose로 결정됨).
 - 이미지 원본의 장기 보관 금지. 처리 후 메모리/임시파일을 폐기하고, 카드에는 발췌 텍스트만 남긴다.
 - 클라우드 계정·동기화·결제·`.apkg` Android 내보내기는 이번 범위 밖이다.

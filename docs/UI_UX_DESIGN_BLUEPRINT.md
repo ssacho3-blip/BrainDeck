@@ -3,15 +3,15 @@
 - **문서 번호**: `BRAINDECK-UIUX-2026-10-21` (**v4.0 Final — Age-Adaptive & Offline-First Cross-Platform UI/UX Blueprint**)
 - **연계 아키텍처 정본**: [`docs/ARCHITECTURE_AND_FEATURE_BLUEPRINT.md`](./ARCHITECTURE_AND_FEATURE_BLUEPRINT.md) (`T1 ~ T34` 34대 아키텍처 함정 방어 연동)
 - **구현 대상 계층**:
-  - **Apple (iPhone · iPad · Mac) Standalone Web-App (PWA)**: `src/anki_studio/ui/static/index.html`, `viewmodel.js`, `app.js`, `manifest.json`
-  - **Android 네이티브 앱 (Phone · Tablet · Galaxy Z Fold)**: `android-app/app/src/main/java/com/ankistudio/app/ui/AnkiStudioViewModel.kt`, `MainActivity.kt`
+  - **Apple (iPhone · iPad · Mac) Standalone Web-App (PWA)**: `src/braindeck/ui/static/index.html`, `viewmodel.js`, `app.js`, `manifest.json`
+  - **Android 네이티브 앱 (Phone · Tablet · Galaxy Z Fold)**: `android-app/app/src/main/java/com/braindeck/app/ui/BrainDeckViewModel.kt`, `MainActivity.kt`
 
 ---
 
 ## 1. 핵심 UX 철학 (3대 디자인 원칙)
 
 1. **Zero-Friction 3-Second Entry (앱 실행 후 3초 내 학습 진입)**:
-   - 기존 Anki의 복잡한 설정 메뉴·덱 트리·동기화 팝업을 첫 화면에서 제거한다.
+   - 기존 플래시카드의 복잡한 설정 메뉴·덱 트리·동기화 팝업을 첫 화면에서 제거한다.
    - 앱을 열면 **"오늘 복습할 카드 N장"**과 **`[🎯 지금 복습 시작]`** 원터치 히어로 버튼이 가장 먼저 보이며, 타이핑이 어려운 초등학생부터 출퇴근길 성인까지 1번의 터치로 즉시 복습 아레나에 진입한다.
 2. **Age-Adaptive Progressive Scaffolding (연령별 눈높이 자동 변신 UI)**:
    - 동일한 앱 코어 위에서 상단 프로필 배지(`🌱 초등 Junior` / `🚀 중고등 Teen` / `🎓 성인 Adult`)를 전환하면 **글자 크기, 최소 터치 영역, 카드 글자 수 밀도, 기본 퀴즈 모드(4지선다 ➔ 글자블록 ➔ 서술형 인출), 보상 피드백**이 즉시 연령에 맞게 재구성된다.

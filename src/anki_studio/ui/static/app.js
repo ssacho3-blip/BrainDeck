@@ -370,7 +370,7 @@
     });
   }
 
-  function applyStudyFilter() {
+  function refreshFilterBadgeCounts() {
     const buriedSet = new Set(state.buriedCardIds.map(Number));
     const activeRaw = (state.rawDueCards || []).filter((c) => c && !buriedSet.has(Number(c.card_id)));
     if (vm && typeof vm.computeAnkiQueueCounts === "function") {
@@ -383,7 +383,6 @@
       if (cRev) cRev.textContent = `복습 ${qCounts.reviewCount}`;
     }
 
-    // Merge session wrong cards into pool when in wrong_only mode so cards rescheduled to +10m/+1d can be crammed immediately
     const combinedPool = activeRaw.slice();
     const seenIds = new Set(combinedPool.map((c) => Number(c.card_id)));
     state.sessionWrongCardIds.forEach((cid) => {
@@ -407,6 +406,12 @@
     if (btnWrong) btnWrong.textContent = `🔥 오답·모르는 것만 (${wrongList.length})`;
     const btnMarked = el("btn-filter-marked");
     if (btnMarked) btnMarked.textContent = `⭐ 별표 카드만 (${markedList.length})`;
+
+    return { activeRaw, wrongList, markedList };
+  }
+
+  function applyStudyFilter() {
+    const { activeRaw, wrongList, markedList } = refreshFilterBadgeCounts();
 
     let candidateQueue;
     if (state.studyFilterMode === "wrong_only") {
@@ -679,6 +684,13 @@
     if (!card) return;
     state.isRevealed = true;
     state.currentEvidence.isRevealed = true;
+    if (card.note_type === "cloze" && card.front_text) {
+      const revealedCloze = String(card.front_text).replace(
+        /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g,
+        "【$1】"
+      );
+      el("card-question").textContent = revealedCloze;
+    }
     el("card-answer").style.display = "block";
     const extraEl = el("card-extra-explanation");
     if (extraEl && extraEl.textContent) {
@@ -810,11 +822,13 @@
       grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;";
 
       const rawOptions = Array.isArray(res.options) ? res.options.slice() : [];
+      const optionButtons = [];
       rawOptions.forEach((optText, idx) => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.style.cssText = "text-align:left;padding:10px 12px;font-size:0.84rem;";
         btn.textContent = `${idx + 1}. ${optText}`;
+        optionButtons.push({ btn, optText, idx });
         btn.addEventListener("click", () => {
           const isCorrect = optText === res.target_answer;
           state.currentEvidence.choiceCorrect = isCorrect;
@@ -822,23 +836,48 @@
             const cid = Number(card.card_id);
             if (!state.sessionWrongCardIds.includes(cid)) state.sessionWrongCardIds.push(cid);
             state.sessionWrongCardMap[cid] = { ...card };
+            refreshFilterBadgeCounts();
           }
           revealAnswer();
-          btn.style.borderColor = isCorrect ? "var(--emerald)" : "var(--rose)";
-          btn.style.color = isCorrect ? "var(--emerald)" : "var(--rose)";
+
+          optionButtons.forEach(({ btn: b, optText: oText, idx: oIdx }) => {
+            b.disabled = true;
+            b.style.cursor = "default";
+            if (oText === res.target_answer) {
+              b.style.borderColor = "var(--emerald)";
+              b.style.background = "#e8faf0";
+              b.style.color = "var(--emerald)";
+              b.style.fontWeight = "800";
+              b.textContent = `✅ ${oIdx + 1}. ${oText}`;
+            } else if (oIdx === idx && !isCorrect) {
+              b.style.borderColor = "var(--rose)";
+              b.style.background = "#fff0f0";
+              b.style.color = "var(--rose)";
+              b.style.fontWeight = "700";
+              b.textContent = `❌ ${oIdx + 1}. ${oText}`;
+            } else {
+              b.style.opacity = "0.62";
+            }
+          });
+
+          const evalBox = el("eval-box");
+          if (evalBox) {
+            evalBox.style.background = isCorrect ? "#e8faf0" : "#fff0f0";
+            evalBox.style.color = isCorrect ? "#008a50" : "#be123c";
+            evalBox.textContent = isCorrect
+              ? `🎯 4지선다 정답! ('${res.target_answer}')\n아래 정답과 해설을 확인한 뒤 하단 난이도 버튼(추천: 3 · Good)을 눌러 다음 카드로 넘어가세요.`
+              : `❌ 오답입니다 (선택: '${optText}' ➔ 정답: '${res.target_answer}').\n아래 정답과 해설을 충분히 확인한 뒤 하단 '1 · Again' 버튼을 눌러 복습하세요.`;
+            evalBox.style.display = "block";
+          }
+
           if (isCorrect) {
-            btn.textContent = `✅ ${idx + 1}. ${optText}`;
-            showUxToast("🎉 정답입니다! 자동으로 다음 카드로 넘어갑니다.", "emerald");
-            const answeredCardId = card.card_id;
-            setTimeout(() => {
-              const stillSame = currentCard() && currentCard().card_id === answeredCardId && state.isRevealed;
-              if (stillSame) {
-                submitRating(3);
-              }
-            }, 550);
+            showUxToast(
+              "🎉 정답입니다! 아래 🎯 정답·해설을 확인한 뒤 난이도 버튼(3 · Good)을 눌러 다음 카드로 이동하세요.",
+              "emerald"
+            );
           } else {
             showUxToast(
-              `💡 오답입니다. 정답('${res.target_answer}')과 해설을 확인하고 다시(1)로 복습하세요.`,
+              `💡 오답입니다. 정답('${res.target_answer}')과 해설을 확인한 뒤 다시(1) 버튼을 눌러 복습하세요.`,
               "rose"
             );
           }
@@ -986,7 +1025,7 @@
         state.sessionWrongCardIds.push(cid);
       }
       state.sessionWrongCardMap[cid] = { ...card };
-      applyStudyFilter();
+      refreshFilterBadgeCounts();
     }
 
     revealAnswer();
@@ -1194,15 +1233,23 @@
         const card = currentCard();
         if (!card) return;
         const cid = Number(card.card_id);
+        let isNowMarked = false;
         if (state.markedCardIds.includes(cid)) {
           state.markedCardIds = state.markedCardIds.filter((id) => id !== cid);
           showUxToast("☆ 별표 표시를 해제했습니다.", "accent");
         } else {
           state.markedCardIds.push(cid);
+          isNowMarked = true;
           showUxToast("⭐ 별표 카드로 저장했습니다! 상단 [⭐ 별표 카드만]에서 모아볼 수 있습니다.", "emerald");
         }
-        applyStudyFilter();
-        renderCurrentCard();
+        btnMarkCard.textContent = isNowMarked ? "⭐ 별표됨" : "☆ 별표";
+        btnMarkCard.style.color = isNowMarked ? "var(--amber)" : "var(--muted)";
+        if (state.studyFilterMode === "marked_only") {
+          applyStudyFilter();
+          renderCurrentCard();
+        } else {
+          refreshFilterBadgeCounts();
+        }
       });
     }
 
@@ -1290,14 +1337,23 @@
       btnOverrideCorrect.addEventListener("click", () => {
         const card = currentCard();
         if (!card) return;
-        state.currentEvidence.typingVerdict = "EXACT";
+        state.currentEvidence.typedVerdict = "EXACT";
+        state.currentEvidence.dontKnow = false;
+        state.currentEvidence.choiceCorrect = true;
         const cid = Number(card.card_id);
         state.sessionWrongCardIds = state.sessionWrongCardIds.filter((id) => id !== cid);
         delete state.sessionWrongCardMap[cid];
+        refreshFilterBadgeCounts();
         applyEvidenceRatingGuard();
         btnOverrideCorrect.style.display = "none";
-        showUxToast("✅ 오타·유의어 정답 인정! 알맞음(Good · 3)으로 반영합니다.", "emerald");
-        submitRating(3);
+        const evalBox = el("eval-box");
+        if (evalBox) {
+          evalBox.style.background = "#e8faf0";
+          evalBox.style.color = "#008a50";
+          evalBox.textContent = "✅ 내 답이 맞아요 (정답 인정 완료)\n오타·유의어를 정답으로 인정했습니다. 아래 난이도 버튼(추천: 3 · Good)을 눌러 다음 카드로 이동하세요.";
+          evalBox.style.display = "block";
+        }
+        showUxToast("✅ 오타·유의어 정답 인정! 해설을 확인한 뒤 알맞음(3 · Good)을 눌러주세요.", "emerald");
       });
     }
 

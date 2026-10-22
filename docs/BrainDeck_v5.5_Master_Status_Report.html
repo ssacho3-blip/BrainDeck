@@ -438,7 +438,7 @@
     <!-- NAVIGATION TABS -->
     <nav class="nav-tabs" aria-label="보고서 섹션 내비게이션">
       <button class="nav-tab active" onclick="switchTab('tab-all')">📋 전체 한눈에 보기</button>
-      <button class="nav-tab" onclick="switchTab('tab-rea')">🔬 6. Anki REA & 경쟁앱 벤치마킹 (신규)</button>
+      <button class="nav-tab" onclick="switchTab('tab-rea')">🔬 6. BrainDeck REA & 경쟁앱 벤치마킹 (신규)</button>
       <button class="nav-tab" onclick="switchTab('tab-v55')">🚀 1. BrainDeck v5.5 핵심 기능 & 5대 프레임</button>
       <button class="nav-tab" onclick="switchTab('tab-store')">🏪 2. 브레인팩 스토어 & 교과서 시험범위</button>
       <button class="nav-tab" onclick="switchTab('tab-arch')">🏛️ 3. Clean 아키텍처 & 34대 함정 방어</button>
@@ -451,7 +451,7 @@
       <section class="section">
         <div class="section-title">🚀 1. BrainDeck v5.5.0 — 5대 핵심 기억·학습 프레임 (Python ↔ JS ViewModel ↔ Android Kotlin 1:1 패리티)</div>
         <p class="section-desc">
-          단일 Clean Architecture 도메인에서 Python 백엔드(<code>src/anki_studio/domain/</code>), Apple 웹어플(PWA <code>viewmodel.js</code>), Android 네이티브 앱(<code>:domain</code> Kotlin)이 100% 동일한 채점·힌트·스케줄링 결과를 보장합니다.
+          단일 Clean Architecture 도메인에서 Python 백엔드(<code>src/braindeck/domain/</code>), Apple 웹어플(PWA <code>viewmodel.js</code>), Android 네이티브 앱(<code>:domain</code> Kotlin)이 100% 동일한 채점·힌트·스케줄링 결과를 보장합니다.
         </p>
 
         <div class="grid-3">
@@ -510,7 +510,7 @@
         </div>
 
         <div class="callout">
-          <strong>💡 기존 Anki 대비 핵심 차별점 요약:</strong> SM-2의 Ease Hell을 <strong>FSRS-5 (DSR 19-파라미터 평균회귀 모델)</strong>로 해결해 복습량을 30% 절감하고, 휴가 후 밀린 카드는 <strong>Smart Backlog Decompressor(<code>plan_backlog_decompression</code>)</strong>로 평탄화하며, 8번 이상 틀리는 거머리 카드는 <strong>AI Leech 원자 분할기(<code>decompose_leech_card</code>)</strong>가 2~3장의 단일 개념 마이크로 카드로 자동 쪼개고 부모 카드를 자동 일시중지(<code>suspended=1</code>)합니다.
+          <strong>💡 기존 플래시카드 대비 핵심 차별점 요약:</strong> SM-2의 Ease Hell을 <strong>FSRS-5 (DSR 19-파라미터 평균회귀 모델)</strong>로 해결해 복습량을 30% 절감하고, 휴가 후 밀린 카드는 <strong>Smart Backlog Decompressor(<code>plan_backlog_decompression</code>)</strong>로 평탄화하며, 8번 이상 틀리는 거머리 카드는 <strong>AI Leech 원자 분할기(<code>decompose_leech_card</code>)</strong>가 2~3장의 단일 개념 마이크로 카드로 자동 쪼개고 부모 카드를 자동 일시중지(<code>suspended=1</code>)합니다.
         </div>
       </section>
     </div>
@@ -609,7 +609,7 @@
       <section class="section">
         <div class="section-title">🏛️ 3. Clean / Hexagonal 아키텍처 & 34대 재작업 방지 함정(T1~T34) 선제 방어</div>
         <p class="section-desc">
-          모든 핵심 비즈니스 로직(<code>src/anki_studio/domain/*.py</code> 및 <code>android-app/domain/</code>)은 외부 DB·네트워크·OS 프레임워크 의존성이 <strong>0건(Zero-I/O)</strong>이며 AST 정적 분석 테스트로 강제됩니다.
+          모든 핵심 비즈니스 로직(<code>src/braindeck/domain/*.py</code> 및 <code>android-app/domain/</code>)은 외부 DB·네트워크·OS 프레임워크 의존성이 <strong>0건(Zero-I/O)</strong>이며 AST 정적 분석 테스트로 강제됩니다.
         </p>
 
         <div class="grid-2">
@@ -617,7 +617,7 @@
             <pre>BrainDeck (/Users/choyoungseo/Documents/개발/BrainDeck)
 ├── dist/
 │   └── BrainDeck-v5.5.apk              # Android 5.5.0 설치 패키지 (24.1 MB)
-├── src/anki_studio/
+├── src/braindeck/
 │   ├── domain/                         # [Pure Domain — 외부 I/O import 0건]
 │   │   ├── fsrs_math.py                # FSRS-5 19-Weight DSR 수식 · 백로그 평탄화
 │   │   ├── adaptive_quiz.py            # 연령별 ProfilePolicy · 4지선다/블록/받아쓰기 채점
@@ -722,7 +722,7 @@
               </tr>
               <tr>
                 <td><strong>🥈 제 2 항목</strong></td>
-                <td><strong>BrainDeck v5.5.0</strong><br><code>./BrainDeck</code> (<code>./Anki-Studio</code>)</td>
+                <td><strong>BrainDeck v5.5.0</strong><br><code>./BrainDeck</code> (<code>./BrainDeck</code>)</td>
                 <td><span class="badge badge-emerald">🟢 v5.5 완료 · PWA & APK 빌드 완료</span></td>
                 <td>
                   • 본인 자료(사진·교재 스캔·PDF·텍스트) 무제한 무료 + 인앱 <code>BrainPack Store</code>(<code>₩990~₩1,900</code>) 장착<br>
@@ -791,27 +791,27 @@
       </section>
     </div>
 
-    <!-- SECTION 6: ANKI REA ANALYSIS & COMPETITOR BENCHMARKING -->
+    <!-- SECTION 6: BrainDeck REA ANALYSIS & COMPETITOR BENCHMARKING -->
     <div id="panel-rea" class="section-group">
       <section class="section">
-        <div class="section-title">🔬 6. Anki REA(역공학 & Resource-Event-Agent) 심층 해부 및 국내·외 경쟁 앱 벤치마킹 반영 포인트 (v5.6 ~ v6.0 로드맵)</div>
+        <div class="section-title">🔬 6. BrainDeck REA(역공학 & Resource-Event-Agent) 심층 해부 및 국내·외 경쟁 앱 벤치마킹 반영 포인트 (v5.6 ~ v6.0 로드맵)</div>
         <p class="section-desc">
-          Anki 생태계(Desktop · AnkiMobile · AnkiDroid · 필수 애드온 Top 10)를 <strong>REA 이중 프레임워크(① Reverse Engineering Analysis 구조 역공학 해부 + ② Resource-Event-Agent 도메인 온톨로지 모델링)</strong>로 분해하고, 글로벌(<strong>Quizlet, RemNote, Gizmo/Knowt, Mochi, Duolingo</strong>) 및 국내 1위권(<strong>클래스카드, 말해보카, 암기고래</strong>) 경쟁 앱을 전수 비교하여 도출한 <strong>BrainDeck 차기 도입 리스트업 12선</strong>입니다.
+          BrainDeck 생태계(Desktop · 모바일 플래시카드 · 안드로이드 플래시카드 · 필수 애드온 Top 10)를 <strong>REA 이중 프레임워크(① Reverse Engineering Analysis 구조 역공학 해부 + ② Resource-Event-Agent 도메인 온톨로지 모델링)</strong>로 분해하고, 글로벌(<strong>Quizlet, RemNote, Gizmo/Knowt, Mochi, Duolingo</strong>) 및 국내 1위권(<strong>클래스카드, 말해보카, 암기고래</strong>) 경쟁 앱을 전수 비교하여 도출한 <strong>BrainDeck 차기 도입 리스트업 12선</strong>입니다.
         </p>
 
         <div class="callout">
           <strong>🎯 핵심 진단 (BrainDeck v5.5 현재 위치 vs 차기 도약 포인트):</strong><br>
-          현재 <code>v5.5.0</code>은 <strong>FSRS-5 19-파라미터 엔진, 핵심정답 자동정규화(<code>extract_clean_target_answer</code>), 2단계 초성 힌트, 증거기반 평점 가드, 다중 과목 Anti-Streak(&le;2) 인터리빙, Leech 자동 분할</strong>까지 코어 알고리즘에서 이미 순정 Anki를 앞서 있습니다. 여기에 <strong>Anki 최상위 파워유저 생태계(Note➔Multi-Card 파생, Image Occlusion, 비파괴 Cram/Filtered 덱, FSRS Helper 평탄화)</strong>와 <strong>클래스카드/말해보카/Quizlet의 킬러 학습 루프(7장 마이크로 스프린트, 인쇄용 시험지 PDF 생성, 핸즈프리 통학 오디오 루프, 문맥 뉘앙스 비교)</strong>를 결합하면 진입장벽 0%의 압도적 완성도를 달성합니다.
+          현재 <code>v5.5.0</code>은 <strong>FSRS-5 19-파라미터 엔진, 핵심정답 자동정규화(<code>extract_clean_target_answer</code>), 2단계 초성 힌트, 증거기반 평점 가드, 다중 과목 Anti-Streak(&le;2) 인터리빙, Leech 자동 분할</strong>까지 코어 알고리즘에서 이미 기존 플래시카드를 앞서 있습니다. 여기에 <strong>BrainDeck 최상위 파워유저 생태계(Note➔Multi-Card 파생, Image Occlusion, 비파괴 Cram/Filtered 덱, FSRS Helper 평탄화)</strong>와 <strong>클래스카드/말해보카/Quizlet의 킬러 학습 루프(7장 마이크로 스프린트, 인쇄용 시험지 PDF 생성, 핸즈프리 통학 오디오 루프, 문맥 뉘앙스 비교)</strong>를 결합하면 진입장벽 0%의 압도적 완성도를 달성합니다.
         </div>
 
-        <h3 style="margin: 22px 0 12px; color: #f8fafc; font-size: 1.12rem;">🅰️ Part 1. Anki REA (Resource-Event-Agent & 역공학) 분석 기반 6대 도입 포인트</h3>
+        <h3 style="margin: 22px 0 12px; color: #f8fafc; font-size: 1.12rem;">🅰️ Part 1. BrainDeck REA (Resource-Event-Agent & 역공학) 분석 기반 6대 도입 포인트</h3>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>REA 분류 & 코드</th>
-                <th>Anki 원본 메커니즘 (역공학 해부)</th>
-                <th>Anki의 한계 / 진입장벽</th>
+                <th>BrainDeck 원본 메커니즘 (역공학 해부)</th>
+                <th>BrainDeck의 한계 / 진입장벽</th>
                 <th>BrainDeck 도입 및 고도화 포인트 (반영 사양)</th>
                 <th>타겟 모듈 & 우선순위</th>
               </tr>
@@ -828,7 +828,7 @@
                 <td><strong>[REA-R2] Resource</strong><br><span class="badge badge-cyan">Image Occlusion</span></td>
                 <td><strong>Image Occlusion (이미지 가리기)</strong><br>해부학 도표, 생물 세포도, 지리 지도, 역사 문화재, 회로도 위 라벨 텍스트를 사각형 박스로 가려 <code>Hide All, Guess One</code>(전부 가리고 1개만 질문) 또는 <code>Hide One, Guess One</code> 모드로 출제</td>
                 <td>박스를 일일이 수동 마우스 드래그로 그려야 하는 노가다 발생</td>
-                <td><strong>OCR 바운딩 박스 기반 Zero-Click 자동 Image Occlusion</strong><br>이미 내장된 <code>anki_vision_ocr</code>(macOS) 및 <code>ML Kit Korean OCR</code>(Android)의 텍스트 좌표(Bounding Box)를 활용해 과학 도표·지도·교과서 그림 촬영 시 핵심 용어 라벨 박스를 AI가 자동 마스킹하여 1초 만에 이미지 빈칸 카드로 변환</td>
+                <td><strong>OCR 바운딩 박스 기반 Zero-Click 자동 Image Occlusion</strong><br>이미 내장된 <code>braindeck_vision_ocr</code>(macOS) 및 <code>ML Kit Korean OCR</code>(Android)의 텍스트 좌표(Bounding Box)를 활용해 과학 도표·지도·교과서 그림 촬영 시 핵심 용어 라벨 박스를 AI가 자동 마스킹하여 1초 만에 이미지 빈칸 카드로 변환</td>
                 <td><code>document_ingestor.py</code><br><code>viewmodel.js</code><br><span class="badge badge-rose">P0 즉시 도입</span></td>
               </tr>
               <tr>
@@ -839,9 +839,9 @@
                 <td><code>sqlite_store.py</code><br><code>fsrs_math.py</code><br><span class="badge badge-rose">P0 즉시 도입</span></td>
               </tr>
               <tr>
-                <td><strong>[REA-E1] Event</strong><br><span class="badge badge-amber">FSRS4Anki Helper</span></td>
+                <td><strong>[REA-E1] Event</strong><br><span class="badge badge-amber">FSRS Helper</span></td>
                 <td><strong>Load Balancer & Easy Days & Speed Focus</strong><br>복습 예정일 선정 시 주변 날짜의 큐 부하를 보고 평탄화(Fuzz Load Balancing), 주말 복습량 감축(Easy Days), 카드당 8~12초 초과 시 알림/자동 힌트(Speed Focus Mode)</td>
-                <td>별도 서드파티 애드온(FSRS4Anki Helper, Speed Focus)을 수동 설치·설정해야 하며 모바일에서는 미작동</td>
+                <td>별도 서드파티 애드온(FSRS Helper, Speed Focus)을 수동 설치·설정해야 하며 모바일에서는 미작동</td>
                 <td><strong>네이티브 Load Balancer + 주말 Easy Days + Speed Focus 타이머 내장</strong><br>① <code>FSRS-5</code> 간격 계산 시 특정 요일에 복습이 몰리지 않게 <code>±5%</code> 범위 내 최소 부하 날짜로 자동 분산<br>② 주말/공휴일 복습 할당량 50% 감축 옵션<br>③ 카드당 10초 무응답 시 <strong>초성 힌트 1단계 자동 팝업(Auto-Nudge)</strong>으로 멍때림 방지</td>
                 <td><code>fsrs_math.py</code><br><code>ai_learning.py</code><br><span class="badge badge-indigo">P1 핵심 고도화</span></td>
               </tr>
@@ -900,7 +900,7 @@
               <tr>
                 <td><strong>🇺🇸 RemNote & Mochi</strong><br><span class="badge badge-cyan">의대생·고시생 노트 특화</span></td>
                 <td><strong>① 노트 필기 자체가 곧 암기카드 (`Concept :: Descriptor`)</strong><br><strong>② 계층형 아웃라인(Outline) 문맥 보존</strong></td>
-                <td>초중고 학생에게는 노션+안키 결합 UI가 너무 무겁고 복잡함</td>
+                <td>초중고 학생에게는 노션+플래시카드 결합 UI가 너무 무겁고 복잡함</td>
                 <td><strong>[RN-1] 요약 노트(Study Sheet) ⇄ 암기카드 원터치 뷰 전환</strong><br>시험 직전 카드를 한 장씩 넘기는 것뿐 아니라, <strong>전체 시험범위 카드를 한 페이지의 핵심 요약정리 노트(형광펜 가림막 토글 포함)</strong> 형태로 한눈에 훑어보는 <code>Summary Sheet View</code> 제공</td>
                 <td><span class="badge badge-indigo">P1 핵심 고도화</span></td>
               </tr>
@@ -924,7 +924,7 @@
               <tr>
                 <th>발굴 모델</th>
                 <th>코드 & 핵심 항목</th>
-                <th>REA 역공학 근거 (Anki / SuperMemo SM-18 / RemNote / 한국 시장 행동)</th>
+                <th>REA 역공학 근거 (BrainDeck / SuperMemo SM-18 / RemNote / 한국 시장 행동)</th>
                 <th>BrainDeck v5.6 반영 사양 & 불변식</th>
               </tr>
             </thead>
@@ -932,13 +932,13 @@
               <tr>
                 <td><strong>🟣 Claude Opus 5.5</strong><br><span class="badge badge-indigo">Tech Lead & 도메인</span></td>
                 <td><strong>[REA-D1~D6]</strong><br>• Incremental Reading 계보<br>• 전제조건 DAG ($R \ge 0.85$)<br>• 의미 간섭쌍(`ConfusableEdge`)<br>• 동적 `target_R` [0.70, 0.97]<br>• `ReviewEvent` 불변 원장 Fold</td>
-                <td>• SuperMemo SM-18: 원문을 한 번에 다 카드로 만들면 카드 폭증 발생 ➔ `SourceDoc ➔ Extract ➔ Note ➔ Card` 점진 발췌<br>• 기초 개념 A($R &lt; 0.85$) 미숙지 상태에서 응용 B를 외우면 거머리(Leech) 발생<br>• Anki `revlog`는 append-only 정본 원장이며 상태는 `fold(events)` 투영임</td>
+                <td>• SuperMemo SM-18: 원문을 한 번에 다 카드로 만들면 카드 폭증 발생 ➔ `SourceDoc ➔ Extract ➔ Note ➔ Card` 점진 발췌<br>• 기초 개념 A($R &lt; 0.85$) 미숙지 상태에서 응용 B를 외우면 거머리(Leech) 발생<br>• BrainDeck `revlog`는 append-only 정본 원장이며 상태는 `fold(events)` 투영임</td>
                 <td>• <strong>`fold_review_events` + `1e-6` 고정 양자화</strong>로 Python/JS/Kotlin 3플랫폼 부동소수점 오차(`1 ULP`) 완전 제거<br>• <strong>Tarjan SCC 순환 차단</strong> + 부모 $R \ge 0.85$ 도달 시에만 후속 응용 카드 해금, 반복 오답 시 전제 카드 역추적 진단<br>• 'A를 물었는데 B로 답한 오답'에서 `ConfusableEdge(A➔B)` 구축 후 <strong>`[A vs B 구별]` 대조 카드 자동 생성 & 2장 이내 인접 배치</strong></td>
               </tr>
               <tr>
                 <td><strong>🔵 Codex GPT-6.1 Sol</strong><br><span class="badge badge-cyan">Systems & DB 무결성</span></td>
                 <td><strong>[SYS-1~6]</strong><br>• 파생 카드 지연 GC<br>• `CRAM` vs `REVIEW_AHEAD` 수식 분리<br>• `sha256` CAS 미디어 분리<br>• `VOID` 보상 이벤트 Undo</td>
-                <td>• Anki는 노트 수정 시 빈 카드를 즉시 삭제하지 않아 수년간의 `revlog` 손실을 방지함<br>• FSRS-5는 당일 복습도 $S' = S e^{w_{17}(G-3+w_{18})}$로 $S$를 바꾸므로 벼락치기 반복을 넣으면 장기기억 $S$가 왜곡됨</td>
+                <td>• BrainDeck는 노트 수정 시 빈 카드를 즉시 삭제하지 않아 수년간의 `revlog` 손실을 방지함<br>• FSRS-5는 당일 복습도 $S' = S e^{w_{17}(G-3+w_{18})}$로 $S$를 바꾸므로 벼락치기 반복을 넣으면 장기기억 $S$가 왜곡됨</td>
                 <td>• `diff_facets`로 `ACTIVE ➔ RETIRED ➔ TOMBSTONED` 지연 전이 (`review_events` 삭제 금지, 동일 `facet_key` 재등장 시 이력 부활)<br>• <strong>`CRAM` 모드는 $(D, S, due, reps, lapses)$ 바이트 단위 불변($S'=S$) 보장</strong> 및 옵티마이저에서 하드 제외<br>• 원본 이미지와 Image Occlusion 마스크를 `media_cas(sha256)`로 분리 및 `os.replace` 원자적 교체</td>
               </tr>
               <tr>

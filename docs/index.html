@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BrainDeck" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>BrainDeck (브레인덱) — 스마트 암기 & 브레인팩 스토어</title>
+  <style>
+    :root {
+      --bg: #f2f4f6;
+      --panel: #ffffff;
+      --border: #e5e8eb;
+      --text: #191f28;
+      --muted: #4e5968;
+      --accent: #1b64da;
+      --indigo: #1b64da;
+      --emerald: #00a862;
+      --amber: #d97706;
+      --rose: #e11d48;
+      --question-font-size: 21px;
+      --min-touch-target: 48px;
+      --card-radius: 22px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: max(16px, env(safe-area-inset-top)) 18px max(96px, env(safe-area-inset-bottom));
+    }
+    .app-shell {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 14px;
+      margin-bottom: 14px;
+    }
+    .brand-title {
+      font-size: 1.3rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+    }
+    .badge-pill {
+      font-size: 0.76rem;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: #e8f3ff;
+      border: none;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #f9fafb;
+      color: #333d4b;
+      padding: 10px 15px;
+      border-radius: 14px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      transition: all 0.15s ease;
+    }
+    button:hover {
+      background: #e8f3ff;
+      color: var(--accent);
+      border-color: #c9e2ff;
+    }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background: #1b64da;
+      color: #ffffff;
+    }
+    /* Toss / Malhaeboca Style Clean White Tab Bar */
+    .tab-nav {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      padding: 6px;
+      border-radius: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+    }
+    .nav-tab-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 9px 4px;
+      border-radius: 14px;
+      border: none;
+      background: transparent;
+      color: #8b95a1;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .nav-tab-btn .nav-icon {
+      font-size: 1.15rem;
+    }
+    .nav-tab-btn.active {
+      background: #e8f3ff;
+      color: var(--accent);
+      box-shadow: none;
+    }
+    @media (max-width: 768px) {
+      .tab-nav {
+        position: fixed;
+        bottom: max(10px, env(safe-area-inset-bottom));
+        left: 12px;
+        right: 12px;
+        margin-bottom: 0;
+        z-index: 100;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+      }
+    }
+    .tab-page {
+      display: none;
+      animation: fadeIn 0.16s ease-out;
+    }
+    .tab-page.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .panel {
+      background: var(--panel);
+      border: none;
+      border-radius: 24px;
+      padding: 22px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    select, textarea, input[type="text"] {
+      width: 100%;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 0.94rem;
+      font-weight: 500;
+    }
+    .card-arena {
+      background: #f9fafb;
+      border: 1px solid #e5e8eb;
+      border-radius: var(--card-radius);
+      padding: 28px 24px;
+      min-height: 250px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .card-question {
+      font-size: var(--question-font-size);
+      line-height: 1.55;
+      font-weight: 800;
+      color: var(--text);
+      white-space: pre-wrap;
+      margin: 14px 0;
+    }
+    .card-answer {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 16px;
+      background: #e8faf0;
+      border-top: none;
+      font-size: 1.12rem;
+      line-height: 1.55;
+      color: #008a50;
+      font-weight: 700;
+      white-space: pre-wrap;
+      display: none;
+    }
+    .ai-box {
+      margin-top: 10px;
+      padding: 13px 15px;
+      border-radius: 14px;
+      background: #e8f3ff;
+      border: none;
+      color: #1b64da;
+      font-size: 0.88rem;
+      line-height: 1.5;
+      font-weight: 600;
+      display: none;
+      white-space: pre-wrap;
+    }
+    .rating-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .rate-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--min-touch-target);
+      padding: 13px 8px;
+      border-radius: 16px;
+      border: none;
+      font-weight: 800;
+    }
+    .rate-sub {
+      font-size: 0.74rem;
+      opacity: 0.8;
+      margin-top: 3px;
+    }
+    .rate-again { background: #fff0f0; color: #be123c; }
+    .rate-hard { background: #fff8e6; color: #b45309; }
+    .rate-good { background: #1b64da; color: #ffffff; }
+    .rate-good .rate-sub { color: rgba(255,255,255,0.9); }
+    .rate-easy { background: #e8f3ff; color: #1b64da; }
+    .recommended-glow {
+      box-shadow: 0 0 0 3px rgba(49, 130, 246, 0.35);
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .metric-card {
+      background: #ffffff;
+      border: none;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+    }
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .metric-val {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .curve-svg {
+      width: 100%;
+      height: 120px;
+      background: #f9fafb;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      margin-top: 10px;
+    }
+    /* Toss-Style Full-Screen Initial Mode Setup Overlay */
+    .onboarding-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(242, 244, 246, 0.96);
+      backdrop-filter: blur(16px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .onboarding-card {
+      width: 100%;
+      max-width: 440px;
+      background: #ffffff;
+      border: none;
+      border-radius: 28px;
+      padding: 32px 24px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+    .onboarding-mode-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px;
+      margin-top: 12px;
+      border-radius: 20px;
+      background: #f9fafb;
+      border: 1px solid #e5e8eb;
+      text-align: left;
+    }
+    .onboarding-mode-btn:hover {
+      border-color: var(--accent);
+      background: #e8f3ff;
+    }
+  </style>
+</head>
+<body>
+  <!-- Initial Mode & LearnerProfile v2 Setup Modal (Frame 1: 3 Questions) -->
+  <div id="onboarding-modal" class="onboarding-overlay">
+    <div class="onboarding-card" style="max-width:460px;">
+      <div style="font-size:2rem;margin-bottom:4px;">🧠</div>
+      <div style="font-size:1.25rem;font-weight:800;margin-bottom:4px;">내 학습 프로필 설정 (1회 설정 · 전역 자동 적용)</div>
+      <div style="font-size:0.82rem;color:var(--muted);margin-bottom:14px;">
+        한 번만 골라두면 모든 탭의 풀이 방식·난이도·섞기 옵션이 자동으로 맞춰집니다.
+      </div>
+
+      <div style="font-size:0.78rem;font-weight:800;color:var(--accent);margin-bottom:6px;">1. 학습 연령 · 목표 프리셋 (원탭 선택)</div>
+      <button type="button" class="onboarding-mode-btn" data-onboarding-tier="junior">
+        <span style="font-size:1.6rem;">🌱</span>
+        <div>
+          <div style="font-size:0.95rem;font-weight:800;color:var(--text);">주니어 모드 (초등·기초)</div>
+          <div style="font-size:0.78rem;color:var(--muted);margin-top:2px;">큰 글씨 · 4지선다 퀴즈 · Lv.1 기초 · 쉬운 3버튼</div>
+        </div>
+      </button>
+      <button type="button" class="onboarding-mode-btn" data-onboarding-tier="teen">
+        <span style="font-size:1.6rem;">🚀</span>
+        <div>
+          <div style="font-size:0.95rem;font-weight:800;color:var(--text);">중고등 모드 (내신·수능)</div>
+          <div style="font-size:0.78rem;color:var(--muted);margin-top:2px;">자동 진화(선다→서술) · 통합 난이도(Lv.1~3) · 교차 섞기</div>
+        </div>
+      </button>
+      <button type="button" class="onboarding-mode-btn" data-onboarding-tier="adult">
+        <span style="font-size:1.6rem;">🎓</span>
+        <div>
+          <div style="font-size:0.95rem;font-weight:800;color:var(--text);">성인 모드 (자격증·어학·전공)</div>
+          <div style="font-size:0.78rem;color:var(--muted);margin-top:2px;">자동 진화(선다→서술) · 심화·역방향 인출 · 정밀 FSRS</div>
+        </div>
+      </button>
+
+      <details style="margin-top:10px;padding:10px 12px;border-radius:14px;background:#f9fafb;border:1px solid var(--border);">
+        <summary style="font-size:0.82rem;font-weight:700;cursor:pointer;color:var(--muted);">⚙️ 세부 풀이 방식 · 난이도 직접 조정 (선택)</summary>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+          <label style="font-size:0.78rem;font-weight:700;color:var(--muted);">
+            2. 카드 풀이 방식 (1카드 1모드)
+            <select id="profile-solve-mode-select" style="margin-top:4px;">
+              <option value="adaptive">🔄 자동 진화 (새 카드=4지선다 → 복습 카드=직접 타이핑)</option>
+              <option value="choice">🎯 4지선다 객관식만</option>
+              <option value="typing">✍️ 직접 타이핑(서술형)만</option>
+              <option value="flip">🃏 클래식 카드 뒤집기만</option>
+            </select>
+          </label>
+          <label style="font-size:0.78rem;font-weight:700;color:var(--muted);">
+            3. 기본 카드 생성 난이도
+            <select id="profile-difficulty-select" style="margin-top:4px;">
+              <option value="mixed">🎲 통합 (Lv.1 기초 + Lv.2 빈칸 + Lv.3 심화)</option>
+              <option value="lv1">🌱 Lv.1 기초·핵심 개념</option>
+              <option value="lv2">📘 Lv.2 실전 문맥 빈칸</option>
+              <option value="lv3">🔥 Lv.3 심화·역방향 인출</option>
+            </select>
+          </label>
+          <button id="btn-save-learner-profile" type="button" class="btn-primary" style="margin-top:4px;width:100%;">
+            ✅ 세부 프로필 저장 및 시작
+          </button>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="app-shell">
+    <header style="flex-wrap:wrap;">
+      <div class="brand-title" style="flex-wrap:wrap;">
+        🧠 BrainDeck (브레인덱)
+        <span id="age-tier-banner" class="badge-pill">🚀 중고등</span>
+        <span id="learner-policy-summary" style="font-size:0.74rem;font-weight:600;color:var(--muted);"></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="btn-open-mode-setup" type="button" style="padding:7px 11px;font-size:0.78rem;">
+          ⚙️ 프로필 설정
+        </button>
+        <button id="btn-undo-review" type="button" style="padding:7px 11px;font-size:0.78rem;" title="방금 평가 되돌리기 (Z)">
+          ↩️ 취소
+        </button>
+      </div>
+    </header>
+
+    <div id="ux-toast-banner" class="ai-box" style="margin:0 0 14px 0;display:none;align-items:center;justify-content:space-between;gap:10px;font-weight:600;"></div>
+
+    <!-- 5-Tab Multi-Page Navigation -->
+    <nav id="main-tab-nav" class="tab-nav" aria-label="주요 메뉴">
+      <button type="button" class="nav-tab-btn active" data-tab="study">
+        <span class="nav-icon">🏠</span>
+        <span>학습</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="curriculum">
+        <span class="nav-icon">🏫</span>
+        <span>시험·급수</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="create">
+        <span class="nav-icon">➕</span>
+        <span>만들기</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="store">
+        <span class="nav-icon">🛒</span>
+        <span>스토어</span>
+      </button>
+      <button type="button" class="nav-tab-btn" data-tab="stats">
+        <span class="nav-icon">📊</span>
+        <span>내 정보</span>
+      </button>
+    </nav>
+
+    <!-- PAGE 1: STUDY (오늘의 학습) -->
+    <main id="page-study" class="tab-page active">
+      <section class="panel">
+        <div class="panel-header" style="flex-wrap:wrap;gap:10px;">
+          <select id="deck-select" style="flex:1;min-width:180px;"></select>
+          <!-- 3-Color Queue Counter Pills -->
+          <div id="study-queue-counters" style="display:flex;gap:6px;align-items:center;font-size:0.78rem;font-weight:800;">
+            <span id="count-new" style="padding:5px 10px;border-radius:999px;background:#e8f3ff;color:#1b64da;">새 카드 0</span>
+            <span id="count-learn" style="padding:5px 10px;border-radius:999px;background:#fff0f0;color:#be123c;">학습·오답 0</span>
+            <span id="count-review" style="padding:5px 10px;border-radius:999px;background:#e8faf0;color:#008a50;">복습 0</span>
+          </div>
+        </div>
+
+        <!-- Study Filter Chips (All / Wrong-Unknown Only / Marked Only + Smart Interleaved Shuffle Toggle) -->
+        <div id="study-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center;">
+          <button type="button" class="study-filter-btn btn-primary" data-filter="all" style="padding:7px 13px;font-size:0.8rem;">
+            📚 전체 학습
+          </button>
+          <button type="button" class="study-filter-btn" id="btn-filter-wrong" data-filter="wrong_only" style="padding:7px 13px;font-size:0.8rem;">
+            🔥 오답·모르는 것만 (0)
+          </button>
+          <button type="button" class="study-filter-btn" id="btn-filter-marked" data-filter="marked_only" style="padding:7px 13px;font-size:0.8rem;">
+            ⭐ 별표 카드만 (0)
+          </button>
+          <button type="button" id="btn-toggle-shuffle" class="btn-primary" style="padding:7px 13px;font-size:0.8rem;margin-left:auto;" title="단원·유형 쏠림 없이 지능형 랜덤 섞기">
+            🔀 스마트 랜덤 섞기: ON
+          </button>
+        </div>
+
+        <!-- Gate T43: Question-Type Organization & Filter Bar (유형별 모아풀기 · 4지선다 동종 보기 격리) -->
+        <div id="study-type-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:7px 10px;border-radius:13px;background:#f1f5f9;border:1px solid #e2e8f0;">
+          <span style="font-size:0.76rem;font-weight:800;color:#334155;margin-right:2px;">🏷️ 문제 유형별 정리:</span>
+          <button type="button" class="study-qtype-btn btn-primary" id="btn-qtype-all" data-qtype="all" style="padding:5px 11px;font-size:0.76rem;">
+            🗂️ 전체 유형
+          </button>
+          <button type="button" class="study-qtype-btn" id="btn-qtype-vocab" data-qtype="vocab" style="padding:5px 11px;font-size:0.76rem;">
+            📘 단어·어휘만
+          </button>
+          <button type="button" class="study-qtype-btn" id="btn-qtype-grammar" data-qtype="grammar" style="padding:5px 11px;font-size:0.76rem;">
+            📐 문법·구문만
+          </button>
+          <button type="button" class="study-qtype-btn" id="btn-qtype-hanja" data-qtype="hanja" style="padding:5px 11px;font-size:0.76rem;">
+            漢字 한자·성어만
+          </button>
+          <button type="button" class="study-qtype-btn" id="btn-qtype-history_sci" data-qtype="history_sci" style="padding:5px 11px;font-size:0.76rem;">
+            🏛️ 역사·과학·전공
+          </button>
+        </div>
+
+        <!-- v5.6 Study Utilities: Electronic Red-Cellophane Sheet, 2-Col Printable Exam, Commute Audio Loop, Non-Destructive Cram -->
+        <div id="v56-rea-utility-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;padding:8px 10px;border-radius:14px;background:#f8fafc;border:1px solid var(--border);">
+          <button type="button" id="btn-open-summary-sheet" style="padding:6px 11px;font-size:0.78rem;background:#fff0f0;color:#be123c;border-color:#fecdd3;">
+            🟥 전자 셀로판지 요약시트
+          </button>
+          <button type="button" id="btn-print-exam-sheet" style="padding:6px 11px;font-size:0.78rem;">
+            🖨️ 2단 쪽지시험지 인쇄/PDF
+          </button>
+          <button type="button" id="btn-commute-audio-loop" style="padding:6px 11px;font-size:0.78rem;">
+            🎧 통학 오디오 루프
+          </button>
+          <button type="button" id="btn-toggle-cram-sandbox" style="padding:6px 11px;font-size:0.78rem;margin-left:auto;" title="켜면 벼락치기 다회독 시 장기기억 스케줄을 오염시키지 않습니다">
+            🧪 무오염 벼락치기(CRAM): OFF
+          </button>
+        </div>
+
+        <!-- Electronic Red-Cellophane Summary Sheet Panel (v5.6 RN-1) -->
+        <div id="summary-sheet-panel" style="display:none;margin-bottom:14px;padding:16px;border-radius:18px;background:#ffffff;border:2px solid #fecdd3;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="font-weight:800;color:#be123c;font-size:0.92rem;">🟥 시험 5분 전 전자 빨간 셀로판지 요약시트 (정답 탭하여 확인)</div>
+            <div style="display:flex;gap:6px;">
+              <button type="button" id="btn-summary-toggle-all" style="padding:5px 10px;font-size:0.76rem;">👀 정답 전체 보기/가리기</button>
+              <button type="button" id="btn-summary-close" style="padding:5px 10px;font-size:0.76rem;">✖ 닫기</button>
+            </div>
+          </div>
+          <div id="summary-sheet-rows" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;"></div>
+        </div>
+
+        <div id="leech-banner" class="ai-box" style="border-color:var(--rose);color:var(--rose);margin-bottom:10px;"></div>
+
+        <div class="card-arena">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.78rem;color:var(--muted);">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span id="card-qtype-badge" class="badge-pill" style="font-size:0.74rem;background:#eef2ff;color:#1d4ed8;">📘 단어 뜻·어휘</span>
+                <span id="sprint-progress-badge" class="badge-pill" style="font-size:0.72rem;background:#ecfdf5;color:#047857;">🏁 스프린트 1</span>
+                <span id="card-meta">준비 중...</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span id="card-fsrs-meta" style="display:none;"></span>
+                <button id="btn-mark-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="중요 별표 표시">☆ 별표</button>
+                <button id="btn-bury-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="오늘 하루 숨기기">💤 숨김</button>
+                <button id="btn-suspend-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="카드 일시 정지">⏸️ 정지</button>
+              </div>
+            </div>
+            <div class="card-question" id="card-question">오늘 카드를 모두 끝냈어요! 🎉</div>
+            <div class="card-answer" id="card-answer"></div>
+            <div id="card-extra-explanation" class="ai-box" style="margin-top:8px;display:none;background:#ffffff;color:#4e5968;border:1px solid #e5e8eb;"></div>
+            <div id="interactive-quiz-box" class="ai-box" style="margin-top:12px;"></div>
+
+            <!-- Post-Session Wrong/Unknown Retry Box -->
+            <div id="post-session-retry-box" style="display:none;margin-top:14px;padding:16px;border-radius:16px;background:#fff0f0;text-align:center;">
+              <div id="post-session-summary" style="font-size:0.9rem;font-weight:700;color:#be123c;margin-bottom:10px;"></div>
+              <button id="btn-retry-wrong-now" type="button" class="btn-primary" style="background:#be123c;border-color:#be123c;">
+                🔥 틀린·모르는 문제만 다시 복습하기
+              </button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center;">
+            <span id="solve-mode-badge" class="badge-pill" style="font-size:0.74rem;">🎯 4지선다 모드</span>
+            <button id="btn-tts" type="button">🔊 발음</button>
+            <button id="btn-quiz-mode" type="button" title="현재 카드 풀이 방식 전환">🔄 풀이방식 전환</button>
+            <button id="btn-hint" type="button">💡 힌트</button>
+            <button id="btn-decompose" type="button" title="어려운 카드를 쉽게 쪼개기" style="display:none;">🧬 쪼개기</button>
+            <button id="btn-reveal" class="btn-primary" type="button" style="margin-left:auto;padding:10px 18px;">
+              정답 보기
+            </button>
+          </div>
+        </div>
+
+        <div id="hint-box" class="ai-box"></div>
+
+        <!-- Typing Answer Input + 3-Tier Understanding Grader (Shown only in typing mode under 1-Card 1-Mode) -->
+        <div id="typing-solve-zone" style="margin-top:12px;margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button id="btn-dont-know" type="button" style="white-space:nowrap;background:#fff0f0;color:#be123c;border-color:#fecdd3;">
+            ❓ 모름
+          </button>
+          <input type="text" id="recall-input" placeholder="✍️ 답을 직접 입력해 기억을 인출해 보세요..." style="flex:1;min-width:180px;" />
+          <button id="btn-eval" type="button" class="btn-primary" style="white-space:nowrap;">채점 확인</button>
+          <button id="btn-override-correct" type="button" style="display:none;white-space:nowrap;background:#ecfdf5;color:#047857;border-color:#6ee7b7;" title="오타·유의어로 부분점수가 나왔을 때 정답으로 인정하고 바로 넘어갑니다">
+            ✅ 내 답이 맞아요
+          </button>
+        </div>
+        <div id="eval-box" class="ai-box" style="margin-bottom:12px;"></div>
+
+        <!-- Metacognitive Rating Calibration Banner (Frame 3: EvidenceRatingGuard) -->
+        <div id="rating-guard-banner" style="display:none;margin-bottom:8px;padding:9px 12px;border-radius:12px;background:#f8fafc;border:1px solid var(--border);font-size:0.8rem;font-weight:700;color:var(--muted);"></div>
+
+        <div class="rating-grid" id="rating-grid-box" style="display:none;">
+          <button class="rate-btn rate-again" id="rate-1" data-rating="1">
+            <span id="rate-title-1">다시</span>
+            <span class="rate-sub" id="preview-1">10m</span>
+          </button>
+          <button class="rate-btn rate-hard" id="rate-2" data-rating="2">
+            <span id="rate-title-2">어려움</span>
+            <span class="rate-sub" id="preview-2">1d</span>
+          </button>
+          <button class="rate-btn rate-good" id="rate-3" data-rating="3">
+            <span id="rate-title-3">알맞음</span>
+            <span class="rate-sub" id="preview-3">3d</span>
+          </button>
+          <button class="rate-btn rate-easy" id="rate-4" data-rating="4">
+            <span id="rate-title-4">쉬움</span>
+            <span class="rate-sub" id="preview-4">16d</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- PAGE 2: CURRICULUM (학교 시험범위 & 급수) -->
+    <section id="page-curriculum" class="tab-page">
+      <!-- Difficulty Level Selector for Curriculum & Exam Scope Cards -->
+      <div class="panel">
+        <div class="panel-header" style="flex-wrap:wrap;">
+          <div class="panel-title">🎚️ 생성 카드 난이도 & 학습 깊이 설정</div>
+          <span class="badge-pill">난이도별 맞춤 생성</span>
+        </div>
+        <div style="font-size:0.83rem;color:var(--muted);margin-bottom:10px;">
+          선택한 난이도에 따라 <strong>기초 개념 확인(Lv.1)</strong>, <strong>실전 문맥 빈칸(Lv.2)</strong>, <strong>역방향 인출·함정 변별(Lv.3)</strong> 또는 <strong>전 단계 통합(Mixed)</strong> 카드로 다르게 생성됩니다.
+        </div>
+        <select id="curriculum-difficulty-select">
+          <option value="mixed">🎲 통합 난이도 (Lv.1 기초 + Lv.2 실전 빈칸 + Lv.3 심화·역방향 골고루)</option>
+          <option value="lv1">🌱 Lv.1 기초·핵심 개념 (정확한 뜻·핵심 규칙 빠르게 잡기)</option>
+          <option value="lv2">🚀 Lv.2 실전 문맥 빈칸 (시험 예문·조문 속 Cloze 빈칸 추론)</option>
+          <option value="lv3">🔥 Lv.3 심화·역방향·함정 (뜻 보고 영단어/한자 쓰기 · 오답 함정 구분)</option>
+          <option value="standard">📘 표준 기본형 (단일 대표 카드)</option>
+        </select>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🏫 학교 교과서 시험범위 덱</div>
+          <button id="btn-toggle-all-units" type="button" style="padding:5px 10px;font-size:0.76rem;">☑️ 전체 선택</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <select id="catalog-textbook-select"></select>
+          <div id="catalog-units-box" style="display:flex;flex-wrap:wrap;gap:6px;padding:12px;background:#f9fafb;border-radius:14px;border:1px solid var(--border);"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="exam-page-start" placeholder="시작 쪽 (선택)" style="width:120px;" />
+            <input type="text" id="exam-page-end" placeholder="끝 쪽 (선택)" style="width:120px;" />
+            <button id="btn-add-exam-to-combo" type="button" style="margin-left:auto;">
+              ➕ 통합 시험범위에 추가
+            </button>
+            <button id="btn-gen-exam-scope" class="btn-primary" type="button">
+              🎯 단일 덱 바로 만들기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">漢字 급수 한자 · 한국사 · 기초 팩</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <select id="catalog-collection-select" style="flex:1;min-width:200px;"></select>
+          <button id="btn-add-col-to-combo" type="button" style="white-space:nowrap;">
+            ➕ 통합 시험범위에 추가
+          </button>
+          <button id="btn-gen-collection" class="btn-primary" type="button" style="white-space:nowrap;">
+            📚 단일 덱 바로 시작
+          </button>
+        </div>
+        <div id="catalog-status-msg" style="font-size:0.84rem;color:var(--emerald);margin-top:10px;"></div>
+      </div>
+
+      <!-- Multi-Scope Combined Exam Deck Builder (지능형 다중 조합 랜덤 인터리빙 덱) -->
+      <div class="panel" style="border:2px solid #c9e2ff;background:#f4f9ff;">
+        <div class="panel-header" style="flex-wrap:wrap;">
+          <div class="panel-title">🎯 내 시험 출제범위 다중 조합 & 지능형 랜덤 덱</div>
+          <button id="btn-preset-midterm-combo" type="button" style="padding:5px 10px;font-size:0.76rem;background:#ffffff;">
+            ⚡ 중간고사 다중 범위 예시 담기
+          </button>
+        </div>
+        <div style="font-size:0.82rem;color:#4e5968;margin-bottom:10px;">
+          위에서 여러 교과서 단원(예: 영어 1~3단원 + 역사 1단원 + 과학 1단원)이나 급수 팩을 <strong>[➕ 통합 시험범위에 추가]</strong>로 담은 뒤 생성하면, 같은 단원이 연속으로 몰리지 않도록 <strong>스마트 인터리빙 랜덤 알고리즘</strong>으로 섞인 통합 시험대비 덱이 만들어집니다.
+        </div>
+        <div id="combined-scope-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="combined-deck-name" placeholder="통합 시험덱 이름 (예: 1학기 중간고사 전범위 랜덤 총정리)" style="flex:1;min-width:200px;background:#ffffff;" />
+          <button id="btn-clear-combined-scopes" type="button" style="padding:9px 12px;font-size:0.8rem;background:#ffffff;">
+            🗑️ 비우기
+          </button>
+          <button id="btn-gen-combined-exam-deck" class="btn-primary" type="button">
+            🎲 조합 출제범위 랜덤 통합 덱 생성
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 3: CREATE (사진·PDF·텍스트 카드 만들기 — Frame 5: 3-Segment Switcher) -->
+    <section id="page-create" class="tab-page">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+        <button type="button" class="create-seg-btn btn-primary" data-create-seg="doc" style="padding:10px;font-size:0.84rem;">
+          📸 사진 · PDF
+        </button>
+        <button type="button" class="create-seg-btn" data-create-seg="manual" style="padding:10px;font-size:0.84rem;">
+          ✍️ 직접 입력
+        </button>
+        <button type="button" class="create-seg-btn" data-create-seg="ai" style="padding:10px;font-size:0.84rem;">
+          ✨ 노트 · 텍스트
+        </button>
+      </div>
+
+      <div class="panel create-seg-panel" id="create-seg-doc">
+        <div class="panel-header" style="flex-wrap:wrap;gap:8px;">
+          <div class="panel-title">📸 사진 · 📄 PDF로 카드 만들기</div>
+          <span class="badge-pill" style="background:#eef2ff;color:#1d4ed8;">☁️ Ollama Cloud 모델 연동</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="doc-deck-name" placeholder="단어장 이름 (비워두면 자동 지정)" style="flex:1;min-width:180px;" />
+          <select id="doc-ollama-model-select" style="width:auto;min-width:215px;" title="사진·PDF에서 추출한 내용을 정교한 카드로 구조화할 올라마 클라우드 모델을 선택하세요">
+            <option value="glm-5.3-flash">☁️ Ollama Cloud · GLM-5.3 Flash (추천)</option>
+            <option value="deepseek-v4.1-flash">☁️ Ollama Cloud · DeepSeek-v4.1 Flash</option>
+            <option value="gemma4:31b">☁️ Ollama Cloud · Gemma-4 31B (시각·문서)</option>
+            <option value="glm-5.3">☁️ Ollama Cloud · GLM-5.3 (심화·전공)</option>
+            <option value="local_rule">⚡ 기기 내장 엔진만 사용 (오프라인 · 0초)</option>
+          </select>
+          <select id="doc-difficulty-select" style="width:auto;min-width:150px;">
+            <option value="standard">난이도: 표준</option>
+            <option value="lv1">Lv.1 기초·핵심</option>
+            <option value="lv2">Lv.2 실전 빈칸</option>
+            <option value="lv3">Lv.3 심화·역방향</option>
+            <option value="mixed">통합 (Lv.1~3)</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--muted);cursor:pointer;">
+            <input type="checkbox" id="doc-auto-save" checked />
+            바로 저장
+          </label>
+        </div>
+
+        <div id="doc-dropzone" style="border:2px dashed #c9e2ff;border-radius:18px;padding:28px 16px;text-align:center;background:#f9fafb;cursor:pointer;">
+          <div style="font-size:1.6rem;margin-bottom:6px;">📷 📄</div>
+          <div style="font-size:0.96rem;font-weight:700;color:var(--accent);">
+            교재 사진이나 PDF 파일을 선택하세요
+          </div>
+          <input type="file" id="doc-file-input" accept="application/pdf,image/jpeg,image/png,image/heic,image/webp" style="display:none;" />
+        </div>
+
+        <div id="doc-ingest-banner" class="ai-box" style="margin-top:10px;"></div>
+
+        <div id="doc-preview-container" style="display:none;margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span id="doc-preview-title" style="font-size:0.86rem;font-weight:700;color:var(--emerald);"></span>
+            <button id="btn-save-doc-deck" class="btn-primary" type="button">
+              💾 덱 저장하기
+            </button>
+          </div>
+          <div id="doc-preview-list" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+      </div>
+
+      <div class="panel create-seg-panel" id="create-seg-manual" style="display:none;">
+        <div class="panel-header">
+          <div class="panel-title">✍️ 카드 직접 추가 (기본형 · {{c1::빈칸}} Cloze)</div>
+          <button id="btn-insert-cloze" type="button" style="padding:5px 10px;font-size:0.76rem;">+ {{c1::빈칸}} 넣기</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <input type="text" id="direct-card-front" placeholder="질문 또는 빈칸 문장 (예: 광합성은 {{c1::엽록체}}에서 일어난다)" />
+          <input type="text" id="direct-card-back" placeholder="정답 또는 해설" />
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span id="direct-card-status" style="font-size:0.82rem;color:var(--emerald);"></span>
+            <button id="btn-add-direct-card" class="btn-primary" type="button">➕ 카드 추가하기</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel create-seg-panel" id="create-seg-ai" style="display:none;">
+        <div class="panel-header" style="flex-wrap:wrap;">
+          <div class="panel-title">✨ 텍스트 붙여넣기</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <select id="ai-ollama-model-select" style="width:auto;">
+              <option value="glm-5.3-flash">☁️ Ollama Cloud · GLM-5.3 Flash</option>
+              <option value="deepseek-v4.1-flash">☁️ Ollama Cloud · DeepSeek-v4.1 Flash</option>
+              <option value="gemma4:31b">☁️ Ollama Cloud · Gemma-4 31B</option>
+              <option value="glm-5.3">☁️ Ollama Cloud · GLM-5.3</option>
+              <option value="local_rule">⚡ 기기 내장 초고속 엔진</option>
+            </select>
+            <select id="ai-difficulty-select" style="width:auto;">
+              <option value="standard">난이도: 표준</option>
+              <option value="lv1">Lv.1 기초·핵심</option>
+              <option value="lv2">Lv.2 실전 빈칸</option>
+              <option value="lv3">Lv.3 심화·역방향</option>
+              <option value="mixed">통합 (Lv.1~3)</option>
+            </select>
+            <select id="ai-domain-mode" style="width:auto;">
+              <option value="auto">자동 감지</option>
+              <option value="english">영어 회화·단어</option>
+              <option value="semiconductor_ai">전공·자격증</option>
+            </select>
+          </div>
+        </div>
+        <textarea id="ai-raw-text" rows="4" placeholder="단어: 뜻 또는 문장을 붙여넣으세요..."></textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+          <span id="ai-gen-status" style="font-size:0.82rem;color:var(--emerald);"></span>
+          <button id="btn-generate-cards" class="btn-primary" type="button">
+            ⚡ 카드 만들기
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAGE 4: STORE (브레인팩 스토어) -->
+    <section id="page-store" class="tab-page">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🛒 브레인팩 스토어</div>
+          <span id="store-summary-badge" class="badge-pill">로딩 중...</span>
+        </div>
+
+        <div id="store-category-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          <button type="button" class="store-cat-btn btn-primary" data-cat="all" style="padding:6px 11px;font-size:0.78rem;">전체</button>
+          <button type="button" class="store-cat-btn" data-cat="starter_free" style="padding:6px 11px;font-size:0.78rem;">🎁 무료</button>
+          <button type="button" class="store-cat-btn" data-cat="k12_textbook" style="padding:6px 11px;font-size:0.78rem;">🏫 교과서</button>
+          <button type="button" class="store-cat-btn" data-cat="hanja_history" style="padding:6px 11px;font-size:0.78rem;">漢字 한자·역사</button>
+          <button type="button" class="store-cat-btn" data-cat="language_exam" style="padding:6px 11px;font-size:0.78rem;">🗣️ 어학</button>
+          <button type="button" class="store-cat-btn" data-cat="pro_cert" style="padding:6px 11px;font-size:0.78rem;">⚖️ 자격증</button>
+        </div>
+
+        <button id="btn-buy-bundle-3" type="button" class="btn-primary" style="width:100%;margin-bottom:12px;padding:11px;font-size:0.84rem;">
+          🎁 3팩 골라담기 15% 할인 장착
+        </button>
+
+        <div id="store-status-msg" style="font-size:0.82rem;color:var(--emerald);margin-bottom:8px;"></div>
+        <div id="store-pack-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+    </section>
+
+    <!-- PAGE 5: STATS & SETTINGS (내 정보 & 모드 설정) -->
+    <section id="page-stats" class="tab-page">
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">오늘 남은 카드</div>
+          <div class="metric-val" id="stat-due">0장</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">전체 / 오늘 완료</div>
+          <div class="metric-val" id="stat-total">0장 / 0회</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">기억 유지율</div>
+          <div class="metric-val" id="stat-retention" style="color:var(--emerald);">90.0%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">기억 지속일 / 오답</div>
+          <div class="metric-val" id="stat-stability">0.0일 · 0건</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">👤 학습 모드 변경</div>
+          <span id="offline-vault-badge" class="badge-pill">📱 오프라인 보호중</span>
+        </div>
+        <div id="age-tier-switcher" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <button type="button" class="age-tier-btn" data-age-tier="junior">🌱 주니어</button>
+          <button type="button" class="age-tier-btn btn-primary" data-age-tier="teen">🚀 중고등</button>
+          <button type="button" class="age-tier-btn" data-age-tier="adult">🎓 성인</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">📈 30일 기억 유지 그래프</div>
+        <svg class="curve-svg" viewBox="0 0 480 120" preserveAspectRatio="none">
+          <line x1="0" y1="30" x2="480" y2="30" stroke="rgba(52,211,153,0.35)" stroke-dasharray="4 4" stroke-width="1" />
+          <polyline id="curve-polyline" fill="none" stroke="#38bdf8" stroke-width="2.5" points="" />
+        </svg>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button id="btn-decompress" type="button">🏖️ 밀린 복습 나누기</button>
+          <button id="btn-sync-offline-vault" type="button">📲 기기에 오프라인 저장</button>
+          <a id="link-export-apkg" href="/api/export.apkg" style="text-decoration:none;">
+            <button id="btn-export-apkg" type="button">📦 .apkg 내보내기</button>
+          </a>
+          <a id="link-download-apk" href="https://github.com/ssacho3-blip/semiconductor-assets/releases/download/braindeck-v5.5/BrainDeck-v5.5.apk" style="text-decoration:none;">
+            <button id="btn-download-apk" type="button" class="btn-primary">🤖 안드로이드 앱 설치파일 (v5.5)</button>
+          </a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="./viewmodel.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

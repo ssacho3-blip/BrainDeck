@@ -485,5 +485,25 @@ class AdaptiveQuizEngineTest {
             stateSelector = { "new" }
         )
         assertEquals(lv2Cards.size, sessionDeduped.size, "Sibling burying must keep exactly 1 card per concept in a single session")
+
+        // Gate T43: Starter deck Korean History cards with [Lv.1 기초 인지] must classify as 'history' and never leak into vocab
+        val donghakType = AdaptiveQuizEngine.classifyCardQuestionType(
+            frontText = "🌱 [Lv.1 기초 인지] '동학 농민 운동'의 뜻·의미는 무엇인가요?",
+            backText = "동학 농민 운동\n\n💡 해설: 1894년 전봉준 등 봉기, 반봉건·반외세",
+            tags = listOf("starter_pack", "concept:kh_3", "role:core_vocab", "diff_lv1")
+        )
+        val gapsinType = AdaptiveQuizEngine.classifyCardQuestionType(
+            frontText = "🌱 [Lv.1 기초 인지] '갑신정변'의 뜻·의미는 무엇인가요?",
+            backText = "갑신정변\n\n💡 해설: 1884년 김옥균 등 급진 개화파",
+            tags = listOf("starter_pack", "concept:kh_2", "role:core_vocab", "diff_lv1")
+        )
+        val favType = AdaptiveQuizEngine.classifyCardQuestionType(
+            frontText = "🌱 [Lv.1 기초 인지] 'favorite'의 뜻·의미는 무엇인가요?",
+            backText = "가장 좋아하는 (명사/형용사)\n\n💡 해설: My favorite subject is science.",
+            tags = listOf("starter_pack", "concept:m1_2", "role:core_vocab", "diff_lv1")
+        )
+        assertEquals("history", donghakType.facetKey)
+        assertEquals("history", gapsinType.facetKey)
+        assertEquals("eng_vocab_meaning", favType.facetKey)
     }
 }

@@ -1109,6 +1109,88 @@ def test_t44_bdd_four_model_consensus_standalone_fsrs_undo_batch_save_and_fisher
     assert "max(self.timeout_sec, 45.0)" in ai_engine_src
 
 
+def test_gate_t43_no_auto_skip_on_4choice_and_starter_deck_homogeneity() -> None:
+    """Verify 4-choice click reveals answer/explanation without auto-skipping and starter deck never leaks history into vocab."""
+    # 1. Legacy starter cards with [Lv.1 기초 인지] and role:core_vocab for Korean history must be classified as 'history'
+    donghak_card = {
+        "card_id": 7,
+        "front_text": "🌱 [Lv.1 기초 인지] '동학 농민 운동'의 뜻·의미는 무엇인가요?",
+        "back_text": "동학 농민 운동\n\n💡 해설: 1894년 전봉준 등 봉기, 반봉건·반외세",
+        "tags": ["starter_pack", "concept:kh_3", "role:core_vocab", "diff_lv1"],
+    }
+    gapsin_card = {
+        "card_id": 6,
+        "front_text": "🌱 [Lv.1 기초 인지] '갑신정변'의 뜻·의미는 무엇인가요?",
+        "back_text": "갑신정변\n\n💡 해설: 1884년 김옥균 등 급진 개화파",
+        "tags": ["starter_pack", "concept:kh_2", "role:core_vocab", "diff_lv1"],
+    }
+    fav_card = {
+        "card_id": 2,
+        "front_text": "🌱 [Lv.1 기초 인지] 'favorite'의 뜻·의미는 무엇인가요?",
+        "back_text": "가장 좋아하는 (명사/형용사)\n\n💡 해설: My favorite subject is science.",
+        "tags": ["starter_pack", "concept:m1_2", "role:core_vocab", "diff_lv1"],
+    }
+    assert classify_card_question_type(donghak_card)["facet_key"] == "history"
+    assert classify_card_question_type(gapsin_card)["facet_key"] == "history"
+    assert classify_card_question_type(fav_card)["facet_key"] == "eng_vocab_meaning"
+
+    fav_quiz = build_type_matched_quiz_options(fav_card, [fav_card, donghak_card, gapsin_card])
+    for opt in fav_quiz["options"]:
+        assert "동학 농민 운동" not in opt
+        assert "갑신정변" not in opt
+
+    # 2. Verify standalone engine starter deck in viewmodel.js has zero cross-type distractor leak
+    vm_path = ROOT_DIR / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    node_check = f"""
+    const vm = require({json.dumps(str(vm_path))});
+    const mem = {{ data: {{}}, getItem(k) {{ return this.data[k] || null; }}, setItem(k, v) {{ this.data[k] = v; }} }};
+    const eng = vm.createStandaloneEngine(mem);
+    const due = eng.getDueCards(null, "sequential").cards;
+    const report = due.map((c) => {{
+      const q = vm.buildTypeMatchedQuizOptions(c, due, 4);
+      return {{
+        card_id: c.card_id,
+        front: c.front_text,
+        facet: q.question_type.facet_key,
+        options: q.options
+      }};
+    }});
+    console.log(JSON.stringify(report));
+    """
+    res = subprocess.run(["node", "-e", node_check], capture_output=True, text=True, check=True)
+    report = json.loads(res.stdout.strip())
+    assert len(report) == 7
+    for item in report:
+        if item["facet"] == "eng_vocab_meaning":
+            for opt in item["options"]:
+                assert opt not in ("강화도 조약", "갑신정변", "동학 농민 운동"), f"History leaked into vocab options: {item}"
+        elif item["facet"] == "history":
+            for opt in item["options"]:
+                assert opt not in ("소개하다", "가장 좋아하는", "악기", "함께"), f"Vocab leaked into history options: {item}"
+
+    # 3. Verify app.js and AnkiStudioViewModel.kt do NOT auto-submit review rating on 4-choice click
+    app_js = (ROOT_DIR / "src" / "anki_studio" / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "자동으로 다음 카드로 넘어갑니다" not in app_js
+    assert "🎯 4지선다 정답!" in app_js
+
+    kt_vm = (
+        ROOT_DIR
+        / "android-app"
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "com"
+        / "ankistudio"
+        / "app"
+        / "ui"
+        / "AnkiStudioViewModel.kt"
+    ).read_text(encoding="utf-8")
+    mc_block = kt_vm.split("fun submitMultipleChoiceOption")[1].split("fun setStudyFilterMode")[0]
+    assert "submitReviewRating(" not in mc_block, "submitMultipleChoiceOption must reveal answer/explanation first without auto-skipping!"
+
+
+
 
 
 
