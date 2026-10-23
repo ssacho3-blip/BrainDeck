@@ -2196,6 +2196,7 @@
         const learnCount = dueCards.filter((c) => c.state === "learning" || c.state === "relearning").length;
         const reviewCount = dueCards.filter((c) => c.state === "review").length;
         const q = getDeckDailyQuota(db, d.deck_id);
+        const prog = computeDeckMasteryProgress(dCards, q);
         return {
           deck_id: d.deck_id,
           name: d.name,
@@ -2205,6 +2206,13 @@
           new_count: newCount,
           learn_count: learnCount,
           review_count: reviewCount,
+          unseen_cards: prog.unseen_cards,
+          learning_cards: prog.learning_cards,
+          young_cards: prog.young_cards,
+          mature_cards: prog.mature_cards,
+          touched_cards: prog.touched_cards,
+          coverage_pct: prog.coverage_pct,
+          mastery_pct: prog.mastery_pct,
           target_days: q.target_days,
           daily_new_limit: q.daily_new_limit,
           daily_review_limit: q.daily_review_limit,
@@ -2287,6 +2295,10 @@
         }
         pool = sliced;
       }
+      const allDeckCards = hasDeck
+        ? db.cards.filter((c) => Number(c.deck_id) === Number(options.deck_id))
+        : db.cards;
+      const deckProgress = computeDeckMasteryProgress(allDeckCards, quota);
       pool = pool.map(enrichCardWithRenderedFields);
       return {
         ok: true,
@@ -2294,8 +2306,36 @@
         count: pool.length,
         shuffle_mode: shuffleMode,
         daily_quota: quota,
+        deck_progress: deckProgress,
         cards: pool,
       };
+    }
+
+    function exploreDeckCards(payload) {
+      const p = payload || {};
+      const db = loadDb();
+      const hasDeck = p.deck_id !== undefined && p.deck_id !== null && p.deck_id !== "" && p.deck_id !== "all";
+      const deckCards = hasDeck
+        ? db.cards.filter((c) => Number(c.deck_id) === Number(p.deck_id))
+        : db.cards;
+      const quota = getDeckDailyQuota(db, hasDeck ? p.deck_id : null);
+      const deckProgress = computeDeckMasteryProgress(deckCards, quota);
+      const res = filterCardsForExplorer(deckCards, {
+        query: p.query || "",
+        bucket_filter: p.bucket_filter || p.bucket || "all",
+        stage_filter: p.stage_filter || p.stage || "all",
+        limit: p.limit || 200,
+      });
+      res.cards = res.cards.map(enrichCardWithRenderedFields);
+      return Object.assign(
+        {
+          ok: true,
+          standalone: true,
+          deck_id: hasDeck ? Number(p.deck_id) : null,
+          deck_progress: deckProgress,
+        },
+        res
+      );
     }
 
     function getStudyPlan(payload) {
@@ -2348,16 +2388,19 @@
         new_per_day: Math.max(0, effDailyNew - quota.new_studied_today),
         max_reviews_per_day: quota.remaining_review_today,
       });
+      const updatedQuota = Object.assign({}, quota, {
+        target_days: targetDays,
+        daily_new_limit: effDailyNew,
+        remaining_new_today: Math.max(0, effDailyNew - quota.new_studied_today),
+      });
+      const deckProgress = computeDeckMasteryProgress(deckCards, updatedQuota);
       return {
         ok: true,
         standalone: true,
         deck_id: hasDeck ? Number(p.deck_id) : null,
         plan,
-        daily_quota: Object.assign({}, quota, {
-          target_days: targetDays,
-          daily_new_limit: effDailyNew,
-          remaining_new_today: Math.max(0, effDailyNew - quota.new_studied_today),
-        }),
+        daily_quota: updatedQuota,
+        deck_progress: deckProgress,
         daily_queue_counts: queueRes.counts,
       };
     }
@@ -3006,6 +3049,7 @@
       refundStorePack,
       getDashboard,
       getDueCards,
+      exploreDeckCards,
       getStudyPlan,
       applyStudyPlan,
       buildExamScopeDeck,
@@ -4368,6 +4412,362 @@
     };
   }
 
+  const STAGE_LABELS = {
+    lv1: "🌱 Lv.1 기초",
+    lv2: "📘 Lv.2 핵심",
+    lv3: "🔥 Lv.3 심화",
+    lv4: "👑 Lv.4 최고급",
+  };
+
+  const MILESTONE_STEPS = [
+    [10, "🌱 첫 10% 돌파"],
+    [25, "🥉 1/4(25%) 돌파"],
+    [50, "🥈 반환점(50%) 돌파"],
+    [75, "🥇 3/4(75%) 돌파"],
+    [100, "👑 100% 완주 달성"],
+  ];
+
+  function computePercentTenths(numerator, denominator) {
+    const num = Math.trunc(Number(numerator || 0));
+    const den = Math.trunc(Number(denominator || 0));
+    if (den <= 0 || num <= 0) return 0;
+    if (num >= den) return 1000;
+    const tenths = Math.floor((num * 1000 + Math.floor(den / 2)) / den);
+    return Math.max(1, Math.min(999, tenths));
+  }
+
+  function normalizeTagListJs(rawTags) {
+    if (!rawTags) return [];
+    if (typeof rawTags === "string") {
+      return rawTags
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+    }
+    if (Array.isArray(rawTags)) {
+      return rawTags
+        .map((t) => String(t || "").trim().toLowerCase())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  function classifyCardMaturityBucket(card) {
+    const c = card || {};
+    const state = String(c.state || "new").trim().toLowerCase();
+    const tags = normalizeTagListJs(c.tags);
+    if (state === "suspended" || Boolean(c.suspended) || tags.includes("suspended")) {
+      return "suspended";
+    }
+    const reps = Math.trunc(Number(c.reps || 0));
+    const stability = Number(c.s ?? c.stability ?? 0);
+    if (state === "new" || reps <= 0) {
+      return "unseen";
+    }
+    if (state === "learning" || state === "relearning" || stability < 1.0) {
+      return "learning";
+    }
+    if (stability >= 21.0) {
+      return "mature";
+    }
+    return "young";
+  }
+
+  function classifyCardStage(card) {
+    const c = card || {};
+    const explicit = String(c.stage || "").trim().toLowerCase();
+    if (explicit === "lv1" || explicit === "lv2" || explicit === "lv3" || explicit === "lv4") {
+      return explicit;
+    }
+    if (explicit === "basic" || explicit === "beginner" || explicit === "elementary" || explicit === "1") return "lv1";
+    if (explicit === "core" || explicit === "intermediate" || explicit === "standard" || explicit === "2") return "lv2";
+    if (explicit === "advanced" || explicit === "high" || explicit === "hard" || explicit === "3") return "lv3";
+    if (explicit === "master" || explicit === "expert" || explicit === "top" || explicit === "4") return "lv4";
+
+    const tags = normalizeTagListJs(c.tags);
+    for (let i = 0; i < tags.length; i += 1) {
+      const t = tags[i];
+      if (t === "lv1" || t === "diff_lv1" || t === "stage:lv1" || t === "level:1" || t.endsWith(":lv1") || t.includes("기초") || t.includes("초급")) return "lv1";
+      if (t === "lv2" || t === "diff_lv2" || t === "stage:lv2" || t === "level:2" || t.endsWith(":lv2") || t.includes("핵심") || t.includes("중급")) return "lv2";
+      if (t === "lv3" || t === "diff_lv3" || t === "stage:lv3" || t === "level:3" || t.endsWith(":lv3") || t.includes("심화") || t.includes("고급")) return "lv3";
+      if (t === "lv4" || t === "diff_lv4" || t === "stage:lv4" || t === "level:4" || t.endsWith(":lv4") || t.includes("최고급") || t.includes("킬러")) return "lv4";
+    }
+    const lapses = Math.trunc(Number(c.lapses || 0));
+    const rawD = c.d ?? c.difficulty;
+    const diff = rawD !== undefined && rawD !== null && Number(rawD) > 0 ? Number(rawD) : 5.0;
+    if (lapses >= 3 || diff >= 7.5) return "lv4";
+    if (diff < 4.0) return "lv1";
+    if (diff < 6.0) return "lv2";
+    return "lv3";
+  }
+
+  function computeDeckMasteryProgress(cards, dailyQuota) {
+    const list = Array.isArray(cards) ? cards : [];
+    const dq = dailyQuota || {};
+    const totalCards = list.length;
+    let suspendedCards = 0;
+    let unseenCount = 0;
+    let learningCount = 0;
+    let youngCount = 0;
+    let matureCount = 0;
+
+    const stageAccum = {
+      lv1: { total: 0, unseen: 0, learning: 0, young: 0, mature: 0 },
+      lv2: { total: 0, unseen: 0, learning: 0, young: 0, mature: 0 },
+      lv3: { total: 0, unseen: 0, learning: 0, young: 0, mature: 0 },
+      lv4: { total: 0, unseen: 0, learning: 0, young: 0, mature: 0 },
+    };
+
+    for (let i = 0; i < list.length; i += 1) {
+      const raw = list[i] || {};
+      const bucket = classifyCardMaturityBucket(raw);
+      if (bucket === "suspended") {
+        suspendedCards += 1;
+        continue;
+      }
+      const stage = classifyCardStage(raw);
+      const stRec = stageAccum[stage];
+      stRec.total += 1;
+      stRec[bucket] += 1;
+      if (bucket === "unseen") unseenCount += 1;
+      else if (bucket === "learning") learningCount += 1;
+      else if (bucket === "young") youngCount += 1;
+      else matureCount += 1;
+    }
+
+    const activeCards = totalCards - suspendedCards;
+    const touchedCards = learningCount + youngCount + matureCount;
+
+    const coverageTenths = computePercentTenths(touchedCards, activeCards);
+    const coveragePct = Number((coverageTenths / 10.0).toFixed(1));
+    const matureTenths = computePercentTenths(matureCount, activeCards);
+    const maturePct = Number((matureTenths / 10.0).toFixed(1));
+
+    const weightedPoints = learningCount * 250 + youngCount * 650 + matureCount * 1000;
+    let masteryTenths = 0;
+    if (activeCards <= 0 || weightedPoints <= 0) {
+      masteryTenths = 0;
+    } else if (matureCount === activeCards) {
+      masteryTenths = 1000;
+    } else {
+      masteryTenths = Math.max(
+        1,
+        Math.min(999, Math.floor((weightedPoints + Math.floor(activeCards / 2)) / activeCards))
+      );
+    }
+    const masteryPct = Number((masteryTenths / 10.0).toFixed(1));
+
+    const newStudiedToday = Math.max(0, Math.trunc(Number(dq.new_studied_today || 0)));
+    const reviewsStudiedToday = Math.max(0, Math.trunc(Number(dq.reviews_studied_today || 0)));
+    const dailyNewLimit = Math.max(
+      0,
+      Math.trunc(Number(dq.daily_new_limit !== undefined && dq.daily_new_limit !== null ? dq.daily_new_limit : 30))
+    );
+
+    const todayCompleted =
+      dq.today_completed !== undefined && dq.today_completed !== null
+        ? Math.max(0, Math.trunc(Number(dq.today_completed || 0)))
+        : newStudiedToday + reviewsStudiedToday;
+
+    let todayTarget = 0;
+    if (dq.today_target !== undefined && dq.today_target !== null) {
+      todayTarget = Math.max(0, Math.trunc(Number(dq.today_target || 0)));
+    } else {
+      const plannedNew = Math.min(unseenCount + newStudiedToday, dailyNewLimit);
+      const dueReviews = Math.max(0, Math.trunc(Number(dq.due_review_count || 0)));
+      let baseTarget = plannedNew + reviewsStudiedToday + dueReviews;
+      if (baseTarget <= 0 && activeCards > 0 && dailyNewLimit > 0) {
+        baseTarget = Math.min(activeCards, dailyNewLimit);
+      }
+      todayTarget = Math.max(todayCompleted, baseTarget);
+    }
+
+    let todayStatus = "ACTIVE";
+    let todayTenths = 0;
+    if (activeCards <= 0) {
+      todayStatus = "EMPTY";
+      todayTenths = 0;
+    } else if (todayTarget <= 0) {
+      todayStatus = "NO_PLAN";
+      todayTenths = 0;
+    } else {
+      todayTenths = computePercentTenths(todayCompleted, todayTarget);
+      todayStatus = todayCompleted >= todayTarget ? "COMPLETE" : "ACTIVE";
+    }
+
+    const todayPct = Number((todayTenths / 10.0).toFixed(1));
+    const todayRemaining = Math.max(0, todayTarget - todayCompleted);
+    const overTargetCount = Math.max(0, todayCompleted - todayTarget);
+    const currentCardOrdinal = todayRemaining === 0 ? todayCompleted : todayCompleted + 1;
+    const estimatedRemainingMinutes =
+      todayRemaining === 0 ? 0.0 : Math.max(1.0, Number(((todayRemaining * 14.0) / 60.0).toFixed(1)));
+
+    let achievedMilestonePct = 0;
+    let achievedMilestoneLabel = "출발 전";
+    let nextMilestonePct = 100;
+    let nextMilestoneLabel = "👑 100% 완주 달성";
+    let cardsToNextMilestone = 0;
+
+    if (activeCards > 0) {
+      let foundNext = false;
+      for (let i = 0; i < MILESTONE_STEPS.length; i += 1) {
+        const mPct = MILESTONE_STEPS[i][0];
+        const mLabel = MILESTONE_STEPS[i][1];
+        const reqCards = Math.floor((activeCards * mPct + 99) / 100);
+        if (touchedCards >= reqCards) {
+          achievedMilestonePct = mPct;
+          achievedMilestoneLabel = mLabel;
+        } else if (!foundNext) {
+          nextMilestonePct = mPct;
+          nextMilestoneLabel = mLabel;
+          cardsToNextMilestone = Math.max(0, reqCards - touchedCards);
+          foundNext = true;
+        }
+      }
+      if (!foundNext) {
+        nextMilestonePct = 100;
+        nextMilestoneLabel = "👑 100% 완주 달성";
+        cardsToNextMilestone = 0;
+      }
+    }
+
+    const effectiveDailyPace = Math.max(1, dailyNewLimit > 0 ? dailyNewLimit : 30);
+    const daysToNextMilestone =
+      cardsToNextMilestone > 0
+        ? Math.floor((cardsToNextMilestone + effectiveDailyPace - 1) / effectiveDailyPace)
+        : 0;
+    const etaFullCoverageDays =
+      unseenCount > 0 ? Math.floor((unseenCount + effectiveDailyPace - 1) / effectiveDailyPace) : 0;
+
+    const byStage = {};
+    ["lv1", "lv2", "lv3", "lv4"].forEach((st) => {
+      const rec = stageAccum[st];
+      const stTotal = rec.total;
+      const stTouched = rec.learning + rec.young + rec.mature;
+      const stCovTenths = computePercentTenths(stTouched, stTotal);
+      const stPts = rec.learning * 250 + rec.young * 650 + rec.mature * 1000;
+      let stMastTenths = 0;
+      if (stTotal <= 0 || stPts <= 0) {
+        stMastTenths = 0;
+      } else if (rec.mature === stTotal) {
+        stMastTenths = 1000;
+      } else {
+        stMastTenths = Math.max(1, Math.min(999, Math.floor((stPts + Math.floor(stTotal / 2)) / stTotal)));
+      }
+      byStage[st] = {
+        stage: st,
+        label: STAGE_LABELS[st],
+        total: stTotal,
+        unseen: rec.unseen,
+        learning: rec.learning,
+        young: rec.young,
+        mature: rec.mature,
+        touched: stTouched,
+        coverage_tenths: stCovTenths,
+        coverage_pct: Number((stCovTenths / 10.0).toFixed(1)),
+        mastery_tenths: stMastTenths,
+        mastery_pct: Number((stMastTenths / 10.0).toFixed(1)),
+      };
+    });
+
+    const status = activeCards <= 0 ? "EMPTY" : "OK";
+    return {
+      status,
+      total_cards: totalCards,
+      active_cards: activeCards,
+      suspended_cards: suspendedCards,
+      touched_cards: touchedCards,
+      unseen_cards: unseenCount,
+      learning_cards: learningCount,
+      young_cards: youngCount,
+      mature_cards: matureCount,
+      coverage_tenths: coverageTenths,
+      coverage_pct: coveragePct,
+      mature_tenths: matureTenths,
+      mature_pct: maturePct,
+      mastery_tenths: masteryTenths,
+      mastery_pct: masteryPct,
+      buckets: {
+        unseen: unseenCount,
+        learning: learningCount,
+        young: youngCount,
+        mature: matureCount,
+        suspended: suspendedCards,
+      },
+      today: {
+        status: todayStatus,
+        completed_count: todayCompleted,
+        target_count: todayTarget,
+        remaining_count: todayRemaining,
+        over_target_count: overTargetCount,
+        percent_tenths: todayTenths,
+        percent: todayPct,
+        current_card_ordinal: currentCardOrdinal,
+        estimated_remaining_minutes: estimatedRemainingMinutes,
+      },
+      milestone: {
+        current_pct: achievedMilestonePct,
+        achieved_pct: achievedMilestonePct,
+        achieved_label: achievedMilestoneLabel,
+        next_pct: nextMilestonePct,
+        next_label: nextMilestoneLabel,
+        cards_to_next: cardsToNextMilestone,
+        days_to_next: daysToNextMilestone,
+        eta_full_coverage_days: etaFullCoverageDays,
+      },
+      eta_full_coverage_days: etaFullCoverageDays,
+      by_stage: byStage,
+    };
+  }
+
+  function filterCardsForExplorer(cards, opts) {
+    const list = Array.isArray(cards) ? cards : [];
+    const o = opts || {};
+    const qRaw = String(o.query || "").trim();
+    const qTokens = qRaw
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    const bNorm = String(o.bucket || o.bucket_filter || "all").trim().toLowerCase();
+    const sNorm = String(o.stage || o.stage_filter || "all").trim().toLowerCase();
+    const cap = Math.max(1, Math.min(1000, Math.trunc(Number(o.limit || 200))));
+
+    const matched = [];
+    for (let i = 0; i < list.length; i += 1) {
+      const raw = list[i] || {};
+      const bucket = classifyCardMaturityBucket(raw);
+      const stage = classifyCardStage(raw);
+      if (bNorm !== "all" && bucket !== bNorm) continue;
+      if (sNorm !== "all" && stage !== sNorm) continue;
+      const front = String(raw.front_text || raw.rendered_question || "").trim();
+      const back = String(raw.back_text || raw.rendered_answer || "").trim();
+      if (qTokens.length > 0) {
+        const hay = `${front} ${back} ${normalizeTagListJs(raw.tags).join(" ")}`.toLowerCase();
+        const allHit = qTokens.every((tok) => hay.includes(tok));
+        if (!allHit) continue;
+      }
+      matched.push(
+        Object.assign({}, raw, {
+          ordinal: i + 1,
+          maturity_bucket: bucket,
+          stage,
+          stage_label: STAGE_LABELS[stage] || "🌱 Lv.1 기초",
+        })
+      );
+    }
+
+    return {
+      total_count: list.length,
+      matched_count: matched.length,
+      total_matched: matched.length,
+      returned_count: Math.min(matched.length, cap),
+      query: qRaw,
+      bucket_filter: bNorm,
+      stage_filter: sNorm,
+      cards: matched.slice(0, cap),
+    };
+  }
+
   return {
     formatRetentionBadge,
     formatLeechBadge,
@@ -4427,6 +4827,11 @@
     buildCustomStudySession,
     isGenericSectionLabel,
     isTocOrStructuralHeading,
+    computePercentTenths,
+    classifyCardMaturityBucket,
+    classifyCardStage,
+    computeDeckMasteryProgress,
+    filterCardsForExplorer,
   };
 });
 

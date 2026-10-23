@@ -58,6 +58,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.ankistudio.domain.catalog.BrainPackStoreCatalog
 import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import com.ankistudio.domain.fsrs.Fsrs5Engine
+import com.ankistudio.domain.planner.AnkiCardSnapshot
+import com.ankistudio.domain.planner.AnkiStudyPlannerEngine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine
@@ -212,6 +214,11 @@ class MainActivity : ComponentActivity() {
                     onSavePreviewDeck = viewModel::savePreviewAsDeck,
                     onApplyStudyPlan = viewModel::applyStudyPlan,
                     onIncreaseDailyNewQuota = viewModel::increaseDailyNewQuota,
+                    onSetStageFilter = viewModel::setStageFilter,
+                    onToggleDeckExplorer = viewModel::toggleDeckExplorer,
+                    onUpdateExplorerQuery = viewModel::updateExplorerQuery,
+                    onSetExplorerBucket = viewModel::setExplorerBucketFilter,
+                    onJumpToExplorerCard = viewModel::jumpToCardFromExplorer,
                     onRevealAnswer = viewModel::revealAnswer,
                     onRateCard = viewModel::submitReviewRating
                 )
@@ -305,6 +312,11 @@ fun AnkiStudioScreen(
     onSavePreviewDeck: () -> Unit,
     onApplyStudyPlan: (Int, Int?) -> Unit = { _, _ -> },
     onIncreaseDailyNewQuota: (Int) -> Unit = {},
+    onSetStageFilter: (String) -> Unit = {},
+    onToggleDeckExplorer: (Boolean?) -> Unit = {},
+    onUpdateExplorerQuery: (String) -> Unit = {},
+    onSetExplorerBucket: (String) -> Unit = {},
+    onJumpToExplorerCard: (Long) -> Unit = {},
     onRevealAnswer: () -> Unit,
     onRateCard: (Rating) -> Unit
 ) {
@@ -457,6 +469,11 @@ fun AnkiStudioScreen(
                         onRateCard = onRateCard,
                         onApplyStudyPlan = onApplyStudyPlan,
                         onIncreaseDailyNewQuota = onIncreaseDailyNewQuota,
+                        onSetStageFilter = onSetStageFilter,
+                        onToggleDeckExplorer = onToggleDeckExplorer,
+                        onUpdateExplorerQuery = onUpdateExplorerQuery,
+                        onSetExplorerBucket = onSetExplorerBucket,
+                        onJumpToExplorerCard = onJumpToExplorerCard,
                         onGoToStore = { onSelectTab("store") },
                         onGoToCurriculum = { onSelectTab("curriculum") }
                     )
@@ -624,10 +641,17 @@ private fun StudyTabScreen(
     onRateCard: (Rating) -> Unit,
     onApplyStudyPlan: (Int, Int?) -> Unit = { _, _ -> },
     onIncreaseDailyNewQuota: (Int) -> Unit = {},
+    onSetStageFilter: (String) -> Unit = {},
+    onToggleDeckExplorer: (Boolean?) -> Unit = {},
+    onUpdateExplorerQuery: (String) -> Unit = {},
+    onSetExplorerBucket: (String) -> Unit = {},
+    onJumpToExplorerCard: (Long) -> Unit = {},
     onGoToStore: () -> Unit,
     onGoToCurriculum: () -> Unit
 ) {
     val activeRaw = state.rawDueCards.filter { it.cardId !in state.buriedCardIds }
+    val dp = state.deckProgress
+    val totalDeckCards = dp?.totalCards ?: state.allDeckCards.size.coerceAtLeast(activeRaw.size)
     val qCounts = AdaptiveQuizEngine.computeAnkiQueueCounts(
         activeRaw.map { it.state to it.lapses }
     )
@@ -666,7 +690,7 @@ private fun StudyTabScreen(
                         FilterChip(
                             selected = state.selectedDeckId == null,
                             onClick = { onSelectDeckForStudy(null) },
-                            label = { Text("전체 (${activeRaw.size})") }
+                            label = { Text("전체 (${totalDeckCards}장 · 진도 ${dp?.coveragePct ?: 0.0}%)") }
                         )
                     }
                     items(state.decks) { deck ->
@@ -706,7 +730,7 @@ private fun StudyTabScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "📅 D-${state.targetDays} 학습 계획 · 오늘 목표 ${state.dueCards.size}장 (새 카드 ${state.dailyNewLimit}장 중 남은 ${remNew}장 · 전체 ${activeRaw.size}장)",
+                        text = "📅 D-${state.targetDays} 학습 계획 · 오늘 목표 ${dp?.today?.targetCount ?: state.dueCards.size}장 (새 카드 ${state.dailyNewLimit}장 중 남은 ${remNew}장 · 전체 ${totalDeckCards}장)",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF1D4ED8)
@@ -744,6 +768,260 @@ private fun StudyTabScreen(
                                 onClick = { onIncreaseDailyNewQuota(15) },
                                 label = { Text("➕ 오늘 +15장", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // IMPL-V61: 0.5-Second Multi-Dimensional Progress & Mastery Dashboard (Today % + 1,000-Card Coverage % + 4-Tier Maturity Bar + Lv1~Lv4 Stage Filter)
+        if (dp != null) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🎯 오늘 목표: ${dp.today.completedCount}/${dp.today.targetCount}장 완료 (${dp.today.percent}%)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = TossBlue
+                            )
+                            Text(
+                                text = if (dp.today.remainingCount > 0) "⏱️ 남은 ${dp.today.remainingCount}장 (약 ${dp.today.estimatedRemainingMinutes}분)" else "✅ 오늘 목표 100% 달성!",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextSecondary
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .background(Color(0xFFE2E8F0), RoundedCornerShape(999.dp))
+                        ) {
+                            val fillRatio = (dp.today.percent.toFloat() / 100f).coerceIn(0f, 1f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fillRatio)
+                                    .height(8.dp)
+                                    .background(TossBlue, RoundedCornerShape(999.dp))
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📊 전체 진도율 ${dp.coveragePct}% (${dp.touchedCards}/${dp.totalCards}장) · 🧠 마스터리 ${dp.masteryPct}%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF047857)
+                            )
+                            Text(
+                                text = if (dp.milestone.cardsToNext > 0) "🏁 ${dp.milestone.nextPct}%까지 ${dp.milestone.cardsToNext}장" else "🎉 100% 달성",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F766E)
+                            )
+                        }
+                        // 4-Color Stacked Maturity Bar (Mature / Young / Learning / Unseen)
+                        val activeDen = dp.activeCards.coerceAtLeast(1).toFloat()
+                        val wMature = (dp.buckets.mature.toFloat() / activeDen).coerceIn(0f, 1f)
+                        val wYoung = (dp.buckets.young.toFloat() / activeDen).coerceIn(0f, 1f)
+                        val wLearn = (dp.buckets.learning.toFloat() / activeDen).coerceIn(0f, 1f)
+                        val wUnseen = (dp.buckets.unseen.toFloat() / activeDen).coerceIn(0f, 1f)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .background(Color(0xFFE2E8F0), RoundedCornerShape(999.dp))
+                        ) {
+                            if (wMature > 0f) {
+                                Box(modifier = Modifier.weight(wMature).height(8.dp).background(Color(0xFF10B981)))
+                            }
+                            if (wYoung > 0f) {
+                                Box(modifier = Modifier.weight(wYoung).height(8.dp).background(Color(0xFF3B82F6)))
+                            }
+                            if (wLearn > 0f) {
+                                Box(modifier = Modifier.weight(wLearn).height(8.dp).background(Color(0xFFF59E0B)))
+                            }
+                            if (wUnseen > 0f) {
+                                Box(modifier = Modifier.weight(wUnseen).height(8.dp).background(Color(0xFFE2E8F0)))
+                            }
+                        }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = state.explorerBucketFilter == "unseen" && state.isDeckExplorerOpen,
+                                    onClick = { onSetExplorerBucket("unseen") },
+                                    label = { Text("⚪ 미학습 ${dp.buckets.unseen}장", fontSize = 11.sp) }
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = state.explorerBucketFilter == "learning" && state.isDeckExplorerOpen,
+                                    onClick = { onSetExplorerBucket("learning") },
+                                    label = { Text("🟠 학습·오답 ${dp.buckets.learning}장", fontSize = 11.sp) }
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = state.explorerBucketFilter == "young" && state.isDeckExplorerOpen,
+                                    onClick = { onSetExplorerBucket("young") },
+                                    label = { Text("🔵 단기암기 ${dp.buckets.young}장", fontSize = 11.sp) }
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = state.explorerBucketFilter == "mature" && state.isDeckExplorerOpen,
+                                    onClick = { onSetExplorerBucket("mature") },
+                                    label = { Text("🟢 장기마스터 ${dp.buckets.mature}장", fontSize = 11.sp) }
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = state.isDeckExplorerOpen,
+                                    onClick = { onToggleDeckExplorer(null) },
+                                    label = { Text("🔍 전체 카드 진도표·검색", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = state.stageFilter == "all",
+                                    onClick = { onSetStageFilter("all") },
+                                    label = { Text("🪜 전체 단계", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                            val stageKeys = listOf("lv1", "lv2", "lv3", "lv4")
+                            items(stageKeys) { stKey ->
+                                val stInfo = dp.byStage[stKey]
+                                val stText = if (stInfo != null) {
+                                    "${stInfo.label} (${stInfo.coveragePct.toInt()}% · ${stInfo.touched}/${stInfo.total})"
+                                } else {
+                                    stKey
+                                }
+                                FilterChip(
+                                    selected = state.stageFilter == stKey,
+                                    onClick = { onSetStageFilter(stKey) },
+                                    label = { Text(stText, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.isDeckExplorerOpen) {
+            val allSnapshots = state.allDeckCards.map { row ->
+                val cleanT = AdaptiveQuizEngine.extractCleanTargetAnswer(row.front, row.back)
+                AnkiCardSnapshot(
+                    cardId = row.cardId.toString(),
+                    noteId = row.noteId.toString(),
+                    state = row.state,
+                    stability = row.stability,
+                    difficulty = row.difficulty,
+                    reps = row.reps,
+                    lapses = row.lapses,
+                    dueDays = row.scheduledDays.toInt(),
+                    tags = row.tagsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+                    frontText = row.front,
+                    backText = row.back,
+                    targetAnswer = cleanT.first,
+                    extraExplanation = cleanT.second
+                )
+            }
+            val expRes = AnkiStudyPlannerEngine.filterCardsForExplorer(
+                cards = allSnapshots,
+                query = state.explorerQuery,
+                bucketFilter = state.explorerBucketFilter,
+                stageFilter = state.explorerStageFilter,
+                limit = 40
+            )
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🔍 전체 카드 진도표·검색 (${expRes.matchedCount}/${expRes.totalCount}장)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF312E81)
+                            )
+                            OutlinedButton(onClick = { onToggleDeckExplorer(false) }) {
+                                Text("닫기", fontSize = 11.sp)
+                            }
+                        }
+                        OutlinedTextField(
+                            value = state.explorerQuery,
+                            onValueChange = onUpdateExplorerQuery,
+                            label = { Text("단어·뜻·예문 검색", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        expRes.cards.take(15).forEachIndexed { idx, snap ->
+                            val bKey = AnkiStudyPlannerEngine.classifyCardMaturityBucket(snap)
+                            val bLabel = when (bKey) {
+                                "mature" -> "🟢 마스터"
+                                "young" -> "🔵 단기"
+                                "learning" -> "🟠 학습"
+                                else -> "⚪ 미학습"
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White, RoundedCornerShape(10.dp))
+                                    .clickable { snap.cardId.toLongOrNull()?.let { onJumpToExplorerCard(it) } }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "$bLabel #${idx + 1} ${snap.frontText.take(36)} ➔ ${snap.targetAnswer.take(22)}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "🎯 풀기",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = TossBlue
+                                )
+                            }
                         }
                     }
                 }
@@ -1054,7 +1332,7 @@ private fun StudyTabScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${currentQType.badgeLabel} · 남은 ${state.dueCards.size}장 · 오답 ${currentDue.lapses}회",
+                                text = "${currentQType.badgeLabel} · 오늘 ${dp?.today?.currentCardOrdinal ?: 1}/${dp?.today?.targetCount ?: state.dueCards.size}번째 (${dp?.today?.percent ?: 0.0}%) · 덱 진도 ${dp?.coveragePct ?: 0.0}%",
                                 fontSize = 12.sp,
                                 color = TossBlue,
                                 fontWeight = FontWeight.Bold

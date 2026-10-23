@@ -91,4 +91,99 @@ class AnkiStudyPlannerEngineTest {
             }
         )
     }
+
+    @Test
+    fun `computePercentTenths and computeDeckMasteryProgress match Python and JS 100 percent`() {
+        assertEquals(0, AnkiStudyPlannerEngine.computePercentTenths(0, 0))
+        assertEquals(0, AnkiStudyPlannerEngine.computePercentTenths(0, 1000))
+        assertEquals(1, AnkiStudyPlannerEngine.computePercentTenths(1, 1000))
+        assertEquals(1, AnkiStudyPlannerEngine.computePercentTenths(1, 5000))
+        assertEquals(171, AnkiStudyPlannerEngine.computePercentTenths(180, 1050))
+        assertEquals(400, AnkiStudyPlannerEngine.computePercentTenths(12, 30))
+        assertEquals(999, AnkiStudyPlannerEngine.computePercentTenths(999, 1000))
+        assertEquals(1000, AnkiStudyPlannerEngine.computePercentTenths(1000, 1000))
+
+        val cards = mutableListOf<AnkiCardSnapshot>()
+        for (i in 0 until 700) {
+            val stTag = if (i < 350) "lv1" else "lv2"
+            cards.add(AnkiCardSnapshot(cardId = "u_$i", state = "new", stability = 0.0, reps = 0, tags = listOf(stTag), frontText = "Unseen $i"))
+        }
+        for (i in 0 until 100) {
+            cards.add(AnkiCardSnapshot(cardId = "l_$i", state = "learning", stability = 0.5, reps = 1, tags = listOf("lv1"), frontText = "Learn $i"))
+        }
+        for (i in 0 until 100) {
+            cards.add(AnkiCardSnapshot(cardId = "y_$i", state = "review", stability = 7.0, reps = 3, tags = listOf("lv3"), frontText = "Young $i"))
+        }
+        for (i in 0 until 100) {
+            cards.add(AnkiCardSnapshot(cardId = "m_$i", state = "review", stability = 30.0, reps = 6, tags = listOf("lv4"), frontText = "Mature $i"))
+        }
+        for (i in 0 until 10) {
+            cards.add(AnkiCardSnapshot(cardId = "s_$i", state = "suspended", stability = 10.0, reps = 2, suspended = true, tags = listOf("suspended")))
+        }
+
+        val prog = AnkiStudyPlannerEngine.computeDeckMasteryProgress(
+            cards = cards,
+            dailyTarget = 30,
+            todayCompleted = 12,
+            remainingQueueCount = 18,
+            avgSecondsPerCard = 12.0,
+        )
+        assertEquals(1010, prog.totalCards)
+        assertEquals(1000, prog.activeCards)
+        assertEquals(10, prog.suspendedCards)
+        assertEquals(300, prog.touchedCards)
+        assertEquals(30.0, prog.coveragePct)
+        assertEquals(19.0, prog.masteryPct)
+        assertEquals(10.0, prog.maturePct)
+        assertEquals(12, prog.today.completedCount)
+        assertEquals(30, prog.today.targetCount)
+        assertEquals(18, prog.today.remainingCount)
+        assertEquals(40.0, prog.today.percent)
+        assertEquals(13, prog.today.currentCardOrdinal)
+        assertEquals(25, prog.milestone.currentPct)
+        assertEquals(50, prog.milestone.nextPct)
+        assertEquals(200, prog.milestone.cardsToNext)
+        assertEquals(100.0, prog.byStage["lv4"]?.coveragePct)
+        assertEquals(100.0, prog.byStage["lv4"]?.masteryPct)
+
+        val exp = AnkiStudyPlannerEngine.filterCardsForExplorer(
+            cards = cards,
+            query = "Mature 42",
+            bucketFilter = "mature",
+            stageFilter = "lv4",
+        )
+        assertEquals(1, exp.matchedCount)
+        assertEquals("m_42", exp.cards.first().cardId)
+
+        // Parity probes: reps=0 on review state is unseen; difficulty 3.7 is lv1; lapses=3 is lv4
+        assertEquals(
+            "unseen",
+            AnkiStudyPlannerEngine.classifyCardMaturityBucket(
+                AnkiCardSnapshot(cardId = "p1", state = "review", reps = 0, stability = 30.0)
+            )
+        )
+        assertEquals(
+            "lv1",
+            AnkiStudyPlannerEngine.classifyCardStage(
+                AnkiCardSnapshot(cardId = "p2", difficulty = 3.7)
+            )
+        )
+        assertEquals(
+            "lv4",
+            AnkiStudyPlannerEngine.classifyCardStage(
+                AnkiCardSnapshot(cardId = "p3", difficulty = 4.5, lapses = 3)
+            )
+        )
+
+        // Daily target parity when 30 new + 20 reviews studied today -> targetCount == 50
+        val progWithReviews = AnkiStudyPlannerEngine.computeDeckMasteryProgress(
+            cards = cards,
+            dailyTarget = 30,
+            todayCompleted = 20,
+            newStudiedToday = 0,
+            reviewsStudiedToday = 20,
+        )
+        assertEquals(50, progWithReviews.today.targetCount)
+        assertEquals(30, progWithReviews.today.remainingCount)
+    }
 }

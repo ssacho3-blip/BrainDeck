@@ -487,8 +487,114 @@
             ⚡ 맞춤학습 시작
           </button>
         </div>
-        <div id="bd-study-plan-banner" class="ai-box" style="display:block;margin-top:0;margin-bottom:12px;background:#f8fafc;border:1px solid #c7d2fe;color:#1e293b;font-size:0.82rem;">
+        <div id="bd-study-plan-banner" class="ai-box" style="display:block;margin-top:0;margin-bottom:10px;background:#f8fafc;border:1px solid #c7d2fe;color:#1e293b;font-size:0.82rem;">
           📅 덱을 선택하면 전체 카드 수와 목표일(D-Day)에 맞춰 오늘 학습할 할당량이 자동으로 계획·배분됩니다.
+        </div>
+
+        <!-- IMPL-V61: 0.5-Second Multi-Dimensional Progress & Mastery Dashboard (Today % + 1,000-Card Coverage % + 4-Tier Maturity Bar + Lv1~Lv4 Stage Filter) -->
+        <div id="bd-deck-progress-dashboard" style="margin-bottom:12px;padding:12px 14px;border-radius:16px;background:#ffffff;border:1px solid #cbd5e1;box-shadow:0 2px 8px rgba(15,23,42,0.04);">
+          <!-- Row 1: Today's Daily Goal Progress Bar -->
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;font-size:0.8rem;">
+            <div>
+              🎯 <strong style="color:#0f172a;">오늘 목표 진척률:</strong>
+              <span id="bd-today-progress-label" style="font-weight:800;color:#2563eb;font-variant-numeric:tabular-nums;">0 / 30장 완료 (0.0%)</span>
+            </div>
+            <div id="bd-today-eta-label" style="font-size:0.75rem;font-weight:700;color:#475569;font-variant-numeric:tabular-nums;">
+              ⏱️ 남은 시간 약 7분
+            </div>
+          </div>
+          <div role="progressbar" aria-label="오늘 목표 진척률" style="height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin-bottom:10px;">
+            <div id="bd-today-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#2563eb 0%,#10b981 100%);transition:width 0.3s ease;"></div>
+          </div>
+
+          <!-- Row 2: 1,000-Card Whole-Deck Coverage % & FSRS Mastery % + 4-Tier Stacked Bar -->
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;font-size:0.79rem;">
+            <div>
+              📊 <strong style="color:#0f172a;">전체 덱 진도율:</strong>
+              <span id="bd-deck-coverage-label" style="font-weight:800;color:#047857;font-variant-numeric:tabular-nums;">0 / 1,020장 (0.0%)</span>
+              <span style="color:#94a3b8;margin:0 4px;">|</span>
+              🧠 <strong style="color:#0f172a;">기억 마스터리:</strong>
+              <span id="bd-deck-mastery-label" style="font-weight:800;color:#4f46e5;font-variant-numeric:tabular-nums;">0.0%</span>
+            </div>
+            <div id="bd-deck-milestone-label" style="font-size:0.74rem;font-weight:700;color:#0f766e;">
+              🏁 첫 10% 돌파까지 102장
+            </div>
+          </div>
+          <div role="progressbar" aria-label="전체 덱 기억 성숙도 분포" style="display:flex;height:9px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin-bottom:9px;">
+            <div id="bd-bar-mature" title="장기마스터 (S≥21일)" style="height:100%;width:0%;background:#10b981;transition:width 0.3s ease;"></div>
+            <div id="bd-bar-young" title="단기암기 (1~20일)" style="height:100%;width:0%;background:#3b82f6;transition:width 0.3s ease;"></div>
+            <div id="bd-bar-learning" title="학습·오답 (당일~1일)" style="height:100%;width:0%;background:#f59e0b;transition:width 0.3s ease;"></div>
+            <div id="bd-bar-unseen" title="미학습 (새 카드)" style="height:100%;width:100%;background:#e2e8f0;transition:width 0.3s ease;"></div>
+          </div>
+
+          <!-- 4-Tier Bucket Summary Pills + Deck Card Explorer Trigger -->
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:0.74rem;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <button type="button" class="bd-bucket-chip" data-bucket="unseen" style="padding:3px 9px;border-radius:999px;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;font-size:0.73rem;font-weight:700;">
+                ⚪ 미학습 <span id="bd-cnt-unseen">0</span>장
+              </button>
+              <button type="button" class="bd-bucket-chip" data-bucket="learning" style="padding:3px 9px;border-radius:999px;background:#fffbeb;color:#b45309;border:1px solid #fde68a;font-size:0.73rem;font-weight:700;">
+                🟠 학습·오답 <span id="bd-cnt-learning">0</span>장
+              </button>
+              <button type="button" class="bd-bucket-chip" data-bucket="young" style="padding:3px 9px;border-radius:999px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:0.73rem;font-weight:700;">
+                🔵 단기암기 <span id="bd-cnt-young">0</span>장
+              </button>
+              <button type="button" class="bd-bucket-chip" data-bucket="mature" style="padding:3px 9px;border-radius:999px;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-size:0.73rem;font-weight:700;">
+                🟢 장기마스터 <span id="bd-cnt-mature">0</span>장
+              </button>
+            </div>
+            <button type="button" id="btn-open-deck-explorer" style="padding:4px 11px;border-radius:999px;background:#eef2ff;color:#3730a3;border:1px solid #a5b4fc;font-size:0.74rem;font-weight:800;">
+              🔍 전체 카드 진도표·검색
+            </button>
+          </div>
+
+          <!-- Row 3: Stage (Lv.1 ~ Lv.4) Progress & Step-by-Step Filter -->
+          <div id="bd-stage-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-top:7px;border-top:1px dashed #e2e8f0;font-size:0.74rem;">
+            <span style="font-weight:800;color:#334155;">🪜 단계별 정복:</span>
+            <button type="button" class="bd-stage-btn btn-primary" id="btn-stage-all" data-stage="all" style="padding:4px 10px;font-size:0.73rem;border-radius:999px;">
+              전체 단계
+            </button>
+            <button type="button" class="bd-stage-btn" id="btn-stage-lv1" data-stage="lv1" style="padding:4px 10px;font-size:0.73rem;border-radius:999px;">
+              🌱 Lv.1 기초 (0%)
+            </button>
+            <button type="button" class="bd-stage-btn" id="btn-stage-lv2" data-stage="lv2" style="padding:4px 10px;font-size:0.73rem;border-radius:999px;">
+              📘 Lv.2 핵심 (0%)
+            </button>
+            <button type="button" class="bd-stage-btn" id="btn-stage-lv3" data-stage="lv3" style="padding:4px 10px;font-size:0.73rem;border-radius:999px;">
+              🔥 Lv.3 심화 (0%)
+            </button>
+            <button type="button" class="bd-stage-btn" id="btn-stage-lv4" data-stage="lv4" style="padding:4px 10px;font-size:0.73rem;border-radius:999px;">
+              👑 Lv.4 최고급 (0%)
+            </button>
+          </div>
+        </div>
+
+        <!-- IMPL-V61 AC-5: Deck Card Explorer & Instant Search Drawer -->
+        <div id="deck-card-explorer-panel" style="display:none;margin-bottom:14px;padding:14px;border-radius:18px;background:#ffffff;border:2px solid #818cf8;box-shadow:0 8px 24px rgba(15,23,42,0.08);">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="font-weight:800;color:#312e81;font-size:0.9rem;">
+              🔍 덱 전체 카드 진도표 · 키워드 검색 (<span id="explorer-total-label">0장</span>)
+            </div>
+            <button type="button" id="btn-close-deck-explorer" style="padding:4px 10px;font-size:0.76rem;">✖ 닫기</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+            <input type="text" id="explorer-search-input" placeholder="🔎 단어, 뜻, 예문, 개념어를 검색하세요..." style="flex:1;min-width:180px;padding:7px 11px;font-size:0.8rem;" />
+            <select id="explorer-bucket-select" style="width:auto;padding:6px 10px;font-size:0.78rem;">
+              <option value="all">전체 상태</option>
+              <option value="unseen">⚪ 미학습만</option>
+              <option value="learning">🟠 학습·오답만</option>
+              <option value="young">🔵 단기암기만</option>
+              <option value="mature">🟢 장기마스터만</option>
+            </select>
+            <select id="explorer-stage-select" style="width:auto;padding:6px 10px;font-size:0.78rem;">
+              <option value="all">전체 난이도</option>
+              <option value="lv1">🌱 Lv.1 기초</option>
+              <option value="lv2">📘 Lv.2 핵심</option>
+              <option value="lv3">🔥 Lv.3 심화</option>
+              <option value="lv4">👑 Lv.4 최고급</option>
+            </select>
+          </div>
+          <div id="explorer-card-rows" style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;"></div>
         </div>
 
         <!-- Contract C1: Collapsible Study Tools & Filter Drawer (Default closed for Zen focus, Zero Feature Loss) -->
@@ -918,8 +1024,8 @@
           <a id="link-export-apkg" href="/api/export.apkg" style="text-decoration:none;">
             <button id="btn-export-apkg" type="button">📦 .apkg 내보내기</button>
           </a>
-          <a id="link-download-apk" href="https://github.com/ssacho3-blip/semiconductor-assets/releases/download/braindeck-v5.9/BrainDeck-v5.9.apk" style="text-decoration:none;">
-            <button id="btn-download-apk" type="button" class="btn-primary">🤖 안드로이드 앱 설치파일 (v5.9)</button>
+          <a id="link-download-apk" href="https://github.com/ssacho3-blip/BrainDeck/releases/download/v6.0.0/BrainDeck-v6.0.apk" style="text-decoration:none;">
+            <button id="btn-download-apk" type="button" class="btn-primary">🤖 안드로이드 앱 설치파일 (v6.0)</button>
           </a>
         </div>
       </div>

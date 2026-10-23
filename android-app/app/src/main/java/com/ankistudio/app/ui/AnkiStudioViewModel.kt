@@ -21,8 +21,10 @@ import com.ankistudio.domain.deck.DocumentDeckBuilder.SourcedCard
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
+import com.ankistudio.domain.planner.AnkiCardSnapshot
 import com.ankistudio.domain.planner.AnkiStudyPlan
 import com.ankistudio.domain.planner.AnkiStudyPlannerEngine
+import com.ankistudio.domain.planner.DeckMasteryProgress
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedAnswerEvaluation
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedUnderstandingVerdict
@@ -39,10 +41,20 @@ data class AnkiStudioUiState(
     val activeTab: String = "study", // "study" | "curriculum" | "create" | "store" | "stats"
     val selectedDeckId: Long? = null,
     val decks: List<DeckEntity> = emptyList(),
+    val allDeckCards: List<DueReviewCardRow> = emptyList(),
     val rawDueCards: List<DueReviewCardRow> = emptyList(),
     val dueCards: List<DueReviewCardRow> = emptyList(),
     val studyFilterMode: String = "all", // "all" | "wrong_only" | "marked_only"
     val questionTypeFilter: String = "all", // "all" | "vocab" | "grammar" | "hanja" | "history_sci"
+    val stageFilter: String = "all", // "all" | "lv1" | "lv2" | "lv3" | "lv4"
+    val deckProgress: DeckMasteryProgress? = null,
+    val isDeckExplorerOpen: Boolean = false,
+    val explorerQuery: String = "",
+    val explorerBucketFilter: String = "all",
+    val explorerStageFilter: String = "all",
+    val todayCompletedCount: Int = 0,
+    val todayCompletedByDeck: Map<Long?, Int> = emptyMap(),
+    val newStudiedTodayByDeck: Map<Long?, Int> = emptyMap(),
     val sessionWrongCards: List<DueReviewCardRow> = emptyList(),
     val markedCardIds: Set<Long> = emptySet(),
     val buriedCardIds: Set<Long> = emptySet(),
@@ -157,6 +169,27 @@ class AnkiStudioViewModel(
         refreshWorkspace(deckId = deckId)
     }
 
+    fun toAnkiCardSnapshot(row: DueReviewCardRow): AnkiCardSnapshot {
+        val tagsList = row.tagsCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val cleanTarget = AdaptiveQuizEngine.extractCleanTargetAnswer(row.front, row.back)
+        return AnkiCardSnapshot(
+            cardId = row.cardId.toString(),
+            noteId = row.noteId.toString(),
+            state = row.state,
+            stability = row.stability,
+            difficulty = row.difficulty,
+            reps = row.reps,
+            lapses = row.lapses,
+            dueDays = row.scheduledDays.toInt(),
+            suspended = row.queue < 0 || row.state.equals("suspended", ignoreCase = true),
+            tags = tagsList,
+            frontText = row.front,
+            backText = row.back,
+            targetAnswer = cleanTarget.first,
+            extraExplanation = cleanTarget.second,
+        )
+    }
+
     private fun resolveEffectiveDueCards(
         rawDue: List<DueReviewCardRow>,
         filterMode: String,
@@ -164,7 +197,8 @@ class AnkiStudioViewModel(
         markedIds: Set<Long>,
         buriedIds: Set<Long>,
         interleavedShuffle: Boolean = true,
-        questionTypeFilter: String = _uiState.value.questionTypeFilter
+        questionTypeFilter: String = _uiState.value.questionTypeFilter,
+        stageFilter: String = _uiState.value.stageFilter,
     ): List<DueReviewCardRow> {
         val visibleRaw = rawDue.filter { it.cardId !in buriedIds }
         val combinedPool = buildList {
@@ -196,14 +230,21 @@ class AnkiStudioViewModel(
         } else {
             statusFiltered
         }
-        val interleaved = if (interleavedShuffle && baseFiltered.size > 2) {
-            AdaptiveQuizEngine.interleaveStudyQueue(
-                items = baseFiltered,
-                bucketSelector = { "${it.deckId}:${it.noteType}:${it.noteId % 4}" },
-                seed = (baseFiltered.size * 31) xor (baseFiltered.firstOrNull()?.cardId?.toInt() ?: 17)
-            )
+        val stageFiltered = if (stageFilter != "all" && stageFilter.isNotBlank()) {
+            baseFiltered.filter {
+                AnkiStudyPlannerEngine.classifyCardStage(toAnkiCardSnapshot(it)) == stageFilter
+            }
         } else {
             baseFiltered
+        }
+        val interleaved = if (interleavedShuffle && stageFiltered.size > 2) {
+            AdaptiveQuizEngine.interleaveStudyQueue(
+                items = stageFiltered,
+                bucketSelector = { "${it.deckId}:${it.noteType}:${it.noteId % 4}" },
+                seed = (stageFiltered.size * 31) xor (stageFiltered.firstOrNull()?.cardId?.toInt() ?: 17)
+            )
+        } else {
+            stageFiltered
         }
         val deduped = if (filterMode != "wrong_only" && interleaved.size > 1) {
             AdaptiveQuizEngine.deduplicateSessionSiblings(
@@ -462,6 +503,78 @@ class AnkiStudioViewModel(
         }
     }
 
+    fun setStageFilter(stage: String) {
+        val cleanStage = if (stage in setOf("all", "lv1", "lv2", "lv3", "lv4")) stage else "all"
+        _uiState.update { st ->
+            val filtered = resolveEffectiveDueCards(
+                rawDue = st.rawDueCards,
+                filterMode = st.studyFilterMode,
+                sessionWrong = st.sessionWrongCards,
+                markedIds = st.markedCardIds,
+                buriedIds = st.buriedCardIds,
+                interleavedShuffle = st.isInterleavedShuffleEnabled,
+                questionTypeFilter = st.questionTypeFilter,
+                stageFilter = cleanStage
+            )
+            val label = AnkiStudyPlannerEngine.STAGE_LABELS[cleanStage] ?: "전체 단계(Lv.1~Lv.4)"
+            st.copy(
+                stageFilter = cleanStage,
+                dueCards = filtered,
+                isAnswerRevealed = false,
+                typedAnswerInput = "",
+                typedEvaluation = null,
+                recommendedRating = null,
+                selectedQuizOption = null,
+                hintStep = 0,
+                hintText = null,
+                quizOptions = buildQuizOptionsForCurrentCard(filtered, st.rawDueCards),
+                statusBannerMessage = "🪜 $label 단계 카드만 집중 학습합니다 (${filtered.size}장)",
+                isErrorBanner = false
+            )
+        }
+    }
+
+    fun toggleDeckExplorer(open: Boolean? = null) {
+        _uiState.update { st ->
+            st.copy(isDeckExplorerOpen = open ?: !st.isDeckExplorerOpen)
+        }
+    }
+
+    fun updateExplorerQuery(query: String) {
+        _uiState.update { it.copy(explorerQuery = query) }
+    }
+
+    fun setExplorerBucketFilter(bucket: String) {
+        _uiState.update { it.copy(explorerBucketFilter = bucket, isDeckExplorerOpen = true) }
+    }
+
+    fun setExplorerStageFilter(stage: String) {
+        _uiState.update { it.copy(explorerStageFilter = stage, isDeckExplorerOpen = true) }
+    }
+
+    fun jumpToCardFromExplorer(cardId: Long) {
+        _uiState.update { st ->
+            val target = st.allDeckCards.firstOrNull { it.cardId == cardId }
+                ?: st.rawDueCards.firstOrNull { it.cardId == cardId }
+                ?: return@update st
+            val reordered = listOf(target) + st.dueCards.filterNot { it.cardId == cardId }
+            st.copy(
+                dueCards = reordered,
+                isDeckExplorerOpen = false,
+                isAnswerRevealed = false,
+                typedAnswerInput = "",
+                typedEvaluation = null,
+                recommendedRating = null,
+                selectedQuizOption = null,
+                hintStep = 0,
+                hintText = null,
+                quizOptions = buildQuizOptionsForCurrentCard(reordered, st.rawDueCards),
+                statusBannerMessage = "🎯 선택한 카드(#$cardId)로 바로 이동했습니다.",
+                isErrorBanner = false
+            )
+        }
+    }
+
     fun startWrongOnlyRetrySession() {
         setStudyFilterMode("wrong_only")
         _uiState.update {
@@ -654,10 +767,15 @@ class AnkiStudioViewModel(
                 }
             }
             val rawDue = dao.getDueCards(nowEpochSec = nowSec, deckId = deckId)
+            val allCards = dao.getAllCards(deckId = deckId)
+            val startOfTodaySec = (nowSec / 86400L) * 86400L
+            val dbTotalReviewsToday = dao.countTotalReviewsToday(startOfDaySec = startOfTodaySec, deckId = deckId)
+            val dbNewStudiedToday = dao.countDistinctNewStudiedToday(startOfDaySec = startOfTodaySec, deckId = deckId)
             _uiState.update { st ->
-                val totalCards = rawDue.size.coerceAtLeast(1)
-                val newCount = rawDue.count { it.state.equals("new", ignoreCase = true) }
-                val learnCount = rawDue.count { it.state.equals("learning", ignoreCase = true) || it.state.equals("relearning", ignoreCase = true) }
+                val fullPool = if (allCards.isNotEmpty()) allCards else rawDue
+                val totalCards = fullPool.size.coerceAtLeast(1)
+                val newCount = fullPool.count { it.state.equals("new", ignoreCase = true) }
+                val learnCount = fullPool.count { it.state.equals("learning", ignoreCase = true) || it.state.equals("relearning", ignoreCase = true) }
                 val revCount = rawDue.count { it.state.equals("review", ignoreCase = true) }
                 val plan = AnkiStudyPlannerEngine.computeStudyPlan(
                     totalCards = totalCards,
@@ -666,21 +784,43 @@ class AnkiStudioViewModel(
                     reviewDueCount = revCount,
                     targetDays = st.targetDays
                 )
+                val deckTodayCompleted = max(dbTotalReviewsToday, st.todayCompletedByDeck[deckId] ?: 0)
+                val deckNewStudiedToday = max(dbNewStudiedToday, st.newStudiedTodayByDeck[deckId] ?: 0)
+                val deckReviewsStudiedToday = max(0, deckTodayCompleted - deckNewStudiedToday)
                 val filtered = resolveEffectiveDueCards(
                     rawDue = rawDue,
                     filterMode = st.studyFilterMode,
                     sessionWrong = st.sessionWrongCards,
                     markedIds = st.markedCardIds,
                     buriedIds = st.buriedCardIds,
-                    interleavedShuffle = st.isInterleavedShuffleEnabled
+                    interleavedShuffle = st.isInterleavedShuffleEnabled,
+                    questionTypeFilter = st.questionTypeFilter,
+                    stageFilter = st.stageFilter
                 )
-                val quizOpts = buildQuizOptionsForCurrentCard(filtered, rawDue)
+                val snapshots = fullPool.map { toAnkiCardSnapshot(it) }
+                val deckProg = AnkiStudyPlannerEngine.computeDeckMasteryProgress(
+                    cards = snapshots,
+                    dailyTarget = st.dailyNewLimit,
+                    todayCompleted = deckTodayCompleted,
+                    remainingQueueCount = filtered.size,
+                    avgSecondsPerCard = 14.0,
+                    newStudiedToday = deckNewStudiedToday,
+                    reviewsStudiedToday = deckReviewsStudiedToday,
+                    dueReviewCount = revCount
+                )
+                val quizOpts = buildQuizOptionsForCurrentCard(filtered, fullPool)
                 st.copy(
                     selectedDeckId = deckId,
                     decks = decks,
+                    allDeckCards = fullPool,
                     rawDueCards = rawDue,
                     dueCards = filtered,
                     studyPlan = plan,
+                    deckProgress = deckProg,
+                    todayCompletedCount = deckTodayCompleted,
+                    newStudiedToday = deckNewStudiedToday,
+                    todayCompletedByDeck = st.todayCompletedByDeck + (deckId to deckTodayCompleted),
+                    newStudiedTodayByDeck = st.newStudiedTodayByDeck + (deckId to deckNewStudiedToday),
                     isAnswerRevealed = false,
                     typedAnswerInput = "",
                     typedEvaluation = null,
@@ -719,10 +859,15 @@ class AnkiStudioViewModel(
         }
         viewModelScope.launch {
             dao.updateCard(snapshot)
+            dao.deleteLatestRevlogForCard(snapshot.id)
             lastUndoSnapshot = null
             _uiState.update {
+                val curDeckId = it.selectedDeckId
+                val nextCompleted = max(0, (it.todayCompletedByDeck[curDeckId] ?: it.todayCompletedCount) - 1)
                 it.copy(
                     canUndoLastReview = false,
+                    todayCompletedCount = nextCompleted,
+                    todayCompletedByDeck = it.todayCompletedByDeck + (curDeckId to nextCompleted),
                     statusBannerMessage = "↩️ 방금 평가를 취소했습니다.",
                     isErrorBanner = false
                 )
@@ -741,6 +886,11 @@ class AnkiStudioViewModel(
                 it.copy(
                     studyFilterMode = "all",
                     questionTypeFilter = "all",
+                    stageFilter = "all",
+                    todayCompletedCount = 0,
+                    newStudiedToday = 0,
+                    todayCompletedByDeck = if (targetDeckId == null) emptyMap() else (it.todayCompletedByDeck + (targetDeckId to 0)),
+                    newStudiedTodayByDeck = if (targetDeckId == null) emptyMap() else (it.newStudiedTodayByDeck + (targetDeckId to 0)),
                     sessionWrongCards = emptyList(),
                     markedCardIds = emptySet(),
                     buriedCardIds = emptySet(),
@@ -1351,9 +1501,15 @@ class AnkiStudioViewModel(
                     else -> st.sessionWrongCards
                 }
                 val incNewToday = if (currentCard.state.equals("new", ignoreCase = true)) 1 else 0
+                val curDeckId = st.selectedDeckId
+                val nextDeckCompleted = (st.todayCompletedByDeck[curDeckId] ?: st.todayCompletedCount) + 1
+                val nextDeckNew = (st.newStudiedTodayByDeck[curDeckId] ?: st.newStudiedToday) + incNewToday
                 st.copy(
                     sessionWrongCards = updatedWrong,
-                    newStudiedToday = st.newStudiedToday + incNewToday,
+                    newStudiedToday = nextDeckNew,
+                    todayCompletedCount = nextDeckCompleted,
+                    todayCompletedByDeck = st.todayCompletedByDeck + (curDeckId to nextDeckCompleted),
+                    newStudiedTodayByDeck = st.newStudiedTodayByDeck + (curDeckId to nextDeckNew),
                     statusBannerMessage = null,
                     isErrorBanner = false
                 )

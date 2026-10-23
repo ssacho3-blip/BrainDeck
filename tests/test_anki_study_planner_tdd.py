@@ -628,3 +628,291 @@ def test_v59_always_visible_planner_ui_and_standalone_subject_purity() -> None:
     assert "V59_STANDALONE_OK" in proc.stdout
 
 
+# ============================================================================
+# 9. IMPL-V61 TDD/BDD/DDT: Multi-Dimensional Progress, Mastery & Card Explorer
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    "num,den,expected_tenths,expected_pct",
+    [
+        (0, 0, 0, 0.0),
+        (0, 1000, 0, 0.0),
+        (-5, 1000, 0, 0.0),
+        (1, 1000, 1, 0.1),
+        (1, 5000, 1, 0.1),  # non-zero progress never collapses to 0.0%
+        (180, 1050, 171, 17.1),
+        (12, 30, 400, 40.0),
+        (500, 1000, 500, 50.0),
+        (999, 1000, 999, 99.9),  # never rounds to 100.0% prematurely
+        (4999, 5000, 999, 99.9),  # never rounds to 100.0% prematurely
+        (1000, 1000, 1000, 100.0),
+        (1050, 1000, 1000, 100.0),
+    ],
+)
+def test_v61_compute_percent_tenths_12_boundary_ddt_cases(
+    num: int, den: int, expected_tenths: int, expected_pct: float
+) -> None:
+    from anki_studio.domain.anki_study_planner import compute_percent_tenths
+
+    tenths = compute_percent_tenths(num, den)
+    assert tenths == expected_tenths
+    assert round(tenths / 10.0, 1) == expected_pct
+
+
+def test_v61_compute_deck_mastery_progress_invariants_and_stage_breakdown() -> None:
+    from anki_studio.domain.anki_study_planner import (
+        compute_deck_mastery_progress,
+        filter_cards_for_explorer,
+    )
+
+    # Build a 1,000-card deck + 10 suspended cards (total=1,010, active=1,000)
+    # 700 unseen, 100 learning, 100 young, 100 mature -> touched = 300 (30.0%)
+    # Weighted mastery = (100*0.25 + 100*0.65 + 100*1.0) / 1000 = 190 / 1000 = 19.0%
+    cards = []
+    for i in range(700):
+        st_tag = "lv1" if i < 350 else "lv2"
+        cards.append({"card_id": f"u_{i}", "state": "new", "s": 0.0, "reps": 0, "tags": [st_tag], "front_text": f"Unseen {i}", "back_text": f"Ans {i}"})
+    for i in range(100):
+        cards.append({"card_id": f"l_{i}", "state": "learning", "s": 0.5, "reps": 1, "tags": ["lv1"], "front_text": f"Learn {i}", "back_text": f"Ans {i}"})
+    for i in range(100):
+        cards.append({"card_id": f"y_{i}", "state": "review", "s": 7.0, "reps": 3, "tags": ["lv3"], "front_text": f"Young {i}", "back_text": f"Ans {i}"})
+    for i in range(100):
+        cards.append({"card_id": f"m_{i}", "state": "review", "s": 30.0, "reps": 6, "tags": ["lv4"], "front_text": f"Mature {i}", "back_text": f"Ans {i}"})
+    for i in range(10):
+        cards.append({"card_id": f"s_{i}", "state": "suspended", "s": 10.0, "reps": 2, "suspended": True, "tags": ["suspended"]})
+
+    prog = compute_deck_mastery_progress(
+        cards,
+        daily_target=30,
+        today_completed=12,
+        remaining_queue_count=18,
+        avg_seconds_per_card=12.0,
+    )
+    assert prog["total_cards"] == 1010
+    assert prog["active_cards"] == 1000
+    assert prog["suspended_cards"] == 10
+    assert prog["touched_cards"] == 300
+    assert prog["coverage_pct"] == 30.0
+    assert prog["mastery_pct"] == 19.0
+    assert prog["mature_pct"] == 10.0
+    b = prog["buckets"]
+    assert b["unseen"] + b["learning"] + b["young"] + b["mature"] == prog["active_cards"]
+    assert b == {"unseen": 700, "learning": 100, "young": 100, "mature": 100, "suspended": 10}
+
+    # Today's progress: 12 / 30 = 40.0%, ordinal = 13 (fixes #1/30 -> #1/29 reset bug!)
+    t = prog["today"]
+    assert t["completed_count"] == 12
+    assert t["target_count"] == 30
+    assert t["remaining_count"] == 18
+    assert t["percent"] == 40.0
+    assert t["current_card_ordinal"] == 13
+
+    # Milestone: at 30.0%, current=25%, next=50% (500 cards -> 200 cards to next)
+    assert prog["milestone"]["current_pct"] == 25
+    assert prog["milestone"]["next_pct"] == 50
+    assert prog["milestone"]["cards_to_next"] == 200
+
+    # Stage breakdown
+    assert prog["by_stage"]["lv1"]["total"] == 450
+    assert prog["by_stage"]["lv1"]["touched"] == 100
+    assert prog["by_stage"]["lv4"]["total"] == 100
+    assert prog["by_stage"]["lv4"]["mature"] == 100
+    assert prog["by_stage"]["lv4"]["coverage_pct"] == 100.0
+    assert prog["by_stage"]["lv4"]["mastery_pct"] == 100.0
+
+    # Explorer filter
+    exp_mature = filter_cards_for_explorer(cards, query="Mature 42", bucket_filter="mature", stage_filter="lv4")
+    assert exp_mature["matched_count"] == 1
+    assert exp_mature["cards"][0]["card_id"] == "m_42"
+
+
+def test_v61_service_and_js_parity_advancing_ordinal_and_deck_explorer() -> None:
+    """Verify SQLite service and standalone JS engine compute identical progress & advance card ordinal on review."""
+    import json
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = AnkiStudioService(db_path=Path(tmpdir) / "v61_prog.sqlite3", seed_defaults=True)
+        mounted = svc.generate_collection_deck(
+            collection_id="moe-eng:middle-1200",
+            limit=1050,
+            difficulty_level="mixed",
+        )
+        deck_id = mounted["deck_id"]
+        svc.apply_anki_study_plan(deck_id=deck_id, target_days=30, daily_new_limit=30)
+
+        due0 = svc.get_due_cards(deck_id=deck_id)
+        dp0 = due0["deck_progress"]
+        assert dp0["total_cards"] >= 1050
+        assert dp0["coverage_pct"] == 0.0
+        assert dp0["today"]["completed_count"] == 0
+        assert dp0["today"]["target_count"] == 30
+        assert dp0["today"]["current_card_ordinal"] == 1
+
+        # Review 1 card -> coverage_pct becomes 0.1%, today completed=1, current_card_ordinal=2 (NOT #1!)
+        svc.submit_review(card_id=due0["cards"][0]["id"], rating=3)
+        due1 = svc.get_due_cards(deck_id=deck_id)
+        dp1 = due1["deck_progress"]
+        assert dp1["touched_cards"] == 1
+        assert dp1["coverage_pct"] == 0.1
+        assert dp1["today"]["completed_count"] == 1
+        assert dp1["today"]["remaining_count"] == 29
+        assert dp1["today"]["current_card_ordinal"] == 2
+        assert dp1["today"]["percent"] == 3.3
+
+        # Deck Explorer API
+        exp = svc.explore_deck_cards(deck_id=deck_id, bucket="learning", limit=10)
+        assert exp["ok"] is True
+
+    root_dir = Path(__file__).resolve().parents[1]
+    static_vm = root_dir / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    docs_vm = root_dir / "docs" / "viewmodel.js"
+    assert static_vm.read_bytes() == docs_vm.read_bytes()
+
+    script = f"""
+    const vm = require({json.dumps(str(static_vm))});
+    if (vm.computePercentTenths(999, 1000) !== 999) throw new Error("999/1000 must be 999 tenths (99.9%)");
+    if (vm.computePercentTenths(1, 1000) !== 1) throw new Error("1/1000 must be 1 tenth (0.1%)");
+    if (vm.computePercentTenths(180, 1050) !== 171) throw new Error("180/1050 must be 171 tenths (17.1%)");
+
+    const eng = vm.createStandaloneEngine();
+    const built = eng.buildCollectionDeck({{ collection_id: "moe-eng:middle-1200", limit: 1020 }});
+    const deckId = built.deck_id;
+    eng.applyStudyPlan({{ deck_id: deckId, target_days: 30, new_per_day: 30 }});
+    const d0 = eng.getDueCards({{ deck_id: deckId, respect_plan: true }});
+    if (!d0.deck_progress || d0.deck_progress.today.current_card_ordinal !== 1) {{
+      throw new Error("Initial ordinal must be 1");
+    }}
+    eng.submitReview({{ card_id: d0.cards[0].card_id, rating: 3 }});
+    const d1 = eng.getDueCards({{ deck_id: deckId, respect_plan: true }});
+    if (d1.deck_progress.today.completed_count !== 1 || d1.deck_progress.today.current_card_ordinal !== 2) {{
+      throw new Error("After 1 review, ordinal must advance to 2, got " + JSON.stringify(d1.deck_progress.today));
+    }}
+    if (d1.deck_progress.touched_cards !== 1 || d1.deck_progress.coverage_pct !== 0.1) {{
+      throw new Error("After 1 review on 1020 deck, coverage_pct must be 0.1%, got " + d1.deck_progress.coverage_pct);
+    }}
+    const exp = eng.exploreDeckCards({{ deck_id: deckId, bucket: "young", limit: 10 }});
+    if (!exp.ok || exp.matched_count !== 1) {{
+      throw new Error("Expected 1 young card in explorer after Good review, got " + JSON.stringify(exp));
+    }}
+    console.log("V61_PARITY_OK");
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert "V61_PARITY_OK" in proc.stdout
+
+
+def test_v61_ui_dom_stage_filter_http_explorer_and_ordinal_string_contract() -> None:
+    """Verify 1,050-card fixture, milestone ETA, advancing ordinal string, stage filter, and Web/Android UI DOM contracts."""
+    from anki_studio.domain.anki_study_planner import compute_deck_mastery_progress
+
+    # 1,050-card fixture: 870 unseen + 60 learning + 60 young + 60 mature = 180 touched (17.1%)
+    # Today: 12 / 30 completed (40.0%) -> current_card_ordinal = 13
+    cards_1050 = (
+        [{"card_id": f"u_{i}", "state": "new", "s": 0.0, "reps": 0, "tags": ["lv1"]} for i in range(870)]
+        + [{"card_id": f"l_{i}", "state": "learning", "s": 0.5, "reps": 1, "tags": ["lv2"]} for i in range(60)]
+        + [{"card_id": f"y_{i}", "state": "review", "s": 8.0, "reps": 2, "tags": ["lv3"]} for i in range(60)]
+        + [{"card_id": f"m_{i}", "state": "review", "s": 28.0, "reps": 5, "tags": ["lv4"]} for i in range(60)]
+    )
+    prog_1050 = compute_deck_mastery_progress(
+        cards_1050,
+        daily_target=30,
+        today_completed=12,
+        remaining_queue_count=18,
+    )
+    assert prog_1050["active_cards"] == 1050
+    assert prog_1050["touched_cards"] == 180
+    assert prog_1050["coverage_pct"] == 17.1
+    assert prog_1050["today"]["completed_count"] == 12
+    assert prog_1050["today"]["target_count"] == 30
+    assert prog_1050["today"]["percent"] == 40.0
+    assert prog_1050["today"]["current_card_ordinal"] == 13
+    # Milestone on 1050 cards: 10% (105 cards) achieved, next=25% (ceil(1050*0.25)=263 cards) -> cards_to_next=83, days_to_next=3, eta_full_coverage_days=29
+    assert prog_1050["milestone"]["current_pct"] == 10
+    assert prog_1050["milestone"]["next_pct"] == 25
+    assert prog_1050["milestone"]["cards_to_next"] == 83
+    assert prog_1050["milestone"]["days_to_next"] == 3
+    assert prog_1050["milestone"]["eta_full_coverage_days"] == 29
+
+    ordinal_header_line = (
+        f"오늘 {prog_1050['today']['current_card_ordinal']}/{prog_1050['today']['target_count']}번째 "
+        f"({prog_1050['today']['percent']:.1f}%) · 전체 진도 {prog_1050['coverage_pct']:.1f}% "
+        f"({prog_1050['touched_cards']}/{prog_1050['active_cards']:,}장)"
+    )
+    assert ordinal_header_line == "오늘 13/30번째 (40.0%) · 전체 진도 17.1% (180/1,050장)"
+
+    # Verify Web/PWA HTML, app.js, and Android MainActivity.kt UI contracts
+    root_dir = Path(__file__).resolve().parents[1]
+    static_html = (root_dir / "src" / "anki_studio" / "ui" / "static" / "index.html").read_text(encoding="utf-8")
+    docs_html = (root_dir / "docs" / "index.html").read_text(encoding="utf-8")
+    static_app = (root_dir / "src" / "anki_studio" / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+    docs_app = (root_dir / "docs" / "app.js").read_text(encoding="utf-8")
+    android_main = (
+        root_dir / "android-app" / "app" / "src" / "main" / "java" / "com" / "ankistudio" / "app" / "ui" / "MainActivity.kt"
+    ).read_text(encoding="utf-8")
+    android_engine = (
+        root_dir / "android-app" / "domain" / "src" / "main" / "kotlin" / "com" / "ankistudio" / "domain" / "planner" / "AnkiStudyPlannerEngine.kt"
+    ).read_text(encoding="utf-8")
+
+    assert static_html == docs_html
+    assert static_app == docs_app
+    assert "bd-deck-progress-dashboard" in static_html
+    for token in (
+        "bd-today-progress-label",
+        "bd-today-progress-fill",
+        "bd-deck-coverage-label",
+        "bd-deck-mastery-label",
+        "bd-deck-milestone-label",
+        "bd-bar-mature",
+        "bd-bar-young",
+        "bd-bar-learning",
+        "bd-bar-unseen",
+        "bd-stage-btn",
+        "deck-card-explorer-panel",
+    ):
+        assert token in static_html
+        assert token in static_app
+
+    assert "[진도 " in static_app and "마스터 " in static_app
+    assert "🎯 오늘 목표:" in android_main
+    assert "📊 전체 진도율" in android_main
+    assert "4-Color Stacked Maturity Bar" in android_main
+    assert "🔍 전체 카드 진도표·검색" in android_main
+    assert "🪜 전체 단계" in android_main
+    assert "fun computePercentTenths" in android_engine
+    assert "fun computeDeckMasteryProgress" in android_engine
+    assert "fun filterCardsForExplorer" in android_engine
+
+    # Reviewer A parity probes: reps=0 is unseen, rating Again keeps target=30, review-only deck is ACTIVE, diff=3.7 is lv1
+    from anki_studio.domain.anki_study_planner import classify_card_maturity_bucket, classify_card_stage
+
+    assert classify_card_maturity_bucket({"state": "review", "reps": 0, "s": 30.0}) == "unseen"
+    assert classify_card_stage({"d": 3.7}) == "lv1"
+    assert classify_card_stage({"d": 4.5, "lapses": 3}) == "lv4"
+
+    # Rating Again (1) on a 1,050-card deck keeps target=30 and remaining=29 (no 30->31 target drift)
+    cards_after_again = [{"card_id": "c0", "state": "relearning", "s": 0.4, "reps": 1}] + [
+        {"card_id": f"c_{i}", "state": "new", "s": 1.2, "reps": 0} for i in range(1, 1050)
+    ]
+    prog_again = compute_deck_mastery_progress(
+        cards_after_again,
+        {"daily_new_limit": 30, "new_studied_today": 1, "reviews_studied_today": 0},
+    )
+    assert prog_again["today"]["target_count"] == 30
+    assert prog_again["today"]["completed_count"] == 1
+    assert prog_again["today"]["remaining_count"] == 29
+
+    # Review-only deck (0 unseen, 100 young) never reports NO_PLAN when daily_new_limit=30
+    rev_only_cards = [{"card_id": f"r_{i}", "state": "review", "s": 10.0, "reps": 3} for i in range(100)]
+    prog_rev_only = compute_deck_mastery_progress(
+        rev_only_cards,
+        {"daily_new_limit": 30, "new_studied_today": 0, "reviews_studied_today": 0},
+    )
+    assert prog_rev_only["today"]["status"] == "ACTIVE"
+    assert prog_rev_only["today"]["target_count"] == 30
+    assert prog_rev_only["today"]["remaining_count"] == 30
+
+
+
+
+

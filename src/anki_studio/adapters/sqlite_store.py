@@ -463,6 +463,10 @@ class AnkiStudioStore:
                     COUNT(CASE WHEN c.state != 'suspended' THEN c.card_id END) AS total_cards,
                     SUM(CASE WHEN c.state != 'suspended' AND c.due_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                     SUM(CASE WHEN c.state = 'new' THEN 1 ELSE 0 END) AS new_cards,
+                    SUM(CASE WHEN c.state = 'new' AND COALESCE(c.reps, 0) <= 0 THEN 1 ELSE 0 END) AS unseen_cards,
+                    SUM(CASE WHEN c.state != 'suspended' AND (c.state IN ('learning', 'relearning') OR ( (c.state != 'new' OR COALESCE(c.reps, 0) > 0) AND COALESCE(c.stability, 0.0) < 1.0 )) THEN 1 ELSE 0 END) AS learning_cards,
+                    SUM(CASE WHEN c.state != 'suspended' AND c.state NOT IN ('new', 'learning', 'relearning') AND COALESCE(c.stability, 0.0) >= 1.0 AND COALESCE(c.stability, 0.0) < 21.0 THEN 1 ELSE 0 END) AS young_cards,
+                    SUM(CASE WHEN c.state != 'suspended' AND c.state NOT IN ('new', 'learning', 'relearning') AND COALESCE(c.stability, 0.0) >= 21.0 THEN 1 ELSE 0 END) AS mature_cards,
                     SUM(CASE WHEN c.state != 'suspended' AND c.lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
                     COALESCE(AVG(CASE WHEN c.state != 'suspended' AND c.stability > 0 THEN c.stability END), 0.0) AS avg_stability,
                     (
@@ -486,6 +490,25 @@ class AnkiStudioStore:
                 n_studied = int(r["new_studied_today"] or 0)
                 n_remaining_deck = int(r["new_cards"] or 0)
                 rem_today = min(n_remaining_deck, max(0, d_new_lim - n_studied))
+                tot_c = int(r["total_cards"] or 0)
+                unseen_c = int(r["unseen_cards"] or 0)
+                learn_c = int(r["learning_cards"] or 0)
+                young_c = int(r["young_cards"] or 0)
+                mature_c = int(r["mature_cards"] or 0)
+                touched_c = max(0, tot_c - unseen_c)
+                if tot_c <= 0 or touched_c <= 0:
+                    cov_tenths = 0
+                elif touched_c >= tot_c:
+                    cov_tenths = 1000
+                else:
+                    cov_tenths = max(1, min(999, (touched_c * 1000 + (tot_c // 2)) // tot_c))
+                w_pts = learn_c * 250 + young_c * 650 + mature_c * 1000
+                if tot_c <= 0 or w_pts <= 0:
+                    mast_tenths = 0
+                elif mature_c == tot_c:
+                    mast_tenths = 1000
+                else:
+                    mast_tenths = max(1, min(999, (w_pts + (tot_c // 2)) // tot_c))
                 out.append(
                     {
                         "id": int(r["deck_id"]),
@@ -499,9 +522,16 @@ class AnkiStudioStore:
                         "plan_applied": bool(int(r["plan_applied"] or 0)),
                         "new_studied_today": n_studied,
                         "remaining_new_today": rem_today,
-                        "total_cards": int(r["total_cards"] or 0),
+                        "total_cards": tot_c,
                         "due_cards": int(r["due_cards"] or 0),
                         "new_cards": n_remaining_deck,
+                        "unseen_cards": unseen_c,
+                        "learning_cards": learn_c,
+                        "young_cards": young_c,
+                        "mature_cards": mature_c,
+                        "touched_cards": touched_c,
+                        "coverage_pct": round(cov_tenths / 10.0, 1),
+                        "mastery_pct": round(mast_tenths / 10.0, 1),
                         "leech_cards": int(r["leech_cards"] or 0),
                         "avg_stability": round(float(r["avg_stability"] or 0.0), 2),
                     }

@@ -144,7 +144,8 @@ data class DueReviewCardRow(
     val lastReviewEpochSec: Long?,
     val reps: Int,
     val lapses: Int,
-    val scheduledDays: Double
+    val scheduledDays: Double,
+    val tagsCsv: String = ""
 )
 
 @Dao
@@ -178,8 +179,8 @@ interface AnkiStudioDao {
             queue = 0,
             quizStage = 0,
             consecutiveSuccesses = 0,
-            stability = 1.2,
-            difficulty = 5.0,
+            stability = 0.0,
+            difficulty = 0.0,
             dueEpochSec = :nowEpochSec,
             lastReviewEpochSec = NULL,
             reps = 0,
@@ -188,7 +189,52 @@ interface AnkiStudioDao {
         WHERE (:deckId IS NULL OR deckId = :deckId)
         """
     )
-    suspend fun resetCardsProgress(nowEpochSec: Long, deckId: Long? = null): Int
+    suspend fun resetCardsTable(nowEpochSec: Long, deckId: Long? = null): Int
+
+    @Query(
+        """
+        DELETE FROM revlog
+        WHERE (:deckId IS NULL OR cardId IN (SELECT id FROM cards WHERE deckId = :deckId))
+        """
+    )
+    suspend fun deleteRevlogsForDeck(deckId: Long? = null)
+
+    @Transaction
+    suspend fun resetCardsProgress(nowEpochSec: Long, deckId: Long? = null): Int {
+        deleteRevlogsForDeck(deckId)
+        return resetCardsTable(nowEpochSec, deckId)
+    }
+
+    @Query(
+        """
+        DELETE FROM revlog
+        WHERE id = (SELECT MAX(id) FROM revlog WHERE cardId = :cardId)
+        """
+    )
+    suspend fun deleteLatestRevlogForCard(cardId: Long)
+
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM revlog r
+        INNER JOIN cards c ON c.id = r.cardId
+        WHERE r.reviewedAtEpochSec >= :startOfDaySec
+          AND (:deckId IS NULL OR c.deckId = :deckId)
+        """
+    )
+    suspend fun countTotalReviewsToday(startOfDaySec: Long, deckId: Long? = null): Int
+
+    @Query(
+        """
+        SELECT COUNT(DISTINCT r.cardId)
+        FROM revlog r
+        INNER JOIN cards c ON c.id = r.cardId
+        WHERE r.reviewedAtEpochSec >= :startOfDaySec
+          AND LOWER(r.prevState) = 'new'
+          AND (:deckId IS NULL OR c.deckId = :deckId)
+        """
+    )
+    suspend fun countDistinctNewStudiedToday(startOfDaySec: Long, deckId: Long? = null): Int
 
     @Transaction
     suspend fun recordCardReview(updatedCard: CardEntity, revlog: RevlogEntity) {
@@ -206,7 +252,8 @@ interface AnkiStudioDao {
                c.consecutiveSuccesses AS consecutiveSuccesses,
                c.stability AS stability, c.difficulty AS difficulty,
                c.dueEpochSec AS dueEpochSec, c.lastReviewEpochSec AS lastReviewEpochSec,
-               c.reps AS reps, c.lapses AS lapses, c.scheduledDays AS scheduledDays
+               c.reps AS reps, c.lapses AS lapses, c.scheduledDays AS scheduledDays,
+               n.tagsCsv AS tagsCsv
         FROM cards c
         INNER JOIN notes n ON n.id = c.noteId
         WHERE c.dueEpochSec <= :nowEpochSec
@@ -216,7 +263,28 @@ interface AnkiStudioDao {
         LIMIT :limit
         """
     )
-    suspend fun getDueCards(nowEpochSec: Long, deckId: Long? = null, limit: Int = 50): List<DueReviewCardRow>
+    suspend fun getDueCards(nowEpochSec: Long, deckId: Long? = null, limit: Int = 5000): List<DueReviewCardRow>
+
+    @Query(
+        """
+        SELECT c.id AS cardId, c.noteId AS noteId, c.deckId AS deckId, c.ord AS ord,
+               n.noteType AS noteType, n.front AS front, n.back AS back,
+               n.extraContext AS extraContext, n.sourceFilename AS sourceFilename,
+               n.sourcePage AS sourcePage, n.sourceExcerpt AS sourceExcerpt,
+               c.state AS state, c.queue AS queue, c.quizStage AS quizStage,
+               c.consecutiveSuccesses AS consecutiveSuccesses,
+               c.stability AS stability, c.difficulty AS difficulty,
+               c.dueEpochSec AS dueEpochSec, c.lastReviewEpochSec AS lastReviewEpochSec,
+               c.reps AS reps, c.lapses AS lapses, c.scheduledDays AS scheduledDays,
+               n.tagsCsv AS tagsCsv
+        FROM cards c
+        INNER JOIN notes n ON n.id = c.noteId
+        WHERE (:deckId IS NULL OR c.deckId = :deckId)
+        ORDER BY c.id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getAllCards(deckId: Long? = null, limit: Int = 5000): List<DueReviewCardRow>
 
     /**
      * Atomic single-transaction deck + study cards creation.

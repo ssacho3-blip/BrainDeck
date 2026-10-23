@@ -44,6 +44,8 @@ from anki_studio.domain.anki_study_planner import (
     build_anki_v3_daily_queue,
     build_custom_study_session,
     compute_anki_study_plan,
+    compute_deck_mastery_progress,
+    filter_cards_for_explorer,
 )
 from anki_studio.domain.document_deck_builder import build_deck_plan
 from anki_studio.domain.fsrs_math import Rating
@@ -224,11 +226,13 @@ class AnkiStudioService:
             new_review_mix_mode=str(new_review_mix or "mix"),
         )
         q_res = build_anki_v3_daily_queue(cards, options=options)
+        deck_progress = compute_deck_mastery_progress(cards, daily_quota=daily_quota)
         return {
             "ok": True,
             "deck_id": int(deck_id) if deck_id is not None else None,
             "plan": plan,
             "daily_quota": daily_quota,
+            "deck_progress": deck_progress,
             "queue_counts": q_res["counts"],
             "buried_sibling_ids": q_res["buried_sibling_ids"],
         }
@@ -339,12 +343,49 @@ class AnkiStudioService:
             daily_quota = self.store.get_deck_daily_quota_status(deck_id=deck_id)
         except Exception:
             daily_quota = None
+        all_deck_cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
+        deck_progress = compute_deck_mastery_progress(all_deck_cards, daily_quota=daily_quota)
         return {
             "ok": True,
             "count": len(cards),
             "shuffle_mode": shuffle_mode,
             "daily_quota": daily_quota,
+            "deck_progress": deck_progress,
             "cards": cards,
+        }
+
+    def explore_deck_cards(
+        self,
+        deck_id: Optional[int] = None,
+        query: str = "",
+        bucket_filter: str = "all",
+        stage_filter: str = "all",
+        limit: int = 200,
+        *,
+        bucket: Optional[str] = None,
+        stage: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Search and filter cards across a deck with full mastery/stage breakdown (AC-5)."""
+        eff_bucket = str(bucket if bucket is not None else (bucket_filter or "all"))
+        eff_stage = str(stage if stage is not None else (stage_filter or "all"))
+        cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
+        try:
+            daily_quota = self.store.get_deck_daily_quota_status(deck_id=deck_id)
+        except Exception:
+            daily_quota = None
+        deck_progress = compute_deck_mastery_progress(cards, daily_quota=daily_quota)
+        explorer_res = filter_cards_for_explorer(
+            cards,
+            query=str(query or ""),
+            bucket_filter=eff_bucket,
+            stage_filter=eff_stage,
+            limit=int(limit or 200),
+        )
+        return {
+            "ok": True,
+            "deck_id": int(deck_id) if deck_id is not None else None,
+            "deck_progress": deck_progress,
+            **explorer_res,
         }
 
     def suspend_card(self, card_id: int) -> Dict[str, Any]:
@@ -1932,6 +1973,19 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         days_ahead=int(body.get("days_ahead") or 3),
                         limit=int(body.get("limit") or 50),
                         extra_new=int(body.get("extra_new") or 10),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/deck/explorer":
+                    raw_deck = body.get("deck_id")
+                    deck_id = int(raw_deck) if raw_deck not in (None, "", "all") and str(raw_deck).isdigit() else None
+                    res = svc.explore_deck_cards(
+                        deck_id=deck_id,
+                        query=str(body.get("query") or ""),
+                        bucket_filter=str(body.get("bucket_filter") or body.get("bucket") or "all"),
+                        stage_filter=str(body.get("stage_filter") or body.get("stage") or "all"),
+                        limit=int(body.get("limit") or 200),
                     )
                     self._send_json(res)
                     return

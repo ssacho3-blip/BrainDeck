@@ -65,6 +65,76 @@ data class AnkiCardSnapshot(
     val suspended: Boolean = false,
     val lastRating: Int? = null,
     val tags: List<String> = emptyList(),
+    val frontText: String = "",
+    val backText: String = "",
+    val targetAnswer: String = "",
+    val extraExplanation: String = "",
+    val stage: String = "",
+)
+
+data class TodayProgressSummary(
+    val completedCount: Int,
+    val targetCount: Int,
+    val remainingCount: Int,
+    val overTargetCount: Int,
+    val percentTenths: Int,
+    val percent: Double,
+    val currentCardOrdinal: Int,
+    val estimatedRemainingMinutes: Double,
+)
+
+data class MaturityBuckets(
+    val unseen: Int,
+    val learning: Int,
+    val young: Int,
+    val mature: Int,
+    val suspended: Int,
+)
+
+data class MilestoneSummary(
+    val currentPct: Int,
+    val nextPct: Int,
+    val nextTargetCards: Int,
+    val cardsToNext: Int,
+    val daysToNext: Int,
+)
+
+data class StageProgressSummary(
+    val stage: String,
+    val label: String,
+    val total: Int,
+    val unseen: Int,
+    val learning: Int,
+    val young: Int,
+    val mature: Int,
+    val touched: Int,
+    val coveragePct: Double,
+    val masteryPct: Double,
+)
+
+data class DeckMasteryProgress(
+    val totalCards: Int,
+    val activeCards: Int,
+    val suspendedCards: Int,
+    val touchedCards: Int,
+    val coverageTenths: Int,
+    val coveragePct: Double,
+    val masteryTenths: Int,
+    val masteryPct: Double,
+    val matureTenths: Int,
+    val maturePct: Double,
+    val buckets: MaturityBuckets,
+    val today: TodayProgressSummary,
+    val milestone: MilestoneSummary,
+    val etaFullCoverageDays: Int,
+    val byStage: Map<String, StageProgressSummary>,
+)
+
+data class ExplorerFilterResult(
+    val totalCount: Int,
+    val matchedCount: Int,
+    val returnedCount: Int,
+    val cards: List<AnkiCardSnapshot>,
 )
 
 data class AnkiV3DailyQueueResult(
@@ -105,6 +175,282 @@ object AnkiStudyPlannerEngine {
         6 to "🩵 발음·듣기 체크 (Turquoise)",
         7 to "💜 심화·함정 변별 (Purple)",
     )
+
+    val STAGE_LABELS: Map<String, String> = mapOf(
+        "lv1" to "🌱 Lv.1 기초",
+        "lv2" to "📘 Lv.2 핵심",
+        "lv3" to "🔥 Lv.3 심화",
+        "lv4" to "👑 Lv.4 최고급",
+    )
+
+    val MILESTONE_STEPS: List<Int> = listOf(10, 25, 50, 75, 100)
+
+    fun computePercentTenths(numerator: Int, denominator: Int): Int {
+        if (numerator <= 0 || denominator <= 0) return 0
+        if (numerator >= denominator) return 1000
+        val tenths = (numerator * 1000 + (denominator / 2)) / denominator
+        return max(1, min(999, tenths))
+    }
+
+    fun classifyCardMaturityBucket(card: AnkiCardSnapshot): String {
+        val state = card.state.trim().lowercase()
+        val tagsLower = card.tags.map { it.trim().lowercase() }.toSet()
+        if (card.suspended || state == "suspended" || "suspended" in tagsLower) {
+            return "suspended"
+        }
+        if (state == "new" || card.reps <= 0) {
+            return "unseen"
+        }
+        if (state == "learning" || state == "relearning" || card.stability < 1.0) {
+            return "learning"
+        }
+        if (card.stability >= 21.0) {
+            return "mature"
+        }
+        return "young"
+    }
+
+    fun classifyCardStage(card: AnkiCardSnapshot): String {
+        val explicit = card.stage.trim().lowercase()
+        if (explicit in STAGE_LABELS.keys) return explicit
+        when (explicit) {
+            "basic", "beginner", "elementary", "1" -> return "lv1"
+            "core", "intermediate", "standard", "2" -> return "lv2"
+            "advanced", "high", "hard", "3" -> return "lv3"
+            "master", "expert", "top", "4" -> return "lv4"
+        }
+        for (rawTag in card.tags) {
+            val t = rawTag.trim().lowercase()
+            if (t == "lv1" || t == "diff_lv1" || t == "stage:lv1" || t == "level:1" || t.endsWith(":lv1") || "기초" in t || "초급" in t) return "lv1"
+            if (t == "lv2" || t == "diff_lv2" || t == "stage:lv2" || t == "level:2" || t.endsWith(":lv2") || "핵심" in t || "중급" in t) return "lv2"
+            if (t == "lv3" || t == "diff_lv3" || t == "stage:lv3" || t == "level:3" || t.endsWith(":lv3") || "심화" in t || "고급" in t) return "lv3"
+            if (t == "lv4" || t == "diff_lv4" || t == "stage:lv4" || t == "level:4" || t.endsWith(":lv4") || "최고급" in t || "킬러" in t) return "lv4"
+        }
+        val d = if (card.difficulty > 0.0) card.difficulty else 5.0
+        if (card.lapses >= 3 || d >= 7.5) return "lv4"
+        if (d < 4.0) return "lv1"
+        if (d < 6.0) return "lv2"
+        return "lv3"
+    }
+
+    fun computeDeckMasteryProgress(
+        cards: List<AnkiCardSnapshot>,
+        dailyTarget: Int = 30,
+        todayCompleted: Int = 0,
+        remainingQueueCount: Int? = null,
+        avgSecondsPerCard: Double = 14.0,
+        newStudiedToday: Int? = null,
+        reviewsStudiedToday: Int? = null,
+        dueReviewCount: Int = 0,
+    ): DeckMasteryProgress {
+        var unseen = 0
+        var learning = 0
+        var young = 0
+        var mature = 0
+        var suspended = 0
+
+        class MutableStageBucket(
+            var total: Int = 0,
+            var unseen: Int = 0,
+            var learning: Int = 0,
+            var young: Int = 0,
+            var mature: Int = 0,
+        )
+
+        val stageCounts = mapOf(
+            "lv1" to MutableStageBucket(),
+            "lv2" to MutableStageBucket(),
+            "lv3" to MutableStageBucket(),
+            "lv4" to MutableStageBucket(),
+        )
+
+        for (c in cards) {
+            val bucket = classifyCardMaturityBucket(c)
+            if (bucket == "suspended") {
+                suspended++
+                continue
+            }
+            when (bucket) {
+                "unseen" -> unseen++
+                "learning" -> learning++
+                "young" -> young++
+                "mature" -> mature++
+            }
+            val stKey = classifyCardStage(c)
+            val sb = stageCounts[stKey] ?: stageCounts["lv2"]!!
+            sb.total++
+            when (bucket) {
+                "unseen" -> sb.unseen++
+                "learning" -> sb.learning++
+                "young" -> sb.young++
+                "mature" -> sb.mature++
+            }
+        }
+
+        val totalCards = cards.size
+        val activeCards = unseen + learning + young + mature
+        val touchedCards = learning + young + mature
+
+        val coverageTenths = computePercentTenths(touchedCards, activeCards)
+        val coveragePct = coverageTenths / 10.0
+        val matureTenths = computePercentTenths(mature, activeCards)
+        val maturePct = matureTenths / 10.0
+
+        val weightedUnits = learning * 25 + young * 65 + mature * 100
+        val masteryTenths = computePercentTenths(weightedUnits, activeCards * 100)
+        val masteryPct = masteryTenths / 10.0
+
+        val safeCompleted = max(0, todayCompleted)
+        val safeTarget = if (newStudiedToday != null || reviewsStudiedToday != null) {
+            val effNewToday = max(0, newStudiedToday ?: 0)
+            val effRevToday = max(0, reviewsStudiedToday ?: max(0, safeCompleted - effNewToday))
+            val plannedNew = min(unseen + effNewToday, max(0, dailyTarget))
+            var baseTarget = plannedNew + effRevToday + max(0, dueReviewCount)
+            if (baseTarget <= 0 && activeCards > 0 && dailyTarget > 0) {
+                baseTarget = min(activeCards, dailyTarget)
+            }
+            max(safeCompleted, baseTarget)
+        } else if (dailyTarget > 0) {
+            max(safeCompleted, dailyTarget)
+        } else if (remainingQueueCount != null) {
+            safeCompleted + max(0, remainingQueueCount)
+        } else {
+            max(safeCompleted, min(activeCards, 30))
+        }
+        val remainingToday = max(0, safeTarget - safeCompleted)
+        val overTarget = max(0, safeCompleted - max(0, dailyTarget))
+        val todayTenths = if (safeTarget > 0) {
+            computePercentTenths(min(safeCompleted, safeTarget), safeTarget)
+        } else {
+            if (safeCompleted > 0) 1000 else 0
+        }
+        val todayPct = todayTenths / 10.0
+        val currentOrdinal = if (remainingToday > 0) {
+            safeCompleted + 1
+        } else {
+            max(safeCompleted, safeTarget)
+        }
+        val estRemMinutes = if (remainingToday == 0) 0.0 else max(1.0, (((remainingToday * max(1.0, avgSecondsPerCard)) / 60.0) * 10.0).roundToInt() / 10.0)
+
+        var currentMilestone = 0
+        var nextMilestone = 100
+        var cardsToNext = 0
+        if (activeCards > 0) {
+            var foundNext = false
+            for (m in MILESTONE_STEPS) {
+                val reqCards = (activeCards * m + 99) / 100
+                if (touchedCards >= reqCards) {
+                    currentMilestone = m
+                } else if (!foundNext) {
+                    nextMilestone = m
+                    cardsToNext = max(0, reqCards - touchedCards)
+                    foundNext = true
+                }
+            }
+            if (!foundNext) {
+                nextMilestone = 100
+                cardsToNext = 0
+            }
+        }
+        val nextTargetCards = if (activeCards > 0) (activeCards * nextMilestone + 99) / 100 else 0
+        val effectivePace = max(1, if (dailyTarget > 0) dailyTarget else 30)
+        val daysToNext = if (cardsToNext > 0) (cardsToNext + effectivePace - 1) / effectivePace else 0
+        val etaFullDays = if (unseen > 0) (unseen + effectivePace - 1) / effectivePace else 0
+
+        val byStage = mutableMapOf<String, StageProgressSummary>()
+        for ((stKey, sb) in stageCounts) {
+            val stTotal = sb.total
+            val stTouched = sb.learning + sb.young + sb.mature
+            val stCovTenths = computePercentTenths(stTouched, stTotal)
+            val stWeighted = sb.learning * 25 + sb.young * 65 + sb.mature * 100
+            val stMastTenths = computePercentTenths(stWeighted, stTotal * 100)
+            byStage[stKey] = StageProgressSummary(
+                stage = stKey,
+                label = STAGE_LABELS[stKey] ?: stKey,
+                total = stTotal,
+                unseen = sb.unseen,
+                learning = sb.learning,
+                young = sb.young,
+                mature = sb.mature,
+                touched = stTouched,
+                coveragePct = stCovTenths / 10.0,
+                masteryPct = stMastTenths / 10.0,
+            )
+        }
+
+        return DeckMasteryProgress(
+            totalCards = totalCards,
+            activeCards = activeCards,
+            suspendedCards = suspended,
+            touchedCards = touchedCards,
+            coverageTenths = coverageTenths,
+            coveragePct = coveragePct,
+            masteryTenths = masteryTenths,
+            masteryPct = masteryPct,
+            matureTenths = matureTenths,
+            maturePct = maturePct,
+            buckets = MaturityBuckets(
+                unseen = unseen,
+                learning = learning,
+                young = young,
+                mature = mature,
+                suspended = suspended,
+            ),
+            today = TodayProgressSummary(
+                completedCount = safeCompleted,
+                targetCount = safeTarget,
+                remainingCount = remainingToday,
+                overTargetCount = overTarget,
+                percentTenths = todayTenths,
+                percent = todayPct,
+                currentCardOrdinal = currentOrdinal,
+                estimatedRemainingMinutes = estRemMinutes,
+            ),
+            milestone = MilestoneSummary(
+                currentPct = currentMilestone,
+                nextPct = nextMilestone,
+                nextTargetCards = nextTargetCards,
+                cardsToNext = cardsToNext,
+                daysToNext = daysToNext,
+            ),
+            etaFullCoverageDays = etaFullDays,
+            byStage = byStage,
+        )
+    }
+
+    fun filterCardsForExplorer(
+        cards: List<AnkiCardSnapshot>,
+        query: String = "",
+        bucketFilter: String = "all",
+        stageFilter: String = "all",
+        limit: Int = 100,
+    ): ExplorerFilterResult {
+        val q = query.trim().lowercase()
+        val bFilter = bucketFilter.trim().lowercase().ifEmpty { "all" }
+        val sFilter = stageFilter.trim().lowercase().ifEmpty { "all" }
+        val safeLimit = max(1, min(500, limit))
+
+        val matched = mutableListOf<AnkiCardSnapshot>()
+        for (c in cards) {
+            val bucket = classifyCardMaturityBucket(c)
+            if (bFilter != "all" && bucket != bFilter) continue
+            val stKey = classifyCardStage(c)
+            if (sFilter != "all" && stKey != sFilter) continue
+            if (q.isNotEmpty()) {
+                val hay = "${c.frontText} ${c.backText} ${c.targetAnswer} ${c.extraExplanation}".lowercase()
+                if (q !in hay) continue
+            }
+            matched.add(c)
+        }
+
+        val sliced = matched.take(safeLimit)
+        return ExplorerFilterResult(
+            totalCount = cards.size,
+            matchedCount = matched.size,
+            returnedCount = sliced.size,
+            cards = sliced,
+        )
+    }
 
     fun computeStudyPlan(
         totalCards: Int,

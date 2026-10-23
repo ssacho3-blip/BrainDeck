@@ -34,6 +34,8 @@
     },
     studyFilterMode: "all", // "all" | "wrong_only" | "marked_only"
     questionTypeFilter: "all", // "all" | "vocab" | "grammar" | "hanja" | "history_sci"
+    stageFilter: "all", // "all" | "lv1" | "lv2" | "lv3" | "lv4"
+    deckProgress: null,
     shuffleMode: "interleaved", // "interleaved" | "sequential"
     sessionWrongCardIds: [],
     sessionWrongCardMap: {},
@@ -362,6 +364,11 @@
         return { ok: true, standalone: true, card_id: p.card_id, action: p.action, card: updated };
       }
     }
+    if (path.startsWith("/api/deck/explorer")) {
+      if (typeof standaloneEngine.exploreDeckCards === "function") {
+        return standaloneEngine.exploreDeckCards(p);
+      }
+    }
     if (path.startsWith("/api/custom-study")) {
       const cards = (state.rawDueCards && state.rawDueCards.length > 0) ? state.rawDueCards : (state.dueCards || []);
       if (vm && typeof vm.buildCustomStudySession === "function") {
@@ -490,6 +497,10 @@
       candidateQueue = vm.filterStudyQueueByQuestionType(candidateQueue, state.questionTypeFilter);
     }
 
+    if (vm && typeof vm.classifyCardStage === "function" && state.stageFilter && state.stageFilter !== "all") {
+      candidateQueue = candidateQueue.filter((c) => vm.classifyCardStage(c) === state.stageFilter);
+    }
+
     if (vm && typeof vm.interleaveAndShuffleStudyQueue === "function" && state.shuffleMode !== "sequential") {
       state.dueCards = vm.interleaveAndShuffleStudyQueue(candidateQueue, state.shuffleMode);
     } else {
@@ -500,6 +511,158 @@
       state.dueCards = vm.deduplicateSessionSiblings(state.dueCards);
     }
     state.currentIndex = 0;
+  }
+
+  function renderDeckProgressDashboard(dp) {
+    if (!dp) return;
+    const t = dp.today || {};
+    const b = dp.buckets || {};
+    const m = dp.milestone || {};
+    const byStage = dp.by_stage || {};
+
+    const todayLbl = el("bd-today-progress-label");
+    if (todayLbl) {
+      const overTxt = Number(t.over_target_count || 0) > 0 ? ` (+${t.over_target_count}장 초과달성!)` : "";
+      todayLbl.textContent = `🎯 오늘 목표 진척률: ${t.completed_count || 0} / ${t.target_count || 0}장 완료 (${Number(t.percent || 0).toFixed(1)}%)${overTxt}`;
+    }
+    const todayEta = el("bd-today-eta-label");
+    if (todayEta) {
+      todayEta.textContent =
+        Number(t.remaining_count || 0) > 0
+          ? `⏱️ 남은 ${t.remaining_count}장 · 약 ${t.estimated_remaining_minutes || 0}분`
+          : "✅ 오늘 목표 100% 달성!";
+    }
+    const todayFill = el("bd-today-progress-fill");
+    if (todayFill) {
+      todayFill.style.width = `${Math.min(100, Math.max(0, Number(t.percent || 0)))}%`;
+    }
+
+    const covLbl = el("bd-deck-coverage-label");
+    if (covLbl) {
+      covLbl.textContent = `📊 전체 덱 진도율 (1회 이상 학습): ${Number(dp.coverage_pct || 0).toFixed(1)}% (${dp.touched_cards || 0} / ${dp.total_cards || 0}장)`;
+    }
+    const mastLbl = el("bd-deck-mastery-label");
+    if (mastLbl) {
+      mastLbl.textContent = `🏆 FSRS 가중 숙련도: ${Number(dp.mastery_pct || 0).toFixed(1)}% · 장기마스터 ${Number(dp.mature_pct || 0).toFixed(1)}%`;
+    }
+    const mileLbl = el("bd-deck-milestone-label");
+    if (mileLbl) {
+      if (Number(m.cards_to_next || 0) > 0) {
+        mileLbl.textContent = `🏁 다음 마일스톤(${m.next_pct || 10}%): ${m.cards_to_next}장 남음 (약 ${m.days_to_next || 1}일) · 전수 완주 D-${dp.eta_full_coverage_days || 0}`;
+      } else {
+        mileLbl.textContent = `🎉 전체 덱 100% 마일스톤 달성!`;
+      }
+    }
+
+    const activeTotal = Math.max(1, Number(dp.active_cards || dp.total_cards || 1));
+    const matureW = ((Number(b.mature || 0) / activeTotal) * 100).toFixed(2);
+    const youngW = ((Number(b.young || 0) / activeTotal) * 100).toFixed(2);
+    const learnW = ((Number(b.learning || 0) / activeTotal) * 100).toFixed(2);
+    const unseenW = Math.max(0, 100 - Number(matureW) - Number(youngW) - Number(learnW)).toFixed(2);
+
+    const barMature = el("bd-bar-mature");
+    const barYoung = el("bd-bar-young");
+    const barLearn = el("bd-bar-learning");
+    const barUnseen = el("bd-bar-unseen");
+    if (barMature) barMature.style.width = `${matureW}%`;
+    if (barYoung) barYoung.style.width = `${youngW}%`;
+    if (barLearn) barLearn.style.width = `${learnW}%`;
+    if (barUnseen) barUnseen.style.width = `${unseenW}%`;
+
+    const cUnseen = el("bd-cnt-unseen");
+    const cLearn = el("bd-cnt-learning");
+    const cYoung = el("bd-cnt-young");
+    const cMature = el("bd-cnt-mature");
+    if (cUnseen) cUnseen.textContent = String(b.unseen || 0);
+    if (cLearn) cLearn.textContent = String(b.learning || 0);
+    if (cYoung) cYoung.textContent = String(b.young || 0);
+    if (cMature) cMature.textContent = String(b.mature || 0);
+
+    ["lv1", "lv2", "lv3", "lv4"].forEach((stKey) => {
+      const btn = el(`btn-stage-${stKey}`);
+      const st = byStage[stKey];
+      if (btn && st) {
+        btn.textContent = `${st.label || stKey} (${Number(st.coverage_pct || 0).toFixed(0)}% · ${st.touched || 0}/${st.total || 0})`;
+      }
+    });
+  }
+
+  async function renderDeckExplorerPanel() {
+    const panel = el("deck-card-explorer-panel");
+    if (!panel || panel.style.display === "none") return;
+    const qInput = el("explorer-search-input");
+    const bSel = el("explorer-bucket-select");
+    const sSel = el("explorer-stage-select");
+    const bVal = (bSel && bSel.value) || "all";
+    const sVal = (sSel && sSel.value) || "all";
+    const res = await apiPost("/api/deck/explorer", {
+      deck_id: state.selectedDeckId || null,
+      query: (qInput && qInput.value) || "",
+      bucket: bVal,
+      bucket_filter: bVal,
+      stage: sVal,
+      stage_filter: sVal,
+      limit: 120,
+    });
+    if (!res || !res.ok) return;
+    const sumEl = el("explorer-result-summary") || el("explorer-total-label");
+    if (sumEl) {
+      sumEl.textContent = `일치 ${res.matched_count || 0}장 (표시 ${res.returned_count || 0}장 / 전체 ${(state.deckProgress && state.deckProgress.total_cards) || res.matched_count || 0}장)`;
+    }
+    const listBox = el("explorer-card-rows") || el("explorer-card-list");
+    if (!listBox) return;
+    listBox.textContent = "";
+    const bucketBadges = {
+      mature: { label: "🟢 장기마스터", bg: "#e8faf0", fg: "#008a50" },
+      young: { label: "🔵 단기암기", bg: "#eff6ff", fg: "#1d4ed8" },
+      learning: { label: "🟠 학습·오답", bg: "#fffbeb", fg: "#b45309" },
+      unseen: { label: "⚪ 미학습", bg: "#f1f5f9", fg: "#475569" },
+      suspended: { label: "⏸️ 보류", bg: "#fef2f2", fg: "#be123c" },
+    };
+    (res.cards || []).forEach((c, idx) => {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:#ffffff;border:1px solid var(--border);font-size:0.78rem;flex-wrap:wrap;";
+      const left = document.createElement("div");
+      left.style.cssText = "display:flex;align-items:center;gap:6px;flex:1;min-width:200px;flex-wrap:wrap;";
+      const bMeta = bucketBadges[c.maturity_bucket] || bucketBadges.unseen;
+      const bSpan = document.createElement("span");
+      bSpan.style.cssText = `padding:2px 6px;border-radius:6px;background:${bMeta.bg};color:${bMeta.fg};font-weight:700;font-size:0.7rem;`;
+      bSpan.textContent = bMeta.label;
+      const sSpan = document.createElement("span");
+      sSpan.style.cssText = "padding:2px 6px;border-radius:6px;background:var(--surface-2);color:var(--accent);font-weight:700;font-size:0.7rem;";
+      sSpan.textContent = c.stage_label || c.stage || "Lv.2";
+      const qSpan = document.createElement("span");
+      qSpan.style.cssText = "font-weight:700;color:var(--text);";
+      qSpan.textContent = `#${idx + 1} ${(c.front_text || "").replace(/\{\{c\d+::([^}:]+)(?:::[^}]+)?\}\}/g, "[$1]").slice(0, 65)}`;
+      const aSpan = document.createElement("span");
+      aSpan.style.cssText = "color:var(--muted);";
+      aSpan.textContent = `➔ ${(c.target_answer || c.back_text || "").slice(0, 45)} (S:${Number(c.stability || 0).toFixed(1)}d)`;
+      left.appendChild(bSpan);
+      left.appendChild(sSpan);
+      left.appendChild(qSpan);
+      left.appendChild(aSpan);
+
+      const jumpBtn = document.createElement("button");
+      jumpBtn.type = "button";
+      jumpBtn.style.cssText = "padding:3px 8px;font-size:0.72rem;";
+      jumpBtn.textContent = "🎯 바로 풀기";
+      jumpBtn.onclick = () => {
+        const enriched = enrichStandaloneCard(c);
+        const existingIdx = state.dueCards.findIndex((dc) => Number(dc.card_id) === Number(c.card_id));
+        if (existingIdx >= 0) {
+          state.currentIndex = existingIdx;
+        } else {
+          state.dueCards.unshift(enriched);
+          state.currentIndex = 0;
+        }
+        renderCurrentCard();
+        showUxToast(`🎯 선택한 카드(#${c.card_id})로 바로 이동했습니다.`, "emerald");
+      };
+      row.appendChild(left);
+      row.appendChild(jumpBtn);
+      listBox.appendChild(row);
+    });
   }
 
   function applyEvidenceRatingGuard() {
@@ -575,14 +738,18 @@
     el("recall-input").value = "";
 
     if (!card) {
-      el("card-meta").textContent = "복습 완료";
+      const dp = state.deckProgress;
+      const dpSummary = dp
+        ? ` (오늘 ${dp.today ? dp.today.completed_count : 0}/${dp.today ? dp.today.target_count : 0}장 완료 · 전체 덱 진도 ${Number(dp.coverage_pct || 0).toFixed(1)}% · 숙련도 ${Number(dp.mastery_pct || 0).toFixed(1)}%)`
+        : "";
+      el("card-meta").textContent = `복습 완료${dpSummary}`;
       const sprintBadgeEl = el("sprint-progress-badge");
-      if (sprintBadgeEl) sprintBadgeEl.textContent = "🏁 스프린트 완료";
+      if (sprintBadgeEl) sprintBadgeEl.textContent = "🏁 오늘 목표 스프린트 완료";
       el("card-fsrs-meta").textContent = "Due: 0";
       el("card-question").textContent =
         state.studyFilterMode === "wrong_only"
           ? "🎉 오답·모르는 카드를 모두 완벽히 복습했습니다!"
-          : "🎉 현재 선택한 덱의 복습 대기 카드를 모두 완료했습니다!";
+          : `🎉 오늘 배정된 학습 목표 카드를 모두 완료했습니다!${dpSummary}`;
       el("leech-banner").style.display = "none";
       const typingZone = el("typing-solve-zone");
       if (typingZone) typingZone.style.display = "none";
@@ -611,23 +778,42 @@
     if (qtypeBadgeEl) {
       qtypeBadgeEl.textContent = qTypeObj.badge_label;
     }
+
+    const isUnfilteredSession =
+      state.studyFilterMode === "all" &&
+      (!state.stageFilter || state.stageFilter === "all") &&
+      state.questionTypeFilter === "all" &&
+      !state.isCramSandbox;
+    const dp = state.deckProgress;
+    const todayProg = dp && dp.today ? dp.today : null;
+    const effectivePosZeroBased =
+      isUnfilteredSession && todayProg
+        ? Number(todayProg.completed_count || 0) + state.currentIndex
+        : state.currentIndex;
+    const effectiveTotal =
+      isUnfilteredSession && todayProg
+        ? Math.max(effectivePosZeroBased + 1, Number(todayProg.target_count || state.dueCards.length || 1))
+        : Math.max(1, state.dueCards.length);
+
     const sprintBadgeEl = el("sprint-progress-badge");
     if (sprintBadgeEl) {
-      const sprints =
-        vm && typeof vm.chunkMicroSprints === "function"
-          ? vm.chunkMicroSprints(state.dueCards, 7)
-          : [];
-      const curSprintIdx = Math.floor(state.currentIndex / 7) + 1;
-      const totalSprints = Math.max(1, sprints.length || Math.ceil(state.dueCards.length / 7));
-      const inSprintPos = (state.currentIndex % 7) + 1;
+      const curSprintIdx = Math.floor(effectivePosZeroBased / 7) + 1;
+      const totalSprints = Math.max(1, Math.ceil(effectiveTotal / 7));
+      const inSprintPos = (effectivePosZeroBased % 7) + 1;
       const curSprintLen =
-        sprints[curSprintIdx - 1] && Array.isArray(sprints[curSprintIdx - 1].cards)
-          ? sprints[curSprintIdx - 1].cards.length
-          : Math.min(7, state.dueCards.length);
+        curSprintIdx < totalSprints ? 7 : Math.max(inSprintPos, effectiveTotal - (totalSprints - 1) * 7);
       sprintBadgeEl.textContent = `🏁 스프린트 ${curSprintIdx}/${totalSprints} (${inSprintPos}/${curSprintLen})`;
     }
     const typeLabel = card.note_type === "cloze" ? "빈칸 추론" : "핵심 인출";
-    el("card-meta").textContent = `${card.deck_name} · #${state.currentIndex + 1}/${state.dueCards.length} · ${typeLabel}`;
+    if (isUnfilteredSession && dp && todayProg) {
+      const ord = effectivePosZeroBased + 1;
+      const todayPct = Number(todayProg.percent || 0).toFixed(1);
+      const covPct = Number(dp.coverage_pct || 0).toFixed(1);
+      el("card-meta").textContent =
+        `${card.deck_name} · 오늘 ${ord}/${effectiveTotal}번째 (${todayPct}% 완료) · 전체 진도 ${covPct}% (${dp.touched_cards}/${dp.total_cards}장) · ${typeLabel}`;
+    } else {
+      el("card-meta").textContent = `${card.deck_name} · #${state.currentIndex + 1}/${state.dueCards.length} · ${typeLabel}`;
+    }
     const rPct = ((Number(card.retrievability) || 1) * 100).toFixed(1);
     el("card-fsrs-meta").textContent = `S: ${Number(card.stability).toFixed(1)}d · D: ${Number(card.difficulty).toFixed(1)} · R: ${rPct}%`;
     el("card-question").textContent = card.rendered_question || card.front_text || "";
@@ -697,8 +883,13 @@
   async function renderStudyPlanBanner(planRes) {
     const banner = el("bd-study-plan-banner");
     if (!banner || !planRes || !planRes.ok || !planRes.plan) return;
+    if (planRes.deck_progress) {
+      state.deckProgress = planRes.deck_progress;
+      renderDeckProgressDashboard(state.deckProgress);
+    }
     const pl = planRes.plan;
     const dq = planRes.daily_quota || {};
+    const dp = planRes.deck_progress || state.deckProgress;
     const dailyNewLimit = Number(dq.daily_new_limit || pl.recommended_daily_new || 30);
     const newStudied = Number(dq.new_studied_today || 0);
     const remNew = dq.remaining_new_today !== undefined ? Number(dq.remaining_new_today) : Math.max(0, dailyNewLimit - newStudied);
@@ -709,11 +900,15 @@
         ? "⚠️ 타이트한 일정"
         : "🚨 집중 배분 권장";
     const appliedLabel = dq.plan_applied ? "🟢 맞춤 계획 적용 중" : "🔵 기본 일일 할당 적용 중";
+    const progLine = dp
+      ? `\n📊 [전체 덱 진척률] 진도율 ${Number(dp.coverage_pct || 0).toFixed(1)}% (${dp.touched_cards}/${dp.total_cards}장 학습) · 가중 숙련도 ${Number(dp.mastery_pct || 0).toFixed(1)}% · 미학습 ${dp.buckets ? dp.buckets.unseen : 0}장`
+      : "";
     banner.style.display = "block";
     banner.textContent =
       `📅 [D-${pl.target_days} 학습 계획 · ${badgeTone} · ${appliedLabel}] 전체 ${pl.total_cards}장 (진도 ${pl.new_intake_days}일 + 총정리 복습 ${pl.consolidation_days}일)\n` +
-      `🎯 오늘의 할당량: 새 카드 ${dailyNewLimit}장 중 남은 ${remNew}장 (오늘 완료 ${newStudied}장) · 일평균 약 ${pl.avg_daily_minutes}분 (권장 최대 복습 ${pl.recommended_max_reviews}장/일)\n` +
-      `💡 코칭: ${(pl.recommendations && pl.recommendations[0]) || ""}`;
+      `🎯 오늘의 할당량: 새 카드 ${dailyNewLimit}장 중 남은 ${remNew}장 (오늘 완료 ${newStudied}장) · 일평균 약 ${pl.avg_daily_minutes}분 (권장 최대 복습 ${pl.recommended_max_reviews}장/일)` +
+      progLine +
+      `\n💡 코칭: ${(pl.recommendations && pl.recommendations[0]) || ""}`;
   }
 
   async function refreshDashboardAndQueue() {
@@ -732,12 +927,14 @@
       state.decks = status.decks || [];
       const sel = el("deck-select");
       const prevVal = state.selectedDeckId;
-      sel.innerHTML = `<option value="">전체 덱 (${s.due_now}장 대기)</option>`;
+      sel.innerHTML = `<option value="">전체 덱 (${s.due_now}장 대기 / 총 ${s.total_cards}장)</option>`;
       state.decks.forEach((d) => {
         const opt = document.createElement("option");
         opt.value = String(d.deck_id);
-        const dailyTag = d.daily_new_limit ? ` · 일일 목표 ${d.daily_new_limit}장` : "";
-        opt.textContent = `${d.name} (${d.due_cards}/${d.total_cards}${dailyTag})`;
+        const covPct = d.coverage_pct !== undefined ? Number(d.coverage_pct).toFixed(1) : "0.0";
+        const mastPct = d.mastery_pct !== undefined ? Number(d.mastery_pct).toFixed(1) : "0.0";
+        const remToday = d.remaining_new_today !== undefined ? d.remaining_new_today : d.due_cards;
+        opt.textContent = `${d.name} [진도 ${covPct}% · 마스터 ${mastPct}% · 오늘 ${remToday}장 / 총 ${d.total_cards}장]`;
         sel.appendChild(opt);
       });
       sel.value = prevVal;
@@ -751,8 +948,13 @@
     const dueRes = await apiGet(`/api/due${q}`);
     state.rawDueCards = (dueRes && dueRes.cards) || [];
     state.currentDailyQuota = (dueRes && dueRes.daily_quota) || null;
+    if (dueRes && dueRes.deck_progress) {
+      state.deckProgress = dueRes.deck_progress;
+      renderDeckProgressDashboard(state.deckProgress);
+    }
     applyStudyFilter();
     renderCurrentCard();
+    await renderDeckExplorerPanel();
 
     const daysSel = el("bd-plan-days");
     const minsSel = el("bd-plan-minutes");
@@ -827,6 +1029,7 @@
     state.markedCardIds = [];
     state.studyFilterMode = "all";
     state.questionTypeFilter = "all";
+    state.stageFilter = "all";
     state.currentIndex = 0;
     state.isRevealed = false;
     document.querySelectorAll(".study-filter-btn").forEach((b) => {
@@ -835,6 +1038,10 @@
     });
     document.querySelectorAll(".study-qtype-btn").forEach((b) => {
       if (b.getAttribute("data-qtype") === "all") b.classList.add("btn-primary");
+      else b.classList.remove("btn-primary");
+    });
+    document.querySelectorAll(".bd-stage-btn").forEach((b) => {
+      if (b.getAttribute("data-stage") === "all") b.classList.add("btn-primary");
       else b.classList.remove("btn-primary");
     });
     await refreshDashboardAndQueue();
@@ -2867,6 +3074,69 @@
         }
       });
     }
+
+    // BrainDeck v6.0 Deck Progress Dashboard, Stage Filter & Deck Card Explorer Bindings
+    document.querySelectorAll(".bd-stage-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const st = btn.getAttribute("data-stage") || "all";
+        state.stageFilter = st;
+        document.querySelectorAll(".bd-stage-btn").forEach((b) => {
+          if (b.getAttribute("data-stage") === st) b.classList.add("btn-primary");
+          else b.classList.remove("btn-primary");
+        });
+        applyStudyFilter();
+        renderCurrentCard();
+        showUxToast(
+          st === "all"
+            ? "📚 전체 단계(Lv.1~Lv.4) 학습 모드로 전환했습니다."
+            : `🎯 ${btn.textContent} 단계 카드만 집중 학습합니다 (${state.dueCards.length}장).`,
+          "accent"
+        );
+      });
+    });
+
+    const btnOpenExplorer = el("btn-open-deck-explorer");
+    const explorerPanel = el("deck-card-explorer-panel");
+    if (btnOpenExplorer && explorerPanel) {
+      btnOpenExplorer.addEventListener("click", async () => {
+        const willShow = explorerPanel.style.display === "none";
+        explorerPanel.style.display = willShow ? "block" : "none";
+        if (willShow) {
+          btnOpenExplorer.classList.add("btn-primary");
+          await renderDeckExplorerPanel();
+        } else {
+          btnOpenExplorer.classList.remove("btn-primary");
+        }
+      });
+    }
+
+    const btnCloseExplorer = el("btn-close-deck-explorer");
+    if (btnCloseExplorer && explorerPanel) {
+      btnCloseExplorer.addEventListener("click", () => {
+        explorerPanel.style.display = "none";
+        if (btnOpenExplorer) btnOpenExplorer.classList.remove("btn-primary");
+      });
+    }
+
+    document.querySelectorAll(".bd-bucket-chip").forEach((chip) => {
+      chip.addEventListener("click", async () => {
+        const bKey = chip.getAttribute("data-bucket") || "all";
+        const bSel = el("explorer-bucket-select");
+        if (bSel) bSel.value = bKey;
+        if (explorerPanel) explorerPanel.style.display = "block";
+        if (btnOpenExplorer) btnOpenExplorer.classList.add("btn-primary");
+        await renderDeckExplorerPanel();
+      });
+    });
+
+    ["explorer-search-input", "explorer-bucket-select", "explorer-stage-select"].forEach((id) => {
+      const ctrl = el(id);
+      if (ctrl) {
+        ctrl.addEventListener(id === "explorer-search-input" ? "input" : "change", () => {
+          renderDeckExplorerPanel();
+        });
+      }
+    });
 
     loadBrainPackStoreAndBind();
     loadCatalogAndBind();

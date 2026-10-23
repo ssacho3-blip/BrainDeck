@@ -627,3 +627,364 @@ def build_custom_study_session(
         "count": len(selected),
         "cards": selected,
     }
+
+
+STAGE_LABELS: Dict[str, str] = {
+    "lv1": "🌱 Lv.1 기초",
+    "lv2": "📘 Lv.2 핵심",
+    "lv3": "🔥 Lv.3 심화",
+    "lv4": "👑 Lv.4 최고급",
+}
+
+MILESTONE_STEPS: Tuple[Tuple[int, str], ...] = (
+    (10, "🌱 첫 10% 돌파"),
+    (25, "🥉 1/4(25%) 돌파"),
+    (50, "🥈 반환점(50%) 돌파"),
+    (75, "🥇 3/4(75%) 돌파"),
+    (100, "👑 100% 완주 달성"),
+)
+
+
+def compute_percent_tenths(numerator: int, denominator: int) -> int:
+    """Compute deterministic progress in tenths of a percent (0..1000).
+
+    Invariant:
+    - Never returns 1000 (100.0%) unless numerator >= denominator > 0.
+    - Never returns 0 when 0 < numerator < denominator (clamped to at least 1 -> 0.1%).
+    """
+    num = int(numerator)
+    den = int(denominator)
+    if den <= 0 or num <= 0:
+        return 0
+    if num >= den:
+        return 1000
+    tenths = (num * 1000 + (den // 2)) // den
+    return max(1, min(999, tenths))
+
+
+def _normalize_tag_list(raw_tags: Any) -> List[str]:
+    if not raw_tags:
+        return []
+    if isinstance(raw_tags, str):
+        return [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
+    if isinstance(raw_tags, (list, tuple, set)):
+        return [str(t).strip().lower() for t in raw_tags if str(t).strip()]
+    return []
+
+
+def classify_card_maturity_bucket(card: Mapping[str, Any]) -> str:
+    """Classify a card into one of ('suspended', 'unseen', 'learning', 'young', 'mature')."""
+    state = str(card.get("state") or "new").strip().lower()
+    tags = _normalize_tag_list(card.get("tags"))
+    if state == "suspended" or bool(card.get("suspended")) or "suspended" in tags:
+        return "suspended"
+    reps = int(card.get("reps", 0) or 0)
+    stability = float(card.get("s", card.get("stability", 0.0)) or 0.0)
+    if state == "new" or reps <= 0:
+        return "unseen"
+    if state in ("learning", "relearning") or stability < 1.0:
+        return "learning"
+    if stability >= 21.0:
+        return "mature"
+    return "young"
+
+
+def classify_card_stage(card: Mapping[str, Any]) -> str:
+    """Classify a card into difficulty stage ('lv1' | 'lv2' | 'lv3' | 'lv4')."""
+    explicit = str(card.get("stage") or "").strip().lower()
+    if explicit in ("lv1", "lv2", "lv3", "lv4"):
+        return explicit
+    if explicit in ("basic", "beginner", "elementary", "1"):
+        return "lv1"
+    if explicit in ("core", "intermediate", "standard", "2"):
+        return "lv2"
+    if explicit in ("advanced", "high", "hard", "3"):
+        return "lv3"
+    if explicit in ("master", "expert", "top", "4"):
+        return "lv4"
+
+    tags = _normalize_tag_list(card.get("tags"))
+    for t in tags:
+        if t in ("lv1", "diff_lv1", "stage:lv1", "level:1") or t.endswith(":lv1") or "기초" in t or "초급" in t:
+            return "lv1"
+        if t in ("lv2", "diff_lv2", "stage:lv2", "level:2") or t.endswith(":lv2") or "핵심" in t or "중급" in t:
+            return "lv2"
+        if t in ("lv3", "diff_lv3", "stage:lv3", "level:3") or t.endswith(":lv3") or "심화" in t or "고급" in t:
+            return "lv3"
+        if t in ("lv4", "diff_lv4", "stage:lv4", "level:4") or t.endswith(":lv4") or "최고급" in t or "킬러" in t:
+            return "lv4"
+    lapses = int(card.get("lapses", 0) or 0)
+    raw_d = card.get("d", card.get("difficulty", 5.0))
+    diff = float(raw_d) if raw_d is not None and float(raw_d or 0.0) > 0.0 else 5.0
+    if lapses >= 3 or diff >= 7.5:
+        return "lv4"
+    if diff < 4.0:
+        return "lv1"
+    if diff < 6.0:
+        return "lv2"
+    return "lv3"
+
+
+def compute_deck_mastery_progress(
+    cards: Sequence[Mapping[str, Any]],
+    daily_quota: Optional[Mapping[str, Any]] = None,
+    *,
+    daily_target: Optional[int] = None,
+    today_completed: Optional[int] = None,
+    remaining_queue_count: Optional[int] = None,
+    avg_seconds_per_card: float = 14.0,
+) -> Dict[str, Any]:
+    """Compute multi-dimensional deck progress, FSRS mastery, stage breakdown, and milestones (IMPL-V61)."""
+    dq = dict(daily_quota or {})
+    if daily_target is not None and dq.get("today_target") is None:
+        dq["today_target"] = int(daily_target)
+        dq.setdefault("daily_new_limit", int(daily_target))
+    if today_completed is not None and dq.get("today_completed") is None:
+        dq["today_completed"] = int(today_completed)
+    if remaining_queue_count is not None and dq.get("today_target") is None:
+        comp = int(dq.get("today_completed") or 0)
+        dq["today_target"] = max(int(daily_target or 0), comp + max(0, int(remaining_queue_count)))
+    total_cards = len(cards)
+    suspended_cards = 0
+    unseen_count = 0
+    learning_count = 0
+    young_count = 0
+    mature_count = 0
+
+    stage_accum: Dict[str, Dict[str, int]] = {
+        st: {"total": 0, "unseen": 0, "learning": 0, "young": 0, "mature": 0}
+        for st in ("lv1", "lv2", "lv3", "lv4")
+    }
+
+    for raw in cards:
+        bucket = classify_card_maturity_bucket(raw)
+        if bucket == "suspended":
+            suspended_cards += 1
+            continue
+        stage = classify_card_stage(raw)
+        st_rec = stage_accum[stage]
+        st_rec["total"] += 1
+        st_rec[bucket] += 1
+        if bucket == "unseen":
+            unseen_count += 1
+        elif bucket == "learning":
+            learning_count += 1
+        elif bucket == "young":
+            young_count += 1
+        else:
+            mature_count += 1
+
+    active_cards = total_cards - suspended_cards
+    touched_cards = learning_count + young_count + mature_count
+
+    coverage_tenths = compute_percent_tenths(touched_cards, active_cards)
+    coverage_pct = round(coverage_tenths / 10.0, 1)
+    mature_tenths = compute_percent_tenths(mature_count, active_cards)
+    mature_pct = round(mature_tenths / 10.0, 1)
+
+    weighted_points = learning_count * 250 + young_count * 650 + mature_count * 1000
+    if active_cards <= 0 or weighted_points <= 0:
+        mastery_tenths = 0
+    elif mature_count == active_cards:
+        mastery_tenths = 1000
+    else:
+        mastery_tenths = max(1, min(999, (weighted_points + (active_cards // 2)) // active_cards))
+    mastery_pct = round(mastery_tenths / 10.0, 1)
+
+    # Today's Daily Goal Progress
+    new_studied_today = max(0, int(dq.get("new_studied_today", 0) or 0))
+    reviews_studied_today = max(0, int(dq.get("reviews_studied_today", 0) or 0))
+    daily_new_limit = max(0, int(dq.get("daily_new_limit", 30) if dq.get("daily_new_limit") is not None else 30))
+
+    if dq.get("today_completed") is not None:
+        today_completed = max(0, int(dq.get("today_completed") or 0))
+    else:
+        today_completed = new_studied_today + reviews_studied_today
+
+    if dq.get("today_target") is not None:
+        today_target = max(0, int(dq.get("today_target") or 0))
+    else:
+        planned_new = min(unseen_count + new_studied_today, daily_new_limit)
+        due_reviews = max(0, int(dq.get("due_review_count", 0) or 0))
+        base_target = planned_new + reviews_studied_today + due_reviews
+        if base_target <= 0 and active_cards > 0 and daily_new_limit > 0:
+            base_target = min(active_cards, daily_new_limit)
+        today_target = max(today_completed, base_target)
+
+    if active_cards <= 0:
+        today_status = "EMPTY"
+        today_tenths = 0
+    elif today_target <= 0:
+        today_status = "NO_PLAN"
+        today_tenths = 0
+    else:
+        today_tenths = compute_percent_tenths(today_completed, today_target)
+        today_status = "COMPLETE" if today_completed >= today_target else "ACTIVE"
+
+    today_pct = round(today_tenths / 10.0, 1)
+    today_remaining = max(0, today_target - today_completed)
+    over_target_count = max(0, today_completed - today_target)
+    current_card_ordinal = today_completed if today_remaining == 0 else (today_completed + 1)
+    estimated_remaining_minutes = (
+        0.0 if today_remaining == 0 else max(1.0, round((today_remaining * 14.0) / 60.0, 1))
+    )
+
+    # Milestones & ETA
+    achieved_milestone_pct = 0
+    achieved_milestone_label = "출발 전"
+    next_milestone_pct = 100
+    next_milestone_label = "👑 100% 완주 달성"
+    cards_to_next_milestone = 0
+
+    if active_cards > 0:
+        found_next = False
+        for m_pct, m_label in MILESTONE_STEPS:
+            req_cards = (active_cards * m_pct + 99) // 100
+            if touched_cards >= req_cards:
+                achieved_milestone_pct = m_pct
+                achieved_milestone_label = m_label
+            elif not found_next:
+                next_milestone_pct = m_pct
+                next_milestone_label = m_label
+                cards_to_next_milestone = max(0, req_cards - touched_cards)
+                found_next = True
+        if not found_next:
+            next_milestone_pct = 100
+            next_milestone_label = "👑 100% 완주 달성"
+            cards_to_next_milestone = 0
+
+    effective_daily_pace = max(1, daily_new_limit if daily_new_limit > 0 else 30)
+    days_to_next_milestone = (
+        (cards_to_next_milestone + effective_daily_pace - 1) // effective_daily_pace
+        if cards_to_next_milestone > 0
+        else 0
+    )
+    eta_full_coverage_days = (
+        (unseen_count + effective_daily_pace - 1) // effective_daily_pace
+        if unseen_count > 0
+        else 0
+    )
+
+    by_stage: Dict[str, Dict[str, Any]] = {}
+    for st in ("lv1", "lv2", "lv3", "lv4"):
+        rec = stage_accum[st]
+        st_total = rec["total"]
+        st_touched = rec["learning"] + rec["young"] + rec["mature"]
+        st_cov_tenths = compute_percent_tenths(st_touched, st_total)
+        st_pts = rec["learning"] * 250 + rec["young"] * 650 + rec["mature"] * 1000
+        if st_total <= 0 or st_pts <= 0:
+            st_mast_tenths = 0
+        elif rec["mature"] == st_total:
+            st_mast_tenths = 1000
+        else:
+            st_mast_tenths = max(1, min(999, (st_pts + (st_total // 2)) // st_total))
+        by_stage[st] = {
+            "stage": st,
+            "label": STAGE_LABELS[st],
+            "total": st_total,
+            "unseen": rec["unseen"],
+            "learning": rec["learning"],
+            "young": rec["young"],
+            "mature": rec["mature"],
+            "touched": st_touched,
+            "coverage_tenths": st_cov_tenths,
+            "coverage_pct": round(st_cov_tenths / 10.0, 1),
+            "mastery_tenths": st_mast_tenths,
+            "mastery_pct": round(st_mast_tenths / 10.0, 1),
+        }
+
+    status = "EMPTY" if active_cards <= 0 else "OK"
+    return {
+        "status": status,
+        "total_cards": total_cards,
+        "active_cards": active_cards,
+        "suspended_cards": suspended_cards,
+        "touched_cards": touched_cards,
+        "unseen_cards": unseen_count,
+        "learning_cards": learning_count,
+        "young_cards": young_count,
+        "mature_cards": mature_count,
+        "coverage_tenths": coverage_tenths,
+        "coverage_pct": coverage_pct,
+        "mature_tenths": mature_tenths,
+        "mature_pct": mature_pct,
+        "mastery_tenths": mastery_tenths,
+        "mastery_pct": mastery_pct,
+        "buckets": {
+            "unseen": unseen_count,
+            "learning": learning_count,
+            "young": young_count,
+            "mature": mature_count,
+            "suspended": suspended_cards,
+        },
+        "today": {
+            "status": today_status,
+            "completed_count": today_completed,
+            "target_count": today_target,
+            "remaining_count": today_remaining,
+            "over_target_count": over_target_count,
+            "percent_tenths": today_tenths,
+            "percent": today_pct,
+            "current_card_ordinal": current_card_ordinal,
+            "estimated_remaining_minutes": estimated_remaining_minutes,
+        },
+        "milestone": {
+            "current_pct": achieved_milestone_pct,
+            "achieved_pct": achieved_milestone_pct,
+            "achieved_label": achieved_milestone_label,
+            "next_pct": next_milestone_pct,
+            "next_label": next_milestone_label,
+            "cards_to_next": cards_to_next_milestone,
+            "days_to_next": days_to_next_milestone,
+            "eta_full_coverage_days": eta_full_coverage_days,
+        },
+        "eta_full_coverage_days": eta_full_coverage_days,
+        "by_stage": by_stage,
+    }
+
+
+def filter_cards_for_explorer(
+    cards: Sequence[Mapping[str, Any]],
+    *,
+    query: str = "",
+    bucket_filter: str = "all",
+    stage_filter: str = "all",
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """Filter and search deck cards for the Deck Card Explorer (AC-5)."""
+    q_tokens = [t for t in (query or "").strip().lower().split() if t]
+    b_norm = (bucket_filter or "all").strip().lower()
+    s_norm = (stage_filter or "all").strip().lower()
+    cap = max(1, min(1000, int(limit or 200)))
+
+    matched: List[Dict[str, Any]] = []
+    for idx, raw in enumerate(cards, 1):
+        bucket = classify_card_maturity_bucket(raw)
+        stage = classify_card_stage(raw)
+        if b_norm != "all" and bucket != b_norm:
+            continue
+        if s_norm != "all" and stage != s_norm:
+            continue
+        front = str(raw.get("front_text") or raw.get("rendered_question") or "").strip()
+        back = str(raw.get("back_text") or raw.get("rendered_answer") or "").strip()
+        if q_tokens:
+            hay = f"{front} {back} {' '.join(_normalize_tag_list(raw.get('tags')))}".lower()
+            if not all(tok in hay for tok in q_tokens):
+                continue
+        item = dict(raw)
+        item["ordinal"] = idx
+        item["maturity_bucket"] = bucket
+        item["stage"] = stage
+        item["stage_label"] = STAGE_LABELS.get(stage, "🌱 Lv.1 기초")
+        matched.append(item)
+
+    return {
+        "total_count": len(cards),
+        "matched_count": len(matched),
+        "total_matched": len(matched),
+        "returned_count": min(len(matched), cap),
+        "query": (query or "").strip(),
+        "bucket_filter": b_norm,
+        "stage_filter": s_norm,
+        "cards": matched[:cap],
+    }
