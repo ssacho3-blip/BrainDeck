@@ -694,7 +694,15 @@ object BuiltInCurriculumCatalog {
         val seenFronts = HashSet<String>()
         for (c in seedCards) {
             if (seenFronts.add(c.spec.frontText)) {
-                result.add(c)
+                val seedNo = result.size + 1
+                val cleanSeedTags = c.spec.tags.filterNot { it.startsWith("concept:") }
+                result.add(
+                    c.copy(
+                        spec = c.spec.copy(
+                            tags = cleanSeedTags + "concept:${sourceId.replace(":", "_")}_fact_$seedNo"
+                        )
+                    )
+                )
             }
         }
         val n = purePool.size

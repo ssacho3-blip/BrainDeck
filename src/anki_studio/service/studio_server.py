@@ -1757,6 +1757,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             if path.startswith("/download/") and path.endswith(".apk"):
                 root_dir = Path(__file__).resolve().parents[3]
                 candidates = [
+                    root_dir / "dist" / "BrainDeck-v6.0.apk",
                     root_dir / "dist" / "BrainDeck-v5.9.apk",
                     root_dir / "dist" / "BrainDeck-v5.8.apk",
                     root_dir / "dist" / "BrainDeck-v5.7.apk",

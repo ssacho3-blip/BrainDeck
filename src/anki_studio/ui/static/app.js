@@ -585,6 +585,23 @@
         btn.textContent = `${st.label || stKey} (${Number(st.coverage_pct || 0).toFixed(0)}% · ${st.touched || 0}/${st.total || 0})`;
       }
     });
+
+    const inlineBoxEl = el("card-inline-progress-box");
+    if (inlineBoxEl) {
+      inlineBoxEl.style.display = "block";
+    }
+    const inlineTodayEl = el("card-inline-today-pct");
+    if (inlineTodayEl) {
+      inlineTodayEl.textContent = `🎯 오늘 진척률: ${Number(t.percent || 0).toFixed(1)}% (${t.completed_count || 0}/${t.target_count || 0}장 완료)`;
+    }
+    const inlineDeckEl = el("card-inline-deck-pct");
+    if (inlineDeckEl) {
+      inlineDeckEl.textContent = `📊 전체 덱 진도율: ${Number(dp.coverage_pct || 0).toFixed(1)}% (${dp.touched_cards || 0}/${dp.total_cards || 0}장) · 숙련도 ${Number(dp.mastery_pct || 0).toFixed(1)}%`;
+    }
+    const inlineFillEl = el("card-inline-today-fill");
+    if (inlineFillEl) {
+      inlineFillEl.style.width = `${Math.min(100, Math.max(0, Number(t.percent || 0)))}%`;
+    }
   }
 
   async function renderDeckExplorerPanel() {
@@ -811,6 +828,18 @@
       const covPct = Number(dp.coverage_pct || 0).toFixed(1);
       el("card-meta").textContent =
         `${card.deck_name} · 오늘 ${ord}/${effectiveTotal}번째 (${todayPct}% 완료) · 전체 진도 ${covPct}% (${dp.touched_cards}/${dp.total_cards}장) · ${typeLabel}`;
+      const inlineTodayEl = el("card-inline-today-pct");
+      if (inlineTodayEl) {
+        inlineTodayEl.textContent = `🎯 오늘 진척률: ${todayPct}% (${todayProg.completed_count || 0}/${effectiveTotal}장 완료 · 현재 ${ord}번째)`;
+      }
+      const inlineDeckEl = el("card-inline-deck-pct");
+      if (inlineDeckEl) {
+        inlineDeckEl.textContent = `📊 전체 덱 진도율: ${covPct}% (${dp.touched_cards || 0}/${dp.total_cards || 0}장) · 숙련도 ${Number(dp.mastery_pct || 0).toFixed(1)}%`;
+      }
+      const inlineFillEl = el("card-inline-today-fill");
+      if (inlineFillEl) {
+        inlineFillEl.style.width = `${Math.min(100, Math.max(0, Number(todayProg.percent || 0)))}%`;
+      }
     } else {
       el("card-meta").textContent = `${card.deck_name} · #${state.currentIndex + 1}/${state.dueCards.length} · ${typeLabel}`;
     }
@@ -914,6 +943,26 @@
   async function refreshDashboardAndQueue() {
     const status = await apiGet("/api/status");
     if (status && status.ok) {
+      if (!state.autoEnsuredFullScaleDeck) {
+        state.autoEnsuredFullScaleDeck = true;
+        const decksList = status.decks || [];
+        const fullDeck = decksList.find((d) => Number(d.total_cards || 0) >= 100);
+        if (!fullDeck) {
+          const autoRes = await apiPost("/api/catalog/generate-collection-deck", {
+            collection_id: "hanja-grade:8geup",
+            limit: 1000,
+            deck_name: "🎁 무료 기초 한자·어휘 스타터 (1,000장)",
+            difficulty_level: "mixed",
+            shuffle_mode: "interleaved",
+          }).catch(() => null);
+          if (autoRes && autoRes.ok && autoRes.deck_id) {
+            state.selectedDeckId = String(autoRes.deck_id);
+            return refreshDashboardAndQueue();
+          }
+        } else if (!state.selectedDeckId && decksList.some((d) => Number(d.total_cards || 0) < 50)) {
+          state.selectedDeckId = String(fullDeck.deck_id);
+        }
+      }
       const s = status.stats;
       el("stat-due").textContent = `${s.due_now}장`;
       el("stat-total").textContent = `${s.total_cards}장 / 오늘 ${s.reviews_today}회`;
@@ -940,22 +989,6 @@
       sel.value = prevVal;
     }
 
-    const params = new URLSearchParams();
-    if (state.selectedDeckId) params.set("deck_id", state.selectedDeckId);
-    if (state.shuffleMode) params.set("shuffle", state.shuffleMode);
-    params.set("respect_plan", "1");
-    const q = params.toString() ? `?${params.toString()}` : "";
-    const dueRes = await apiGet(`/api/due${q}`);
-    state.rawDueCards = (dueRes && dueRes.cards) || [];
-    state.currentDailyQuota = (dueRes && dueRes.daily_quota) || null;
-    if (dueRes && dueRes.deck_progress) {
-      state.deckProgress = dueRes.deck_progress;
-      renderDeckProgressDashboard(state.deckProgress);
-    }
-    applyStudyFilter();
-    renderCurrentCard();
-    await renderDeckExplorerPanel();
-
     const daysSel = el("bd-plan-days");
     const minsSel = el("bd-plan-minutes");
     const newSel = el("bd-plan-daily-new");
@@ -968,6 +1001,28 @@
       daily_minutes_budget: dailyMinutes,
       new_per_day: customNew,
     });
+
+    const params = new URLSearchParams();
+    if (state.selectedDeckId) params.set("deck_id", state.selectedDeckId);
+    if (state.shuffleMode) params.set("shuffle", state.shuffleMode);
+    params.set("respect_plan", "1");
+    const q = params.toString() ? `?${params.toString()}` : "";
+    const dueRes = await apiGet(`/api/due${q}`);
+    state.rawDueCards = (dueRes && dueRes.cards) || [];
+    state.currentDailyQuota = (dueRes && dueRes.daily_quota) || (planRes && planRes.daily_quota) || null;
+    if (dueRes && dueRes.deck_progress) {
+      state.deckProgress = dueRes.deck_progress;
+      renderDeckProgressDashboard(state.deckProgress);
+    } else if (planRes && planRes.deck_progress) {
+      state.deckProgress = planRes.deck_progress;
+      renderDeckProgressDashboard(state.deckProgress);
+    } else if (vm && typeof vm.computeDeckMasteryProgress === "function") {
+      state.deckProgress = vm.computeDeckMasteryProgress(state.rawDueCards, state.currentDailyQuota || {});
+      renderDeckProgressDashboard(state.deckProgress);
+    }
+    applyStudyFilter();
+    renderCurrentCard();
+    await renderDeckExplorerPanel();
     if (planRes && planRes.ok) {
       await renderStudyPlanBanner(planRes);
     }

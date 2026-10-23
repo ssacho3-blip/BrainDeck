@@ -1325,6 +1325,51 @@ private fun StudyTabScreen(
                             backText = currentDue.back
                         )
                         val isMarked = currentDue.cardId in state.markedCardIds
+                        // In-Card Live Progress Bar & Percentage Header (Always Visible Inside Flashcard)
+                        Surface(
+                            color = Color(0xFFF8FAFC),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "🎯 오늘 진척률 ${dp?.today?.percent ?: 0.0}% (${dp?.today?.completedCount ?: 0}/${dp?.today?.targetCount ?: state.dueCards.size}장 · 현재 ${dp?.today?.currentCardOrdinal ?: 1}번째)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = TossBlue
+                                    )
+                                    Text(
+                                        text = "📊 전체 진도 ${dp?.coveragePct ?: 0.0}% (${dp?.touchedCards ?: 0}/${dp?.totalCards ?: totalDeckCards}장)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF047857)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .background(Color(0xFFE2E8F0), RoundedCornerShape(999.dp))
+                                ) {
+                                    val inCardFill = ((dp?.today?.percent ?: 0.0).toFloat() / 100f).coerceIn(0f, 1f)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(inCardFill)
+                                            .height(6.dp)
+                                            .background(TossBlue, RoundedCornerShape(999.dp))
+                                    )
+                                }
+                            }
+                        }
+
                         // Anki Core Action Bar: Question Type Badge + TTS (발음), Hint (힌트), Star (별표), Bury (오늘 숨김)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1332,10 +1377,11 @@ private fun StudyTabScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${currentQType.badgeLabel} · 오늘 ${dp?.today?.currentCardOrdinal ?: 1}/${dp?.today?.targetCount ?: state.dueCards.size}번째 (${dp?.today?.percent ?: 0.0}%) · 덱 진도 ${dp?.coveragePct ?: 0.0}%",
+                                text = currentQType.badgeLabel,
                                 fontSize = 12.sp,
                                 color = TossBlue,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Surface(

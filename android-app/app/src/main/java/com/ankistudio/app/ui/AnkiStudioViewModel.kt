@@ -199,6 +199,8 @@ class AnkiStudioViewModel(
         interleavedShuffle: Boolean = true,
         questionTypeFilter: String = _uiState.value.questionTypeFilter,
         stageFilter: String = _uiState.value.stageFilter,
+        dailyNewLimit: Int = _uiState.value.dailyNewLimit,
+        newStudiedToday: Int = _uiState.value.newStudiedToday,
     ): List<DueReviewCardRow> {
         val visibleRaw = rawDue.filter { it.cardId !in buriedIds }
         val combinedPool = buildList {
@@ -250,8 +252,11 @@ class AnkiStudioViewModel(
             AdaptiveQuizEngine.deduplicateSessionSiblings(
                 items = interleaved,
                 tagsSelector = { row ->
-                    val cleanTarget = AdaptiveQuizEngine.extractCleanTargetAnswer(row.front, row.back).first.lowercase()
-                    if (cleanTarget.isNotBlank()) listOf("concept:$cleanTarget") else emptyList()
+                    val explicitConcepts = row.tagsCsv
+                        .split(",")
+                        .map { it.trim() }
+                        .filter { it.startsWith("concept:") && it.length > 8 }
+                    if (explicitConcepts.isNotEmpty()) explicitConcepts else listOf("concept:note_${row.noteId}")
                 },
                 stateSelector = { it.state }
             )
@@ -259,8 +264,7 @@ class AnkiStudioViewModel(
             interleaved
         }
         if (filterMode != "all") return deduped
-        val st = _uiState.value
-        val remainingNew = max(0, st.dailyNewLimit - st.newStudiedToday)
+        val remainingNew = max(0, dailyNewLimit - newStudiedToday)
         var newTaken = 0
         return deduped.filter { row ->
             if (row.state.equals("new", ignoreCase = true)) {
@@ -765,6 +769,43 @@ class AnkiStudioViewModel(
                     )
                     decks = dao.listDecks()
                 }
+            } else {
+                // Auto-upgrade any legacy <50-card built-in starter/collection/textbook deck from older APK installs to 1,000 cards
+                var upgradedAny = false
+                for (d in decks) {
+                    val isBuiltInDeck = d.name.contains("무료 기초 한자") ||
+                        d.name.startsWith("📚") ||
+                        d.name.startsWith("🏫") ||
+                        d.name.startsWith("📦") ||
+                        d.name.startsWith("🎯") ||
+                        BuiltInCurriculumCatalog.listCollections().any { col -> d.name.contains(col.title.take(8)) }
+                    if (!isBuiltInDeck) continue
+                    val existingCards = dao.getAllCards(deckId = d.id, limit = 120)
+                    if (existingCards.size in 1..49) {
+                        val matchedCol = BuiltInCurriculumCatalog.listCollections().firstOrNull { col ->
+                            d.name.contains(col.title.take(8)) || d.name.contains(col.collectionId)
+                        }
+                        val refColId = matchedCol?.collectionId ?: "hanja-grade:8geup"
+                        val topUpCards = BuiltInCurriculumCatalog.buildCollectionCards(
+                            collectionId = refColId,
+                            difficultyLevel = "mixed",
+                            targetCount = 1000
+                        ).drop(existingCards.size)
+                        if (topUpCards.isNotEmpty()) {
+                            dao.createDeckWithGeneratedCards(
+                                deckName = d.name,
+                                description = d.description,
+                                category = d.category,
+                                sourceFilename = "auto_upgrade_v61:$refColId",
+                                cards = topUpCards
+                            )
+                            upgradedAny = true
+                        }
+                    }
+                }
+                if (upgradedAny) {
+                    decks = dao.listDecks()
+                }
             }
             val rawDue = dao.getDueCards(nowEpochSec = nowSec, deckId = deckId)
             val allCards = dao.getAllCards(deckId = deckId)
@@ -795,7 +836,9 @@ class AnkiStudioViewModel(
                     buriedIds = st.buriedCardIds,
                     interleavedShuffle = st.isInterleavedShuffleEnabled,
                     questionTypeFilter = st.questionTypeFilter,
-                    stageFilter = st.stageFilter
+                    stageFilter = st.stageFilter,
+                    dailyNewLimit = st.dailyNewLimit,
+                    newStudiedToday = deckNewStudiedToday
                 )
                 val snapshots = fullPool.map { toAnkiCardSnapshot(it) }
                 val deckProg = AnkiStudyPlannerEngine.computeDeckMasteryProgress(

@@ -1955,7 +1955,17 @@
     const specs = [];
 
     pool.slice(0, Math.min(pool.length, Math.floor(cap / 3))).forEach((it) => {
-      expandStandaloneItemByDifficulty(it, sourceTag || it.unit_id || "full_scale", diff).forEach((s) => specs.push(s));
+      expandStandaloneItemByDifficulty(it, sourceTag || it.unit_id || "full_scale", diff).forEach((s) => {
+        const nextNo = specs.length + 1;
+        const cleanTags = (s.tags || []).filter((t) => !String(t).startsWith("concept:"));
+        cleanTags.push(`concept:${sourceTag || subj}_fact_${nextNo}`);
+        specs.push(
+          Object.assign({}, s, {
+            fact_key: `${sourceTag || subj}_${nextNo}`,
+            tags: cleanTags,
+          })
+        );
+      });
     });
 
     const n = Math.max(1, pool.length);
@@ -1976,7 +1986,7 @@
       const itemNo = specs.length + 1;
       const isNonVocab = subj !== "english";
       const roleTag = `role:${base.role || (isNonVocab ? "core_concept" : "core_vocab")}`;
-      const conceptTag = `concept:${sourceTag || subj}_${(step % n) + 1}`;
+      const conceptTag = `concept:${sourceTag || subj}_fact_${itemNo}`;
       const rawPrompt = String(base.prompt || base.term)
         .replace(/\s*—\s*다음\s*어휘·표현의\s*문맥\s*속\s*정확한\s*뜻은\??/g, "")
         .replace(/\s*—\s*위\s*설명에\s*해당하는\s*역사적\s*사건·인물·제도·유산은\??/g, "")

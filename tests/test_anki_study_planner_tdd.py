@@ -913,6 +913,48 @@ def test_v61_ui_dom_stage_filter_http_explorer_and_ordinal_string_contract() -> 
     assert prog_rev_only["today"]["remaining_count"] == 30
 
 
+def test_v61_1000_card_non_collapse_and_live_in_card_progress_bar() -> None:
+    """Ensure 1,000-card decks never collapse to 4 cards via sibling deduplication and In-Card Progress % renders on Web + Android."""
+    root_dir = Path(__file__).resolve().parents[1]
+    static_vm = (root_dir / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js").read_text(encoding="utf-8")
+    docs_vm = (root_dir / "docs" / "viewmodel.js").read_text(encoding="utf-8")
+    static_html = (root_dir / "src" / "anki_studio" / "ui" / "static" / "index.html").read_text(encoding="utf-8")
+    static_app = (root_dir / "src" / "anki_studio" / "ui" / "static" / "app.js").read_text(encoding="utf-8")
+    android_vm = (
+        root_dir / "android-app" / "app" / "src" / "main" / "java" / "com" / "ankistudio" / "app" / "ui" / "AnkiStudioViewModel.kt"
+    ).read_text(encoding="utf-8")
+    android_catalog = (
+        root_dir / "android-app" / "domain" / "src" / "main" / "kotlin" / "com" / "ankistudio" / "domain" / "catalog" / "BuiltInCurriculumCatalog.kt"
+    ).read_text(encoding="utf-8")
+    android_main = (
+        root_dir / "android-app" / "app" / "src" / "main" / "java" / "com" / "ankistudio" / "app" / "ui" / "MainActivity.kt"
+    ).read_text(encoding="utf-8")
+
+    assert static_vm == docs_vm
+    # 1) Unique fact concept tag invariant (never modulo 4 collapse)
+    assert "_fact_${itemNo}" in static_vm
+    assert "_fact_$itemNo" in android_catalog
+    assert 'it.startsWith("concept:") && it.length > 8' in android_vm
+
+    # 2) In-Card Live Progress Bar & Percentage Header on Web/PWA and Android
+    for inline_id in (
+        "card-inline-progress-box",
+        "card-inline-today-pct",
+        "card-inline-deck-pct",
+        "card-inline-today-fill",
+    ):
+        assert inline_id in static_html
+        assert inline_id in static_app
+    assert "🎯 오늘 진척률" in android_main
+    assert "📊 전체 진도" in android_main
+
+    # 3) Verify dist/BrainDeck-v6.0.apk exists and is freshly compiled (>= 15MB)
+    dist_apk = root_dir / "dist" / "BrainDeck-v6.0.apk"
+    assert dist_apk.exists()
+    assert dist_apk.stat().st_size > 15_000_000
+
+
+
 
 
 

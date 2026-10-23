@@ -669,6 +669,17 @@
 
         <div class="card-arena">
           <div>
+            <!-- In-Card Live Progress Bar & Percentage Header (Always Visible Inside Flashcard Arena) -->
+            <div id="card-inline-progress-box" style="margin-bottom:12px;padding:10px 12px;border-radius:12px;background:#f8fafc;border:1px solid #e2e8f0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.78rem;font-weight:800;margin-bottom:6px;">
+                <span id="card-inline-today-pct" style="color:var(--accent);">🎯 오늘 진척률: 0.0% (0/30장 완료)</span>
+                <span id="card-inline-deck-pct" style="color:#047857;">📊 전체 덱 진도율: 0.0% (0/1,020장) · 숙련도 0.0%</span>
+              </div>
+              <div style="width:100%;height:7px;border-radius:999px;background:#e2e8f0;overflow:hidden;position:relative;">
+                <div id="card-inline-today-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#3182f6,#10b981);transition:width 0.25s ease;"></div>
+              </div>
+            </div>
+
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.78rem;color:var(--muted);">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span id="card-qtype-badge" class="badge-pill" style="font-size:0.74rem;background:#eef2ff;color:#1d4ed8;">📘 단어 뜻·어휘</span>
@@ -1032,7 +1043,7 @@
     </section>
   </div>
 
-  <script src="./viewmodel.js"></script>
-  <script src="./app.js"></script>
+  <script src="./viewmodel.js?v=6.1.2"></script>
+  <script src="./app.js?v=6.1.2"></script>
 </body>
 </html>

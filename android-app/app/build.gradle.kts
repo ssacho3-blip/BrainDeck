@@ -13,8 +13,8 @@ android {
         applicationId = "com.ankistudio.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 59
-        versionName = "5.9.0"
+        versionCode = 61
+        versionName = "6.1.0"
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

@@ -510,12 +510,30 @@ def test_layer5_real_playwright_browser_e2e_reset_and_moe_journey() -> None:
                 page.wait_for_timeout(350)
                 new_text_after_one = page.locator("#count-new").inner_text()
                 assert new_text_after_one != initial_new_text
+                assert page.locator("#card-inline-progress-box").is_visible()
+                inline_today_after_one = page.locator("#card-inline-today-pct").inner_text()
+                inline_deck_after_one = page.locator("#card-inline-deck-pct").inner_text()
+                assert "오늘 진척률:" in inline_today_after_one and "0.0%" not in inline_today_after_one
+                assert "전체 덱 진도율:" in inline_deck_after_one
+
+                # Study 5 more cards (total 6 cards > 4) and ensure the session NEVER stops at 4 cards
+                seen_questions = set()
+                for _ in range(5):
+                    q_txt = page.locator("#card-question").inner_text()
+                    assert "오늘의 복습을 모두 마쳤습니다" not in q_txt
+                    seen_questions.add(q_txt)
+                    page.locator("#btn-reveal").click()
+                    page.wait_for_timeout(80)
+                    page.locator("#rate-3").click()
+                    page.wait_for_timeout(200)
+                assert len(seen_questions) >= 5
 
                 # Click 🔄 초기화 (#btn-reset-study) and verify full restoration to initial state
                 page.locator("#btn-reset-study").click()
                 page.wait_for_timeout(400)
                 restored_new_text = page.locator("#count-new").inner_text()
                 assert restored_new_text == initial_new_text
+                assert "0.0%" in page.locator("#card-inline-today-pct").inner_text()
                 toast_text = page.locator("#ux-toast-banner").inner_text()
                 assert "학습 초기화 완료" in toast_text
 
