@@ -27,6 +27,11 @@ from anki_studio.domain.ai_learning import (
     extract_clean_target_answer,
     interleave_study_cards,
 )
+from anki_studio.domain.anki_study_planner import (
+    ANKI_FLAG_LABELS,
+    apply_anki_card_action,
+    evaluate_leech_status,
+)
 from anki_studio.domain.fsrs_math import (
     CardMemoryState,
     Rating,
@@ -239,6 +244,16 @@ class AnkiStudioStore:
             }
             if "response_time_ms" not in rev_cols:
                 conn.execute("ALTER TABLE revlog ADD COLUMN response_time_ms INTEGER;")
+            card_cols = {
+                str(r["name"])
+                for r in conn.execute("PRAGMA table_info(cards)").fetchall()
+            }
+            if "flag" not in card_cols:
+                conn.execute("ALTER TABLE cards ADD COLUMN flag INTEGER NOT NULL DEFAULT 0;")
+            if "buried_today" not in card_cols:
+                conn.execute("ALTER TABLE cards ADD COLUMN buried_today INTEGER NOT NULL DEFAULT 0;")
+            if "buried_until_date" not in card_cols:
+                conn.execute("ALTER TABLE cards ADD COLUMN buried_until_date TEXT;")
 
     def ensure_deck(
         self,
@@ -289,6 +304,7 @@ class AnkiStudioStore:
             ).fetchall()
             return [
                 {
+                    "id": int(r["deck_id"]),
                     "deck_id": int(r["deck_id"]),
                     "name": str(r["name"]),
                     "description": str(r["description"]),
@@ -454,6 +470,198 @@ class AnkiStudioStore:
             )
             return cur.rowcount > 0
 
+    def list_deck_cards_for_anki(
+        self,
+        deck_id: Optional[int] = None,
+        as_of_iso: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return all cards in a deck (or all decks) enriched with Anki v3 scheduling metadata."""
+        now_str = as_of_iso or _utc_now_iso()
+        now_dt = datetime.fromisoformat(now_str)
+        conn = self._connect()
+        try:
+            query = """
+                SELECT c.*, n.note_type, n.front_text, n.back_text, n.tags_json,
+                       n.source_ref, n.source_page, n.source_excerpt,
+                       d.name AS deck_name, d.desired_retention,
+                       (SELECT rating FROM revlog r WHERE r.card_id = c.card_id ORDER BY r.rev_id DESC LIMIT 1) AS last_rating
+                FROM cards c
+                JOIN notes n ON n.note_id = c.note_id
+                JOIN decks d ON d.deck_id = c.deck_id
+            """
+            params: List[Any] = []
+            if deck_id is not None:
+                query += " WHERE c.deck_id = ?"
+                params.append(int(deck_id))
+            query += " ORDER BY c.card_id ASC"
+            rows = conn.execute(query, params).fetchall()
+            cards_out: List[Dict[str, Any]] = []
+            for r in rows:
+                item = dict(r)
+                cid = int(item["card_id"])
+                item["id"] = cid
+                item["card_id"] = cid
+                raw_tags = item.get("tags_json")
+                tags: List[str] = []
+                if isinstance(raw_tags, str) and raw_tags.strip():
+                    try:
+                        parsed = json.loads(raw_tags)
+                        if isinstance(parsed, list):
+                            tags = [str(t) for t in parsed]
+                    except Exception:
+                        tags = []
+                item["tags"] = tags
+                item["flag"] = int(item.get("flag") or 0)
+                item["flag_label"] = ANKI_FLAG_LABELS.get(item["flag"], "없음")
+                today_prefix = now_str[:10]
+                b_date = str(item.get("buried_until_date") or "")
+                is_buried_active = bool(int(item.get("buried_today") or 0)) and (not b_date or b_date >= today_prefix)
+                item["buried_today"] = is_buried_active
+                item["suspended"] = str(item.get("state") or "") == "suspended"
+                item["s"] = float(item.get("stability") or 0.0)
+                item["d"] = float(item.get("difficulty") or 0.0)
+                due_days = 0
+                try:
+                    due_dt = datetime.fromisoformat(str(item["due_at"]))
+                    diff_days = (due_dt - now_dt).total_seconds() / 86400.0
+                    due_days = int(round(diff_days))
+                except Exception:
+                    due_days = 0
+                item["due_days"] = due_days
+                elapsed_days = 0.0
+                if item.get("last_review_at"):
+                    try:
+                        prev_dt = datetime.fromisoformat(str(item["last_review_at"]))
+                        elapsed_days = max(0.0, (now_dt - prev_dt).total_seconds() / 86400.0)
+                    except Exception:
+                        elapsed_days = 0.0
+                item["elapsed_days"] = round(elapsed_days, 4)
+                if item["note_type"] == "cloze":
+                    ord_idx = int(item.get("ordinal") or 1)
+                    item["rendered_question"] = render_cloze_card(item["front_text"], ord_idx, reveal=False)
+                    item["rendered_answer"] = render_cloze_card(item["front_text"], ord_idx, reveal=True)
+                else:
+                    item["rendered_question"] = item["front_text"]
+                    item["rendered_answer"] = item["back_text"]
+                t_ans, extra_exp = extract_clean_target_answer(str(item["front_text"]), str(item["back_text"]))
+                item["target_answer"] = t_ans
+                item["extra_explanation"] = extra_exp
+                cards_out.append(item)
+            return cards_out
+        finally:
+            conn.close()
+
+    def apply_anki_card_action(
+        self,
+        card_id: int,
+        action: str,
+        flag: int = 0,
+        due_days: int = 0,
+        as_of_iso: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Atomically apply an Anki browser/reviewer action (flag, suspend, bury, forget_reset, set_due_days) in SQLite."""
+        now_str = as_of_iso or _utc_now_iso()
+        now_dt = datetime.fromisoformat(now_str)
+        with self._write_tx() as conn:
+            row = conn.execute(
+                """
+                SELECT c.*, n.tags_json, n.front_text, n.back_text, n.note_type
+                FROM cards c
+                JOIN notes n ON n.note_id = c.note_id
+                WHERE c.card_id = ?
+                """,
+                (int(card_id),),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Card {card_id} not found")
+
+            raw_tags = row["tags_json"]
+            tags: List[str] = []
+            if isinstance(raw_tags, str) and raw_tags.strip():
+                try:
+                    parsed = json.loads(raw_tags)
+                    if isinstance(parsed, list):
+                        tags = [str(t) for t in parsed]
+                except Exception:
+                    tags = []
+
+            cur_state = str(row["state"] or "new")
+            is_susp = cur_state == "suspended"
+            eff_state = ("review" if int(row["reps"] or 0) > 0 else "new") if is_susp else cur_state
+            card_snap = {
+                "id": int(row["card_id"]),
+                "card_id": int(row["card_id"]),
+                "note_id": int(row["note_id"]),
+                "deck_id": int(row["deck_id"]),
+                "state": eff_state,
+                "s": float(row["stability"] or 0.0),
+                "d": float(row["difficulty"] or 0.0),
+                "stability": float(row["stability"] or 0.0),
+                "difficulty": float(row["difficulty"] or 0.0),
+                "reps": int(row["reps"] or 0),
+                "lapses": int(row["lapses"] or 0),
+                "due_days": 0,
+                "flag": int(row["flag"] or 0),
+                "buried_today": bool(int(row["buried_today"] or 0)),
+                "suspended": is_susp,
+                "tags": tags,
+            }
+            updated = apply_anki_card_action(
+                card_snap,
+                action=action,
+                flag=flag,
+                due_days=due_days,
+            )
+
+            db_state = "suspended" if updated.get("suspended") else str(updated.get("state") or "new")
+            db_flag = int(updated.get("flag") or 0)
+            db_buried = 1 if updated.get("buried_today") else 0
+            db_buried_date = now_str[:10] if db_buried else None
+            db_s = float(updated.get("s") or 0.0)
+            db_d = float(updated.get("d") or 0.0)
+            db_reps = int(updated.get("reps") or 0)
+            db_lapses = int(updated.get("lapses") or 0)
+
+            if action == "set_due_days":
+                new_due_iso = (now_dt + timedelta(days=int(due_days))).isoformat()
+                last_rev = row["last_review_at"]
+            elif action == "forget_reset":
+                new_due_iso = now_str
+                last_rev = None
+            else:
+                new_due_iso = str(row["due_at"])
+                last_rev = row["last_review_at"]
+
+            conn.execute(
+                """
+                UPDATE cards
+                SET state = ?, difficulty = ?, stability = ?, reps = ?, lapses = ?,
+                    due_at = ?, last_review_at = ?, flag = ?, buried_today = ?, buried_until_date = ?
+                WHERE card_id = ?
+                """,
+                (
+                    db_state,
+                    db_d,
+                    db_s,
+                    db_reps,
+                    db_lapses,
+                    new_due_iso,
+                    last_rev,
+                    db_flag,
+                    db_buried,
+                    db_buried_date,
+                    int(card_id),
+                ),
+            )
+            conn.execute(
+                "UPDATE notes SET tags_json = ? WHERE note_id = ?",
+                (json.dumps(updated.get("tags") or [], ensure_ascii=False), int(row["note_id"])),
+            )
+            updated["id"] = int(card_id)
+            updated["card_id"] = int(card_id)
+            updated["due_at"] = new_due_iso
+            return updated
+
     def get_due_cards(
         self,
         deck_id: Optional[int] = None,
@@ -472,9 +680,12 @@ class AnkiStudioStore:
                 FROM cards c
                 JOIN notes n ON n.note_id = c.note_id
                 JOIN decks d ON d.deck_id = c.deck_id
-                WHERE c.state != 'suspended' AND c.due_at <= ?
+                WHERE c.state != 'suspended'
+                  AND NOT (COALESCE(c.buried_today, 0) = 1 AND COALESCE(c.buried_until_date, ?) >= ?)
+                  AND c.due_at <= ?
             """
-            params: List[Any] = [now_str]
+            today_prefix = now_str[:10]
+            params: List[Any] = [today_prefix, today_prefix, now_str]
             if deck_id is not None:
                 query += " AND c.deck_id = ?"
                 params.append(int(deck_id))
@@ -484,6 +695,10 @@ class AnkiStudioStore:
             result: List[Dict[str, Any]] = []
             for r in rows:
                 item = dict(r)
+                item["id"] = int(item["card_id"])
+                item["flag"] = int(item.get("flag") or 0)
+                item["flag_label"] = ANKI_FLAG_LABELS.get(item["flag"], "없음")
+                item["buried_today"] = bool(int(item.get("buried_today") or 0))
                 raw_tags_json = item.get("tags_json")
                 if isinstance(raw_tags_json, str) and raw_tags_json.strip():
                     try:

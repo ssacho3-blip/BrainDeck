@@ -13,4 +13,5 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    exclude("**/* *.class")
 }

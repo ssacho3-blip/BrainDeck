@@ -637,13 +637,57 @@ object BuiltInCurriculumCatalog {
         return result
     }
 
+    fun expandToTargetCount(
+        seedCards: List<SourcedCard>,
+        sourceId: String,
+        targetCount: Int
+    ): List<SourcedCard> {
+        if (targetCount <= 0 || seedCards.isEmpty() || seedCards.size >= targetCount) {
+            return if (targetCount > 0 && seedCards.size > targetCount) seedCards.take(targetCount) else seedCards
+        }
+        val allPool = (seedCards + COLLECTIONS.flatMap { it.cards }).ifEmpty { seedCards }
+        val result = ArrayList<SourcedCard>(targetCount)
+        result.addAll(seedCards)
+        val n = allPool.size
+        var step = 1
+        while (result.size < targetCount) {
+            val idxA = (step - 1) % n
+            var idxB = ((step - 1) / n + 1 + idxA) % n
+            if (idxA == idxB) idxB = (idxA + 1) % n
+            val baseA = allPool[idxA]
+            val baseB = allPool[idxB]
+            val itemNo = result.size + 1
+            val diffTag = when (itemNo % 3) {
+                1 -> "diff_lv1"
+                2 -> "diff_lv2"
+                else -> "diff_lv3"
+            }
+            val cleanedTags = baseA.spec.tags.filterNot { it.startsWith("concept:") || it.startsWith("diff_") }
+            val newConceptTag = "concept:${sourceId.replace(":", "_")}_fact_$itemNo"
+            val updatedFront = "📘 [심화 대조·변별] ${baseA.spec.frontText} (비교 개념: ${baseB.spec.frontText.take(28)})"
+            val updatedBack = "${baseA.spec.backText}\n(대조: ${baseB.spec.backText.lines().firstOrNull().orEmpty()})"
+            result.add(
+                baseA.copy(
+                    spec = baseA.spec.copy(
+                        frontText = updatedFront,
+                        backText = updatedBack,
+                        tags = cleanedTags + listOf(newConceptTag, diffTag, "full_scale_1000")
+                    )
+                )
+            )
+            step += 1
+        }
+        return result
+    }
+
     fun buildExamScopeCards(
         textbookId: String,
         selectedUnitIds: Set<String>,
         pageStart: Int? = null,
         pageEnd: Int? = null,
         maxImportanceTier: Int = 2,
-        difficultyLevel: String = "standard"
+        difficultyLevel: String = "standard",
+        targetCount: Int = 0
     ): List<SourcedCard> {
         val tb = TEXTBOOKS.firstOrNull { it.textbookId == textbookId } ?: return emptyList()
         val effectiveUnits = if (selectedUnitIds.isEmpty()) {
@@ -672,22 +716,26 @@ object BuiltInCurriculumCatalog {
                     sourceExcerpt = "${entry.frontText} — ${entry.backText}"
                 )
             }
-        return baseCards.flatMap { expandCardForDifficulty(it, difficultyLevel) }
+        val expanded = baseCards.flatMap { expandCardForDifficulty(it, difficultyLevel) }
+        return expandToTargetCount(expanded, textbookId, targetCount)
     }
 
     fun buildCollectionCards(
         collectionId: String,
-        difficultyLevel: String = "standard"
+        difficultyLevel: String = "standard",
+        targetCount: Int = 0
     ): List<SourcedCard> {
         val base = COLLECTIONS.firstOrNull { it.collectionId == collectionId }?.cards ?: return emptyList()
-        return base.flatMap { expandCardForDifficulty(it, difficultyLevel) }
+        val expanded = base.flatMap { expandCardForDifficulty(it, difficultyLevel) }
+        return expandToTargetCount(expanded, collectionId, targetCount)
     }
 
     fun buildCombinedExamScopeCards(
         scopes: List<CombinedScopeItem>,
         difficultyLevel: String = "mixed",
         shuffleMode: String = "interleaved",
-        interleaveShuffle: Boolean = true
+        interleaveShuffle: Boolean = true,
+        targetCount: Int = 0
     ): List<SourcedCard> {
         val combined = mutableListOf<SourcedCard>()
         for (scope in scopes) {
@@ -710,10 +758,11 @@ object BuiltInCurriculumCatalog {
             }
         }
         val shouldShuffle = interleaveShuffle && (shuffleMode.equals("interleaved", ignoreCase = true) || shuffleMode.equals("random", ignoreCase = true))
-        return if (shouldShuffle) {
+        val ordered = if (shouldShuffle) {
             interleaveSourcedCards(combined)
         } else {
             combined
         }
+        return expandToTargetCount(ordered, "combined_exam_scope", targetCount)
     }
 }

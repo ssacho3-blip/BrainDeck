@@ -39,8 +39,18 @@ from anki_studio.domain.ai_learning import (
     generate_socratic_hint,
     interleave_study_cards,
 )
+from anki_studio.domain.anki_study_planner import (
+    AnkiDeckOptions,
+    build_anki_v3_daily_queue,
+    build_custom_study_session,
+    compute_anki_study_plan,
+)
 from anki_studio.domain.document_deck_builder import build_deck_plan
 from anki_studio.domain.fsrs_math import Rating
+from anki_studio.domain.full_scale_corpus import (
+    build_full_scale_deck_cards,
+    get_canonical_card_count_for_ref,
+)
 from anki_studio.domain.pack_store import (
     calculate_bundle_quote,
     check_ref_entitlement,
@@ -110,6 +120,122 @@ class AnkiStudioService:
             "unlocked_pack_ids": unlocked_packs,
             "stats": stats,
             "decks": decks,
+        }
+
+    def list_decks(self) -> Dict[str, Any]:
+        decks = self.store.list_decks()
+        return {
+            "ok": True,
+            "decks": decks,
+        }
+
+    def get_anki_study_plan(
+        self,
+        deck_id: Optional[int] = None,
+        target_days: int = 30,
+        daily_minutes_budget: int = 30,
+        desired_retention: float = 0.90,
+        sec_per_new_card: float = 25.0,
+        sec_per_review_card: float = 9.0,
+        consolidation_ratio: float = 0.20,
+        new_per_day: Optional[int] = None,
+        max_reviews_per_day: int = 200,
+        bury_siblings: bool = True,
+        review_sort_order: str = "retrievability_asc",
+        new_review_mix: str = "mix",
+        total_cards_override: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Compute an Anki v3 + FSRS-5 multi-day study plan and daily queue breakdown for a deck."""
+        cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
+        active_cards = [c for c in cards if not c.get("suspended")]
+        learning_count = sum(1 for c in active_cards if c.get("state") in ("learning", "relearning"))
+        review_due_count = sum(1 for c in active_cards if c.get("state") == "review" and int(c.get("due_days") or 0) <= 0)
+        new_count = sum(1 for c in active_cards if c.get("state") == "new")
+        total_cards = len(active_cards)
+
+        is_initial_seed_deck = (
+            total_cards < 50
+            and any(str(c.get("source_ref") or "").startswith("seed:") for c in cards)
+        )
+        if total_cards_override is not None and int(total_cards_override) > 0:
+            total_cards = int(total_cards_override)
+            new_count = max(new_count, total_cards - learning_count - review_due_count)
+        elif is_initial_seed_deck or total_cards == 0:
+            total_cards = max(total_cards, 1020)
+            new_count = max(new_count, total_cards - learning_count - review_due_count)
+
+        plan = compute_anki_study_plan(
+            total_cards=total_cards,
+            new_count=new_count,
+            learning_count=learning_count,
+            review_due_count=review_due_count,
+            target_days=int(target_days),
+            daily_minutes_budget=int(daily_minutes_budget),
+            desired_retention=float(desired_retention),
+            avg_sec_per_new=float(sec_per_new_card),
+            avg_sec_per_review=float(sec_per_review_card),
+        )
+        eff_new_per_day = int(new_per_day) if new_per_day is not None else int(plan["recommended_daily_new"])
+        options = AnkiDeckOptions(
+            new_per_day=max(0, eff_new_per_day),
+            max_reviews_per_day=max(0, int(max_reviews_per_day)),
+            desired_retention=float(desired_retention),
+            bury_new_siblings=bool(bury_siblings),
+            bury_review_siblings=bool(bury_siblings),
+            review_sort_order=str(review_sort_order or "retrievability_asc"),
+            new_review_mix_mode=str(new_review_mix or "mix"),
+        )
+        q_res = build_anki_v3_daily_queue(cards, options=options)
+        return {
+            "ok": True,
+            "deck_id": int(deck_id) if deck_id is not None else None,
+            "plan": plan,
+            "queue_counts": q_res["counts"],
+            "buried_sibling_ids": q_res["buried_sibling_ids"],
+        }
+
+    def apply_card_anki_action(
+        self,
+        card_id: int,
+        action: str,
+        flag: int = 0,
+        due_days: int = 0,
+    ) -> Dict[str, Any]:
+        """Apply an Anki Reviewer/Browser action (flag 0..7, suspend/unsuspend, bury/unbury, forget_reset, set_due_days)."""
+        updated = self.store.apply_anki_card_action(
+            card_id=int(card_id),
+            action=str(action),
+            flag=int(flag),
+            due_days=int(due_days),
+        )
+        return {
+            "ok": True,
+            "card_id": int(card_id),
+            "action": str(action),
+            "card": updated,
+        }
+
+    def build_anki_custom_study(
+        self,
+        deck_id: Optional[int] = None,
+        preset: str = "forgotten_recent",
+        days_ahead: int = 3,
+        limit: int = 50,
+        extra_new: int = 10,
+    ) -> Dict[str, Any]:
+        """Build an Anki Custom Study / Filtered Deck session from SQLite cards."""
+        cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
+        session = build_custom_study_session(
+            cards,
+            preset=str(preset),
+            days_ahead=int(days_ahead),
+            limit=int(limit),
+            extra_new=int(extra_new),
+        )
+        return {
+            "ok": True,
+            "deck_id": int(deck_id) if deck_id is not None else None,
+            **session,
         }
 
     def get_due_cards(
@@ -704,12 +830,15 @@ class AnkiStudioService:
                             textbook_id=pack.primary_ref_id,
                             unit_ids=unit_ids,
                             deck_name=target_deck_title,
+                            difficulty_level="mixed",
+                            limit=int(pack.estimated_card_count),
                         )
                 else:
                     mounted_deck = self.generate_collection_deck(
                         collection_id=pack.primary_ref_id,
-                        limit=50,
+                        limit=int(pack.estimated_card_count),
                         deck_name=target_deck_title,
+                        difficulty_level="mixed",
                     )
 
         updated_unlocked = self.ledger.list_unlocked_pack_ids(profile_id=1)
@@ -799,7 +928,7 @@ class AnkiStudioService:
     def generate_collection_deck(
         self,
         collection_id: str,
-        limit: int = 25,
+        limit: int = 1000,
         deck_name: Optional[str] = None,
         difficulty_level: str = "standard",
         shuffle_mode: str = "sequential",
@@ -840,7 +969,7 @@ class AnkiStudioService:
         mat_cards = self.ledger.materialize_daily_pack_cards(
             activation_id=act_id,
             pack_db_path=self.starter_pack_path,
-            daily_new_limit=max(1, min(200, int(limit))),
+            daily_new_limit=max(1, min(2000, int(limit))),
             difficulty_level=diff_norm,
         )
         notes_payload = [
@@ -852,6 +981,15 @@ class AnkiStudioService:
             }
             for c in mat_cards
         ]
+        # When requested limit > 20 (default 1,000), build the canonical Full-Scale 1,000+ unique-fact deck
+        if int(limit) > 20:
+            eff_limit = get_canonical_card_count_for_ref(collection_id, int(limit)) if int(limit) == 1000 else int(limit)
+            full_cards = build_full_scale_deck_cards(
+                ref_id=collection_id,
+                difficulty_level=diff_norm,
+                target_count=eff_limit,
+            )
+            notes_payload = [dict(c) for c in full_cards]
         if shuffle_mode in ("interleaved", "random") and len(notes_payload) > 1:
             notes_payload = interleave_study_cards(notes_payload, shuffle_mode=shuffle_mode)
         batch = self.store.create_deck_with_notes(
@@ -880,6 +1018,7 @@ class AnkiStudioService:
         deck_name: Optional[str] = None,
         difficulty_level: str = "standard",
         shuffle_mode: str = "sequential",
+        limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Resolve a middle/high school textbook exam scope (e.g., 중1 동아 윤정미 Lesson 1~2) and create a study deck."""
         self.require_entitlement(target_ref_id=textbook_id, action="GENERATE", profile_id=1)
@@ -943,6 +1082,16 @@ class AnkiStudioService:
                             }
                         )
 
+        if limit is not None and int(limit) > 20:
+            eff_limit = get_canonical_card_count_for_ref(textbook_id, int(limit)) if int(limit) == 1000 else int(limit)
+            full_cards = build_full_scale_deck_cards(
+                ref_id=textbook_id,
+                difficulty_level=diff_norm,
+                target_count=eff_limit,
+                extra_tags=tuple(str(u) for u in unit_ids[:2]),
+            )
+            notes_payload = [dict(c) for c in full_cards]
+
         if shuffle_mode in ("interleaved", "random") and len(notes_payload) > 1:
             notes_payload = interleave_study_cards(notes_payload, shuffle_mode=shuffle_mode)
 
@@ -969,7 +1118,7 @@ class AnkiStudioService:
         deck_name: Optional[str] = None,
         difficulty_level: str = "mixed",
         shuffle_mode: str = "interleaved",
-        max_cards: int = 120,
+        max_cards: int = 1000,
     ) -> Dict[str, Any]:
         """Combine multiple textbook units, subjects, and/or collections into one interleaved exam-prep deck."""
         if not scopes or not isinstance(scopes, list):
@@ -1096,7 +1245,7 @@ class AnkiStudioService:
                 col_meta = col_by_id.get(col_id)
                 if col_meta is None:
                     raise ValueError(f"Unknown collection_id in combined scope: {col_id}")
-                col_limit = max(1, min(100, int(raw_scope.get("limit") or 15)))
+                col_limit = max(1, min(1000, int(raw_scope.get("limit") or 350)))
                 tier_u_deck_id = self.ledger.create_deck(
                     profile_id=1,
                     name=f"ComboCol-{col_id}-{idx}-{datetime.now(timezone.utc).strftime('%H%M%S_%f')}",
@@ -1151,7 +1300,17 @@ class AnkiStudioService:
         if shuf_norm in ("interleaved", "random") and len(combined_notes) > 1:
             combined_notes = interleave_study_cards(combined_notes, shuffle_mode=shuf_norm)
 
-        cap = max(1, min(300, int(max_cards or 120)))
+        cap = max(1, min(3000, int(max_cards or 1000)))
+        if cap >= 500 and len(combined_notes) < cap:
+            needed = cap - len(combined_notes)
+            primary_ref = str(source_summary[0]["id"]) if source_summary else "moe-eng:middle-1200"
+            extra_cards = build_full_scale_deck_cards(
+                ref_id=primary_ref,
+                difficulty_level=diff_norm,
+                target_count=needed,
+                extra_tags=("combined_exam",),
+            )
+            combined_notes.extend(dict(c) for c in extra_cards)
         combined_notes = combined_notes[:cap]
 
         summary_labels = [s["title"] for s in source_summary[:3]]
@@ -1180,7 +1339,7 @@ class AnkiStudioService:
         age_tier: str = "teen",
     ) -> Dict[str, Any]:
         """Build a 4-choice multiple-choice or tap-block interactive quiz for a due card using AdaptiveQuizEngine."""
-        due = self.store.get_due_cards(limit=200)
+        due = self.store.get_due_cards(limit=1500)
         target = next((c for c in due if int(c["card_id"]) == int(card_id)), None)
         if target is None:
             raise KeyError(f"Card {card_id} not found in due cards")
@@ -1407,6 +1566,22 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 self._send_json(svc.get_due_cards(deck_id=deck_id, shuffle_mode=shuffle_mode))
                 return
 
+            if path == "/api/study-plan":
+                deck_raw = qs.get("deck_id", [None])[0]
+                deck_id = int(deck_raw) if deck_raw and deck_raw.isdigit() else None
+                target_days = int(qs.get("target_days", ["30"])[0] or 30)
+                daily_minutes = int(qs.get("daily_minutes_budget", ["30"])[0] or 30)
+                retention = float(qs.get("desired_retention", ["0.90"])[0] or 0.90)
+                self._send_json(
+                    svc.get_anki_study_plan(
+                        deck_id=deck_id,
+                        target_days=target_days,
+                        daily_minutes_budget=daily_minutes,
+                        desired_retention=retention,
+                    )
+                )
+                return
+
             if path == "/api/ollama-cloud/models":
                 self._send_json(svc.ai.list_ollama_cloud_models())
                 return
@@ -1596,6 +1771,47 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     self._send_json(res)
                     return
 
+                if path == "/api/cards/action":
+                    res = svc.apply_card_anki_action(
+                        card_id=int(body["card_id"]),
+                        action=str(body.get("action") or ""),
+                        flag=int(body.get("flag") or 0),
+                        due_days=int(body.get("due_days") or 0),
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/study-plan":
+                    raw_deck = body.get("deck_id")
+                    deck_id = int(raw_deck) if raw_deck not in (None, "", "all") and str(raw_deck).isdigit() else None
+                    res = svc.get_anki_study_plan(
+                        deck_id=deck_id,
+                        target_days=int(body.get("target_days") or 30),
+                        daily_minutes_budget=int(body.get("daily_minutes_budget") or 30),
+                        desired_retention=float(body.get("desired_retention") or 0.90),
+                        new_per_day=int(body["new_per_day"]) if body.get("new_per_day") not in (None, "") else None,
+                        max_reviews_per_day=int(body.get("max_reviews_per_day") or 200),
+                        bury_siblings=bool(body.get("bury_siblings", True)),
+                        review_sort_order=str(body.get("review_sort_order") or "retrievability_asc"),
+                        new_review_mix=str(body.get("new_review_mix") or "mix"),
+                        total_cards_override=int(body["total_cards"]) if body.get("total_cards") not in (None, "") else None,
+                    )
+                    self._send_json(res)
+                    return
+
+                if path == "/api/custom-study":
+                    raw_deck = body.get("deck_id")
+                    deck_id = int(raw_deck) if raw_deck not in (None, "", "all") and str(raw_deck).isdigit() else None
+                    res = svc.build_anki_custom_study(
+                        deck_id=deck_id,
+                        preset=str(body.get("preset") or "forgotten_recent"),
+                        days_ahead=int(body.get("days_ahead") or 3),
+                        limit=int(body.get("limit") or 50),
+                        extra_new=int(body.get("extra_new") or 10),
+                    )
+                    self._send_json(res)
+                    return
+
                 if path == "/api/profile/age-tier":
                     res = svc.set_profile_age_tier(
                         age_tier=str(body.get("age_tier") or ""),
@@ -1672,7 +1888,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 if path == "/api/catalog/generate-collection-deck":
                     res = svc.generate_collection_deck(
                         collection_id=str(body.get("collection_id") or ""),
-                        limit=int(body.get("limit") or 25),
+                        limit=int(body.get("limit") or 1000),
                         deck_name=str(body.get("deck_name") or "") or None,
                         difficulty_level=str(body.get("difficulty_level") or "standard"),
                         shuffle_mode=str(body.get("shuffle_mode") or "sequential"),
@@ -1692,6 +1908,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         deck_name=str(body.get("deck_name") or "") or None,
                         difficulty_level=str(body.get("difficulty_level") or "standard"),
                         shuffle_mode=str(body.get("shuffle_mode") or "sequential"),
+                        limit=int(body.get("limit") or 1000),
                     )
                     self._send_json(res)
                     return
@@ -1702,7 +1919,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                         deck_name=str(body.get("deck_name") or "") or None,
                         difficulty_level=str(body.get("difficulty_level") or "mixed"),
                         shuffle_mode=str(body.get("shuffle_mode") or "interleaved"),
-                        max_cards=int(body.get("max_cards") or 120),
+                        max_cards=int(body.get("max_cards") or 1000),
                     )
                     self._send_json(res)
                     return

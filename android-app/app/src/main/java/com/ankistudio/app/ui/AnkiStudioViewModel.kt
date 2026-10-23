@@ -579,7 +579,11 @@ class AnkiStudioViewModel(
             val nowSec = System.currentTimeMillis() / 1000L
             var decks = dao.listDecks()
             if (decks.isEmpty()) {
-                val starterCards = BuiltInCurriculumCatalog.buildCollectionCards("hanja-grade:8geup")
+                val starterCards = BuiltInCurriculumCatalog.buildCollectionCards(
+                    collectionId = "hanja-grade:8geup",
+                    difficultyLevel = "mixed",
+                    targetCount = 1000
+                )
                 if (starterCards.isNotEmpty()) {
                     dao.createDeckWithGeneratedCards(
                         deckName = "🎁 무료 기초 한자 8급",
@@ -690,13 +694,20 @@ class AnkiStudioViewModel(
         viewModelScope.launch {
             var lastDeckId: Long? = null
             for (product in top3) {
+                val targetCap = maxOf(1000, product.estimatedCardCount)
                 val cards = if (product.linkKind == "textbook") {
                     BuiltInCurriculumCatalog.buildExamScopeCards(
                         textbookId = product.primaryRefId,
-                        selectedUnitIds = emptySet()
+                        selectedUnitIds = emptySet(),
+                        difficultyLevel = "mixed",
+                        targetCount = targetCap
                     )
                 } else {
-                    BuiltInCurriculumCatalog.buildCollectionCards(product.primaryRefId)
+                    BuiltInCurriculumCatalog.buildCollectionCards(
+                        collectionId = product.primaryRefId,
+                        difficultyLevel = "mixed",
+                        targetCount = targetCap
+                    )
                 }
                 if (cards.isNotEmpty()) {
                     lastDeckId = dao.createDeckWithGeneratedCards(
@@ -751,13 +762,20 @@ class AnkiStudioViewModel(
     fun purchaseBrainPack(packId: String) {
         val product = BrainPackStoreCatalog.getProductById(packId) ?: return
         viewModelScope.launch {
+            val targetCap = maxOf(1000, product.estimatedCardCount)
             val cards = if (product.linkKind == "textbook") {
                 BuiltInCurriculumCatalog.buildExamScopeCards(
                     textbookId = product.primaryRefId,
-                    selectedUnitIds = emptySet()
+                    selectedUnitIds = emptySet(),
+                    difficultyLevel = "mixed",
+                    targetCount = targetCap
                 )
             } else {
-                BuiltInCurriculumCatalog.buildCollectionCards(product.primaryRefId)
+                BuiltInCurriculumCatalog.buildCollectionCards(
+                    collectionId = product.primaryRefId,
+                    difficultyLevel = "mixed",
+                    targetCount = targetCap
+                )
             }
 
             var createdDeckId: Long? = null
@@ -897,7 +915,8 @@ class AnkiStudioViewModel(
         val cards = BuiltInCurriculumCatalog.buildCombinedExamScopeCards(
             scopes = scopes,
             difficultyLevel = state.selectedDifficultyLevel,
-            interleaveShuffle = true
+            interleaveShuffle = true,
+            targetCount = 1000
         )
         if (cards.isEmpty()) {
             _uiState.update {
@@ -950,7 +969,8 @@ class AnkiStudioViewModel(
         val cards = BuiltInCurriculumCatalog.buildExamScopeCards(
             textbookId = state.selectedTextbookId,
             selectedUnitIds = state.selectedUnitIds,
-            difficultyLevel = state.selectedDifficultyLevel
+            difficultyLevel = state.selectedDifficultyLevel,
+            targetCount = 1000
         )
         if (cards.isEmpty()) {
             _uiState.update {
@@ -1002,7 +1022,8 @@ class AnkiStudioViewModel(
         // BuiltInCurriculumCatalog.buildCollectionDeckPlan compatibility
         val cards = BuiltInCurriculumCatalog.buildCollectionCards(
             collectionId = state.selectedCollectionId,
-            difficultyLevel = state.selectedDifficultyLevel
+            difficultyLevel = state.selectedDifficultyLevel,
+            targetCount = 1000
         )
         if (cards.isEmpty()) return
         val colMeta = BuiltInCurriculumCatalog.listCollections().firstOrNull { it.collectionId == state.selectedCollectionId }

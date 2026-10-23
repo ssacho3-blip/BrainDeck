@@ -511,4 +511,30 @@ class AdaptiveQuizEngineTest {
         assertEquals("history", gapsinType.facetKey)
         assertEquals("eng_vocab_meaning", favType.facetKey)
     }
+
+    @Test
+    fun testFullScale1000CardExpansionAndStorePacks() {
+        val allPacks = com.ankistudio.domain.catalog.BrainPackStoreCatalog.products
+        assertEquals(18, allPacks.size)
+        for (pack in allPacks) {
+            assertTrue(pack.estimatedCardCount >= 1000, "Pack ${pack.packId} must have >= 1000 cards")
+        }
+
+        val fullCollection = BuiltInCurriculumCatalog.buildCollectionCards(
+            collectionId = "moe-eng:middle-1200",
+            difficultyLevel = "mixed",
+            targetCount = 1200
+        )
+        assertEquals(1200, fullCollection.size)
+        assertTrue(fullCollection.none { it.spec.frontText.contains("[핵심 변별 #") })
+
+        val fullTextbook = BuiltInCurriculumCatalog.buildExamScopeCards(
+            textbookId = "kr.mid1.eng.donga_yoon.2022",
+            selectedUnitIds = emptySet(),
+            difficultyLevel = "mixed",
+            targetCount = 1024
+        )
+        assertEquals(1024, fullTextbook.size)
+        assertTrue(fullTextbook.none { it.spec.frontText.contains("[핵심 변별 #") })
+    }
 }

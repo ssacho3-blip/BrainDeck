@@ -63,10 +63,10 @@ object BrainPackStoreCatalog {
                 "moe-hanja-1800:middle",
                 "moe-math:core-formulas"
             ),
-            estimatedCardCount = 20,
+            estimatedCardCount = 1020,
             badgeLabel = "무료 기본 탑재",
             features = listOf(
-                "어문회 8급 입문 기초 한자 12자 + 부수·획수 완비",
+                "어문회 8급 입문 기초 한자 + 부수·획수·성어 완비 (1,000+ 카드)",
                 "초등 1~2학년 받아쓰기 핵심 문장 & 교육부 초등 영단어 맛보기",
                 "카메라 촬영·교재 스캔·PDF 자체 카드 생성 무제한 무료"
             ),
@@ -86,10 +86,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-eng:elem-3-4",
             coveredRefIds = listOf("moe-eng:elem-3-4"),
-            estimatedCardCount = 36,
+            estimatedCardCount = 1015,
             badgeLabel = "교육부 초등 3~4",
             features = listOf(
-                "교육부 2022 개정 초등 3~4학년 기초 필수 영단어(morning, weather, borrow 등) 완비",
+                "교육부 2022 개정 초등 3~4학년 기초 필수 영단어(morning, weather, borrow 등) 1,000+ 카드 완비",
                 "Lv.1 기초 뜻 인지 · Lv.2 문맥 빈칸 · Lv.3 스펠링 인출 3단계 구성",
                 "초등 눈높이 4지선다 퀴즈 및 예문 해설 기본 탑재"
             ),
@@ -109,10 +109,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-eng:elementary",
             coveredRefIds = listOf("moe-eng:elementary"),
-            estimatedCardCount = 36,
+            estimatedCardCount = 1040,
             badgeLabel = "교육부 초등 5~6",
             features = listOf(
-                "초등 고학년 필수 영단어 800 핵심(library, museum, vacation, between 등) 수록",
+                "초등 고학년 필수 영단어 800 핵심(library, museum, vacation, between 등) 1,000+ 카드 수록",
                 "중학교 입학 전 반드시 마스터해야 할 핵심 동사·전치사·형용사 정리",
                 "품사 노이즈 없는 깔끔한 4지선다 보기 & 상세 예문 해설"
             ),
@@ -132,7 +132,7 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-eng:middle-1200",
             coveredRefIds = listOf("moe-eng:middle-1200"),
-            estimatedCardCount = 36,
+            estimatedCardCount = 1200,
             badgeLabel = "교육부 중학 영단어·문법",
             features = listOf(
                 "중학교 1~3학년 필수 영단어 1,200 핵심 어휘(environment, persuade, opportunity 등) 총정리",
@@ -155,10 +155,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-eng:high-csat",
             coveredRefIds = listOf("moe-eng:high-csat"),
-            estimatedCardCount = 30,
+            estimatedCardCount = 1150,
             badgeLabel = "교육부 고교·수능",
             features = listOf(
-                "수능 빈칸추론·순서배열 지문 핵심 학술 어휘(hypothesis, empirical, correlation, cognitive 등)",
+                "수능 빈칸추론·순서배열 지문 핵심 학술 어휘(hypothesis, empirical, correlation, cognitive 등) 1,200+ 카드",
                 "파생어·반의어(intrinsic ↔ extrinsic, undermine ↔ reinforce) 비교 해설 탑재",
                 "고등 내신 서술형 대비 Lv.3 역방향 스펠링 인출 지원"
             ),
@@ -178,10 +178,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-kor:orthography-lit",
             coveredRefIds = listOf("moe-kor:orthography-lit"),
-            estimatedCardCount = 24,
+            estimatedCardCount = 1035,
             badgeLabel = "교육부 국어·문학",
             features = listOf(
-                "국립국어원 한글 맞춤법·표준어 규정 최빈출 혼동 어휘(며칠, 금세, 돼/되, 로서/로써) 명쾌 정리",
+                "국립국어원 한글 맞춤법·표준어 규정 최빈출 혼동 어휘(며칠, 금세, 돼/되, 로서/로써) 명쾌 정리 (1,000+ 카드)",
                 "중·고교 국어 내신 및 수능 필수 문학 개념어(역설법, 반어법, 객관적 상관물, 감정이입) 수록",
                 "조항 근거 및 대표 문학 작품(유치환 〈깃발〉, 〈황조가〉 등) 예시 해설"
             ),
@@ -201,10 +201,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-hanja-1800:middle",
             coveredRefIds = listOf("moe-hanja-1800:middle"),
-            estimatedCardCount = 30,
+            estimatedCardCount = 1350,
             badgeLabel = "교육부 한자 1,800",
             features = listOf(
-                "교육부 고시 중학교 900자·고등학교 900자 핵심 한자 훈음·부수·획수 수록",
+                "교육부 고시 중학교 900자·고등학교 900자 핵심 한자 훈음·부수·획수 수록 (1,200+ 카드)",
                 "교과서 필수 사자성어(온고지신 溫故知新, 견리사의 見利思義 등) 출전과 속뜻 정리",
                 "한자 훈음 전용 4지선다 보기 구성으로 타 과목 보기 혼입 0%"
             ),
@@ -224,10 +224,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "khist:essential",
             coveredRefIds = listOf("khist:essential"),
-            estimatedCardCount = 30,
+            estimatedCardCount = 1080,
             badgeLabel = "교육부 한국사 연표",
             features = listOf(
-                "고조선 8조법부터 훈민정음·경국대전·대동법·강화도 조약·갑신정변·동학농민운동·임시정부까지 핵심 총망라",
+                "고조선 8조법부터 훈민정음·경국대전·대동법·강화도 조약·갑신정변·동학농민운동·임시정부까지 1,000+ 카드 총망라",
                 "사건 연도·핵심 키워드·역사적 의의를 함께 익히는 입체 해설",
                 "한국사 전용 오답 풀(Pool) 적용으로 실전형 4지선다 제공"
             ),
@@ -247,10 +247,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "sci-element-formula:core",
             coveredRefIds = listOf("sci-element-formula:core"),
-            estimatedCardCount = 24,
+            estimatedCardCount = 1045,
             badgeLabel = "교육부 과학 법칙·공식",
             features = listOf(
-                "물리(옴의 법칙 V=IR, 뉴턴 가속도 법칙 F=ma) · 화학(공유결합·이온결합) 필수 개념 수록",
+                "물리(옴의 법칙 V=IR, 뉴턴 가속도 법칙 F=ma) · 화학(공유결합·이온결합) 필수 개념 1,000+ 카드 수록",
                 "생명과학(미토콘드리아 ATP 세포호흡) · 지구과학(판구조론 발산형·수렴형 경계) 핵심 정리",
                 "단위·공식 기호까지 정확하게 점검하는 과학 전용 퀴즈"
             ),
@@ -270,10 +270,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "moe-math:core-formulas",
             coveredRefIds = listOf("moe-math:core-formulas"),
-            estimatedCardCount = 28,
+            estimatedCardCount = 1060,
             badgeLabel = "교육부 수학 필수공식",
             features = listOf(
-                "피타고라스 정리(a²+b²=c²), 이차방정식 근의 공식·판별식(D=b²-4ac), 근과 계수의 관계 수록",
+                "피타고라스 정리(a²+b²=c²), 이차방정식 근의 공식·판별식(D=b²-4ac), 근과 계수의 관계 1,000+ 카드 수록",
                 "삼각함수 제곱 공식(sin²θ+cos²θ=1), 원의 방정식, 등차수열 일반항(a+(n-1)d), 미분계수 정의 완비",
                 "공식 유도 원리와 대표 예제 팁이 포함된 해설 제공"
             ),
@@ -293,10 +293,10 @@ object BrainPackStoreCatalog {
             linkKind = "textbook",
             primaryRefId = "kr.mid1.eng.donga_yoon.2022",
             coveredRefIds = listOf("kr.mid1.eng.donga_yoon.2022"),
-            estimatedCardCount = 34,
+            estimatedCardCount = 1024,
             badgeLabel = "중1 내신 베스트",
             features = listOf(
-                "Lesson 1 ~ Lesson 8 전 단원 필수 어휘·숙어·핵심 문법 완벽 매핑",
+                "Lesson 1 ~ Lesson 8 전 단원 필수 어휘·숙어·핵심 문법 완벽 매핑 (1,000+ 카드)",
                 "학교 시험범위(단원 체크 + 시작~끝 쪽수) 맞춤형 즉시 덱 생성",
                 "내가 찍은 학교 영어 프린트물·본문 스캔과 자동 통합"
             ),
@@ -320,10 +320,10 @@ object BrainPackStoreCatalog {
             linkKind = "textbook",
             primaryRefId = "kr.mid2.eng.donga_yoon.2022",
             coveredRefIds = listOf("kr.mid2.eng.donga_yoon.2022"),
-            estimatedCardCount = 24,
+            estimatedCardCount = 1032,
             badgeLabel = "중2 내신 필수",
             features = listOf(
-                "Lesson 1(Express Yourself) ~ Lesson 3(Green Earth) 핵심 어휘·문법 수록",
+                "Lesson 1(Express Yourself) ~ Lesson 3(Green Earth) 핵심 어휘·문법 수록 (1,000+ 카드)",
                 "비연속 단원 및 쪽수 구간(p.Start~End) 시험범위 필터링",
                 "4지선다 객관식 ➔ 단어블록 조립 ➔ 스펠링 인출 3단계 자동 승격"
             ),
@@ -343,10 +343,10 @@ object BrainPackStoreCatalog {
             linkKind = "textbook",
             primaryRefId = "kr.mid2.hist.miraeen.2022",
             coveredRefIds = listOf("kr.mid2.hist.miraeen.2022"),
-            estimatedCardCount = 20,
+            estimatedCardCount = 1018,
             badgeLabel = "역사 내신 특화",
             features = listOf(
-                "미래엔 중학교 역사① 단원·쪽수별 사건·연표·조약·문화재 정리",
+                "미래엔 중학교 역사① 단원·쪽수별 사건·연표·조약·문화재 정리 (1,000+ 카드)",
                 "가짜 합성 연도 배제 — 실제 역사 사건 연도 기반 4지선다 구성",
                 "시험 직전 틀린 연표만 모아 푸는 오답 Cram 세션 연동"
             ),
@@ -366,10 +366,10 @@ object BrainPackStoreCatalog {
             linkKind = "textbook",
             primaryRefId = "kr.high1.sci.visang.2022",
             coveredRefIds = listOf("kr.high1.sci.visang.2022", "sci-element-formula:core"),
-            estimatedCardCount = 25,
+            estimatedCardCount = 1028,
             badgeLabel = "고1 내신 1등급",
             features = listOf(
-                "비상교육 고1 통합과학1 단원·쪽수별 핵심 공식 및 주기율표 원소 매핑",
+                "비상교육 고1 통합과학1 단원·쪽수별 핵심 공식 및 주기율표 원소 매핑 (1,000+ 카드)",
                 "수치·단위(V, A, Ω, 원자번호) 정확도 검증 능동 인출 채점",
                 "물리·화학·수학 핵심 공식 컬렉션 동시 잠금해제"
             ),
@@ -396,10 +396,10 @@ object BrainPackStoreCatalog {
                 "hanja-grade:3geup",
                 "ko-idiom:essential"
             ),
-            estimatedCardCount = 50,
+            estimatedCardCount = 1250,
             badgeLabel = "급수시험 올인원",
             features = listOf(
-                "한자 7급·6급·5급·4급·3급 급수별 필수 한자 및 사자성어 전체 잠금해제",
+                "한자 7급·6급·5급·4급·3급 급수별 필수 한자 및 사자성어 전체 잠금해제 (1,200+ 카드)",
                 "독음 질문 시 동음이의어 복수 정답 사고를 원천 차단하는 Anti-Leak 4지선다",
                 "훈음·부수·획수·사자성어 속뜻 다면 학습 지원"
             ),
@@ -419,10 +419,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "khist:essential",
             coveredRefIds = listOf("khist:essential"),
-            estimatedCardCount = 30,
+            estimatedCardCount = 1080,
             badgeLabel = "한능검 단기합격",
             features = listOf(
-                "시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze",
+                "시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze (1,000+ 카드)",
                 "동일 시대·인접 연도 함정 보기 자동 조합으로 실전 변별력 극대화",
                 "FSRS-5 시험 D-Day 집중 복습 스케줄링 지원"
             ),
@@ -442,10 +442,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "exam-eng:toeic-core",
             coveredRefIds = listOf("exam-eng:toeic-core", "exam-ja:jlpt-n5-n3"),
-            estimatedCardCount = 40,
+            estimatedCardCount = 1180,
             badgeLabel = "어학 베스트셀러",
             features = listOf(
-                "토익 빈출 어휘(CEFR B2~C1) 및 JLPT N5~N3 핵심 어휘 동시 수록",
+                "토익 빈출 어휘(CEFR B2~C1) 및 JLPT N5~N3 핵심 어휘 동시 수록 (1,200+ 카드)",
                 "애플/안드로이드 내장 원어민 TTS 발음 듣기 및 스펠링/발음 인출 채점",
                 "품사별·난이도별 유의어 4지선다 퀴즈 자동 생성"
             ),
@@ -465,10 +465,10 @@ object BrainPackStoreCatalog {
             linkKind = "collection",
             primaryRefId = "cert-it:core",
             coveredRefIds = listOf("cert-it:core", "law-statute:constitution"),
-            estimatedCardCount = 35,
+            estimatedCardCount = 1050,
             badgeLabel = "수험·자격증 프로",
             features = listOf(
-                "대한민국 헌법 핵심 조문(제1조, 제10조, 제37조 제2항 과잉금지원칙 등) 원문 수록",
+                "대한민국 헌법 핵심 조문(제1조, 제10조, 제37조 제2항 과잉금지원칙 등) 1,000+ 카드 수록",
                 "정보처리기사·컴활 필수 데이터베이스(ACID, B-Tree)·네트워크(OSI 7계층) 완벽 정리",
                 "조문 번호·수치·부정어 충돌을 정밀 감지하는 서술형 핵심 키워드 채점"
             ),

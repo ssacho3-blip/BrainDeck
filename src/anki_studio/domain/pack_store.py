@@ -58,7 +58,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
             "moe-hanja-1800:middle",
             "moe-math:core-formulas",
         ),
-        estimated_card_count=20,
+        estimated_card_count=1020,
         badge_label="무료 기본 탑재",
         features=(
             "어문회 8급 입문 기초 한자 12자 + 부수·획수 완비",
@@ -81,7 +81,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-eng:elem-3-4",
         covered_ref_ids=("moe-eng:elem-3-4",),
-        estimated_card_count=36,
+        estimated_card_count=1015,
         badge_label="교육부 초등 3~4",
         features=(
             "교육부 2022 개정 초등 3~4학년 기초 필수 영단어(morning, weather, borrow 등) 완비",
@@ -104,7 +104,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-eng:elementary",
         covered_ref_ids=("moe-eng:elementary",),
-        estimated_card_count=36,
+        estimated_card_count=1040,
         badge_label="교육부 초등 5~6",
         features=(
             "초등 고학년 필수 영단어 800 핵심(library, museum, vacation, between 등) 수록",
@@ -127,7 +127,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-eng:middle-1200",
         covered_ref_ids=("moe-eng:middle-1200",),
-        estimated_card_count=36,
+        estimated_card_count=1200,
         badge_label="교육부 중학 영단어·문법",
         features=(
             "중학교 1~3학년 필수 영단어 1,200 핵심 어휘(environment, persuade, opportunity 등) 총정리",
@@ -150,7 +150,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-eng:high-csat",
         covered_ref_ids=("moe-eng:high-csat",),
-        estimated_card_count=30,
+        estimated_card_count=1150,
         badge_label="교육부 고교·수능",
         features=(
             "수능 빈칸추론·순서배열 지문 핵심 학술 어휘(hypothesis, empirical, correlation, cognitive 등)",
@@ -173,7 +173,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-kor:orthography-lit",
         covered_ref_ids=("moe-kor:orthography-lit",),
-        estimated_card_count=24,
+        estimated_card_count=1035,
         badge_label="교육부 국어·문학",
         features=(
             "국립국어원 한글 맞춤법·표준어 규정 최빈출 혼동 어휘(며칠, 금세, 돼/되, 로서/로써) 명쾌 정리",
@@ -196,7 +196,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-hanja-1800:middle",
         covered_ref_ids=("moe-hanja-1800:middle",),
-        estimated_card_count=30,
+        estimated_card_count=1350,
         badge_label="교육부 한자 1,800",
         features=(
             "교육부 고시 중학교 900자·고등학교 900자 핵심 한자 훈음·부수·획수 수록",
@@ -219,7 +219,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="khist:essential",
         covered_ref_ids=("khist:essential",),
-        estimated_card_count=30,
+        estimated_card_count=1080,
         badge_label="교육부 한국사 연표",
         features=(
             "고조선 8조법부터 훈민정음·경국대전·대동법·강화도 조약·갑신정변·동학농민운동·임시정부까지 핵심 총망라",
@@ -242,7 +242,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="sci-element-formula:core",
         covered_ref_ids=("sci-element-formula:core",),
-        estimated_card_count=24,
+        estimated_card_count=1045,
         badge_label="교육부 과학 법칙·공식",
         features=(
             "물리(옴의 법칙 V=IR, 뉴턴 가속도 법칙 F=ma) · 화학(공유결합·이온결합) 필수 개념 수록",
@@ -265,7 +265,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="moe-math:core-formulas",
         covered_ref_ids=("moe-math:core-formulas",),
-        estimated_card_count=28,
+        estimated_card_count=1060,
         badge_label="교육부 수학 필수공식",
         features=(
             "피타고라스 정리(a²+b²=c²), 이차방정식 근의 공식·판별식(D=b²-4ac), 근과 계수의 관계 수록",
@@ -288,7 +288,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="textbook",
         primary_ref_id="kr.mid1.eng.donga_yoon.2022",
         covered_ref_ids=("kr.mid1.eng.donga_yoon.2022",),
-        estimated_card_count=34,
+        estimated_card_count=1024,
         badge_label="중1 내신 베스트",
         features=(
             "Lesson 1 ~ Lesson 8 전 단원 필수 어휘·숙어·핵심 문법 완벽 매핑",
@@ -315,7 +315,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="textbook",
         primary_ref_id="kr.mid2.eng.donga_yoon.2022",
         covered_ref_ids=("kr.mid2.eng.donga_yoon.2022",),
-        estimated_card_count=24,
+        estimated_card_count=1032,
         badge_label="중2 내신 필수",
         features=(
             "Lesson 1(Express Yourself) ~ Lesson 3(Green Earth) 핵심 어휘·문법 수록",
@@ -338,7 +338,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="textbook",
         primary_ref_id="kr.mid2.hist.miraeen.2022",
         covered_ref_ids=("kr.mid2.hist.miraeen.2022",),
-        estimated_card_count=20,
+        estimated_card_count=1018,
         badge_label="역사 내신 특화",
         features=(
             "미래엔 중학교 역사① 단원·쪽수별 사건·연표·조약·문화재 정리",
@@ -361,7 +361,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="textbook",
         primary_ref_id="kr.high1.sci.visang.2022",
         covered_ref_ids=("kr.high1.sci.visang.2022", "sci-element-formula:core"),
-        estimated_card_count=25,
+        estimated_card_count=1028,
         badge_label="고1 내신 1등급",
         features=(
             "비상교육 고1 통합과학1 단원·쪽수별 핵심 공식 및 주기율표 원소 매핑",
@@ -391,7 +391,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
             "hanja-grade:3geup",
             "ko-idiom:essential",
         ),
-        estimated_card_count=50,
+        estimated_card_count=1250,
         badge_label="급수시험 올인원",
         features=(
             "한자 7급·6급·5급·4급·3급 급수별 필수 한자 및 사자성어 전체 잠금해제",
@@ -414,7 +414,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="khist:essential",
         covered_ref_ids=("khist:essential",),
-        estimated_card_count=30,
+        estimated_card_count=1080,
         badge_label="한능검 단기합격",
         features=(
             "시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze",
@@ -437,7 +437,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="exam-eng:toeic-core",
         covered_ref_ids=("exam-eng:toeic-core", "exam-ja:jlpt-n5-n3"),
-        estimated_card_count=40,
+        estimated_card_count=1180,
         badge_label="어학 베스트셀러",
         features=(
             "토익 पार्ट 5~7 빈출 어휘(CEFR B2~C1) 및 JLPT N5~N3 핵심 어휘 동시 수록",
@@ -460,7 +460,7 @@ BRAINPACK_CATALOG: tuple[BrainPackProduct, ...] = (
         link_kind="collection",
         primary_ref_id="cert-it:core",
         covered_ref_ids=("cert-it:core", "law-statute:constitution"),
-        estimated_card_count=35,
+        estimated_card_count=1050,
         badge_label="수험·자격증 프로",
         features=(
             "대한민국 헌법 핵심 조문(제1조, 제10조, 제37조 제2항 과잉금지원칙 등) 원문 수록",

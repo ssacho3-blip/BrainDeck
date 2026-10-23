@@ -330,6 +330,33 @@
         tap_blocks: String(target).split(/\s+/).filter(Boolean),
       };
     }
+    if (path.startsWith("/api/study-plan")) {
+      if (vm && typeof vm.computeAnkiStudyPlan === "function") {
+        const cards = state.rawDueCards || [];
+        const total = Math.max(cards.length, 1020);
+        const plan = vm.computeAnkiStudyPlan({
+          total_cards: total,
+          new_count: total,
+          target_days: Number(p.target_days || 30),
+          daily_minutes_budget: Number(p.daily_minutes_budget || 30),
+        });
+        return { ok: true, standalone: true, plan };
+      }
+    }
+    if (path.startsWith("/api/cards/action")) {
+      const card = currentCard() || { card_id: p.card_id, tags: [] };
+      if (vm && typeof vm.applyAnkiCardAction === "function") {
+        const updated = vm.applyAnkiCardAction(card, p.action, { flag: p.flag, due_days: p.due_days });
+        return { ok: true, standalone: true, card_id: p.card_id, action: p.action, card: updated };
+      }
+    }
+    if (path.startsWith("/api/custom-study")) {
+      const cards = (state.rawDueCards && state.rawDueCards.length > 0) ? state.rawDueCards : (state.dueCards || []);
+      if (vm && typeof vm.buildCustomStudySession === "function") {
+        const sess = vm.buildCustomStudySession(cards, p);
+        return Object.assign({ ok: true, standalone: true }, sess);
+      }
+    }
     return { ok: true, standalone: true };
   }
 
@@ -1901,7 +1928,7 @@
         const diffLevel = getCurriculumDiff();
         state.combinedExamScopes.push({
           collection_id: colSel.value,
-          limit: 20,
+          limit: 350,
           difficulty_level: diffLevel,
           label: `📚 ${(cMeta && cMeta.level_label) || colSel.value}`,
         });
@@ -1931,7 +1958,7 @@
         unlockedCols.slice(0, 3).forEach((c) => {
           state.combinedExamScopes.push({
             collection_id: c.collection_id,
-            limit: 12,
+            limit: 350,
             difficulty_level: diffLevel,
             label: `📚 ${c.level_label}`,
           });
@@ -1967,7 +1994,7 @@
           deck_name: customName || null,
           difficulty_level: diffLevel,
           shuffle_mode: "interleaved",
-          max_cards: 120,
+          max_cards: 1000,
         });
         if (res && res.ok) {
           if (statusMsgEl) {
@@ -2011,6 +2038,7 @@
           page_end: pEnd ? Number(pEnd) : null,
           difficulty_level: diffLevel,
           shuffle_mode: "interleaved",
+          limit: 1000,
         });
         if (res && res.ok) {
           if (statusMsgEl) {
@@ -2037,7 +2065,7 @@
         }
         const res = await apiPost("/api/catalog/generate-collection-deck", {
           collection_id: colSel.value,
-          limit: 30,
+          limit: 1000,
           difficulty_level: diffLevel,
           shuffle_mode: "interleaved",
         });
@@ -2674,6 +2702,87 @@
         switchCurriculumSegment(btn.getAttribute("data-curr-seg") || "textbook");
       });
     });
+
+    // BrainDeck v3 Study Planner & Custom Study Suite bindings
+    const btnComputePlan = el("btn-compute-study-plan");
+    if (btnComputePlan) {
+      btnComputePlan.addEventListener("click", async () => {
+        const daysSel = el("bd-plan-days");
+        const minsSel = el("bd-plan-minutes");
+        const targetDays = Number((daysSel && daysSel.value) || 30);
+        const dailyMinutes = Number((minsSel && minsSel.value) || 30);
+        const res = await apiPost("/api/study-plan", {
+          deck_id: state.selectedDeckId || null,
+          target_days: targetDays,
+          daily_minutes_budget: dailyMinutes,
+        });
+        const banner = el("bd-study-plan-banner");
+        if (res && res.ok && res.plan && banner) {
+          const pl = res.plan;
+          const badgeTone =
+            pl.status === "FEASIBLE"
+              ? "✅ 완주 가능 (FEASIBLE)"
+              : pl.status === "TIGHT_SCHEDULE"
+              ? "⚠️ 타이트한 일정 (TIGHT)"
+              : "🚨 과부하 경고 (OVERLOAD)";
+          banner.style.display = "block";
+          banner.textContent =
+            `📅 [D-${pl.target_days} 맞춤 학습 계획 · ${badgeTone}]\n` +
+            `• 전체 ${pl.total_cards}장 중 하루 새 카드 권장: ${pl.recommended_daily_new}장/일 (진도 ${pl.new_intake_days}일 + 총정리 복습 ${pl.consolidation_days}일)\n` +
+            `• 예상 소요 시간: 일평균 ${pl.avg_daily_minutes}분 / 피크 ${pl.peak_daily_minutes}분 (권장 최대 복습 상한: ${pl.recommended_max_reviews}장/일)\n` +
+            `💡 코칭: ${(pl.recommendations && pl.recommendations[0]) || ""}`;
+          showUxToast(
+            `📅 D-${pl.target_days} 학습계획 산출 완료: 하루 새 카드 ${pl.recommended_daily_new}장 · 평균 ${pl.avg_daily_minutes}분/일`,
+            pl.status === "FEASIBLE" ? "emerald" : "amber"
+          );
+        }
+      });
+    }
+
+    const btnRunCustomStudy = el("btn-run-custom-study");
+    if (btnRunCustomStudy) {
+      btnRunCustomStudy.addEventListener("click", async () => {
+        const presetSel = el("bd-custom-study-preset");
+        const preset = (presetSel && presetSel.value) || "forgotten_recent";
+        const res = await apiPost("/api/custom-study", {
+          deck_id: state.selectedDeckId || null,
+          preset,
+          days_ahead: 3,
+          limit: 50,
+          extra_new: 15,
+        });
+        if (res && res.ok) {
+          if (Array.isArray(res.cards) && res.cards.length > 0) {
+            state.dueCards = res.cards.map(enrichStandaloneCard);
+            state.currentIndex = 0;
+            state.isCramSandbox = res.reschedule === false;
+            renderCurrentCard();
+            showUxToast(`⚡ ${res.title} (${res.cards.length}장) 세션이 시작되었습니다!`, "emerald");
+          } else {
+            showUxToast(`ℹ️ 선택한 맞춤학습 조건(${res.title || preset})에 해당하는 카드가 없습니다.`, "amber");
+          }
+        }
+      });
+    }
+
+    const selectCardFlag = el("select-card-flag");
+    if (selectCardFlag) {
+      selectCardFlag.addEventListener("change", async () => {
+        const card = currentCard();
+        if (!card) return;
+        const flagVal = Number(selectCardFlag.value || 0);
+        const res = await apiPost("/api/cards/action", {
+          card_id: card.card_id,
+          action: "set_flag",
+          flag: flagVal,
+        });
+        if (res && res.ok && res.card) {
+          card.flag = res.card.flag;
+          card.flag_label = res.card.flag_label;
+          showUxToast(`🚩 카드 #${card.card_id} 플래그 지정: ${res.card.flag_label}`, "accent");
+        }
+      });
+    }
 
     loadBrainPackStoreAndBind();
     loadCatalogAndBind();

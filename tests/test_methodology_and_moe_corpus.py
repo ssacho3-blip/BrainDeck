@@ -166,9 +166,9 @@ def test_layer2_state_transition_matrix_backend_and_http_reset() -> None:
         assert res_create["ok"] is True
         deck_id = res_create["deck_id"]
 
-        due_initial = svc.get_due_cards(deck_id=deck_id, shuffle_mode="sequential")
+        due_initial = svc.get_due_cards(deck_id=deck_id, limit=1500, shuffle_mode="sequential")
         total_cards = len(due_initial["cards"])
-        assert total_cards >= 12
+        assert total_cards >= 1000
         first_card = due_initial["cards"][0]
         assert first_card["state"] == "new"
         assert first_card["reps"] == 0
@@ -180,13 +180,13 @@ def test_layer2_state_transition_matrix_backend_and_http_reset() -> None:
             assert rev_res["ok"] is True
             assert rev_res["memory"]["reps"] == 1
 
-        due_after_3 = svc.get_due_cards(deck_id=deck_id, shuffle_mode="sequential")
+        due_after_3 = svc.get_due_cards(deck_id=deck_id, limit=1500, shuffle_mode="sequential")
         assert len(due_after_3["cards"]) == total_cards - 3
 
         # 3. Transition RATED -> UNDO (restores 1 card)
         undo_res = svc.undo_review()
         assert undo_res["ok"] is True
-        due_after_undo = svc.get_due_cards(deck_id=deck_id, shuffle_mode="sequential")
+        due_after_undo = svc.get_due_cards(deck_id=deck_id, limit=1500, shuffle_mode="sequential")
         assert len(due_after_undo["cards"]) == total_cards - 2
 
         # 4. Transition ANY_STATE -> RESET via HTTP POST /api/reset
@@ -219,7 +219,7 @@ def test_layer2_state_transition_matrix_backend_and_http_reset() -> None:
         assert reset_payload["ok"] is True
         assert reset_payload["reset_count"] == total_cards
 
-        due_after_reset = svc.get_due_cards(deck_id=deck_id, shuffle_mode="sequential")
+        due_after_reset = svc.get_due_cards(deck_id=deck_id, limit=1500, shuffle_mode="sequential")
         assert len(due_after_reset["cards"]) == total_cards
         for c in due_after_reset["cards"]:
             assert c["state"] == "new"
@@ -332,8 +332,12 @@ def test_layer4_tri_engine_parity_js_standalone_moe_and_reset() -> None:
       auto_create_deck: true,
       payment_token: "BDPAY-MATH-TEST"
     }});
-    if (!buyMath.ok || !buyMath.mounted_deck || buyMath.mounted_deck.saved_count < 5) {{
-      throw new Error("Failed purchasing pack.moe.math.core_formula in standaloneEngine: " + JSON.stringify(buyMath));
+    if (!buyMath.ok || !buyMath.mounted_deck || buyMath.mounted_deck.saved_count < 1000) {{
+      throw new Error("Expected >= 1000 cards when purchasing pack.moe.math.core_formula in standaloneEngine, got: " + JSON.stringify(buyMath));
+    }}
+    const mathDue = engine.getDueCards({{ deck_id: buyMath.mounted_deck.deck_id }});
+    if (!mathDue.ok || mathDue.count < 1000) {{
+      throw new Error("Expected >= 1000 due cards in standaloneEngine, got: " + mathDue.count);
     }}
 
     // Verify math & grammar classification parity
@@ -531,4 +535,181 @@ def test_layer5_real_playwright_browser_e2e_reset_and_moe_journey() -> None:
         finally:
             server.shutdown()
             server.server_close()
+
+
+def _check_history_card_spoiler(card: Dict[str, Any], *, check_parenthetical: bool = True) -> None:
+    from anki_studio.domain.full_scale_corpus import has_history_front_spoiler
+
+    shown_q = str(card.get("rendered_question") or card.get("front_text") or "")
+    target_ans = str(card.get("target_answer") or "").strip()
+    term = str(card.get("term") or "").strip()
+    if has_history_front_spoiler(shown_q, target_ans, term, check_parenthetical=check_parenthetical):
+        raise AssertionError(f"History spoiler detected: answer='{target_ans}' term='{term}' leaked in '{shown_q}'")
+
+
+def test_layer6_full_scale_1000_card_deck_contract() -> None:
+    """Verify:
+    1) Every BrainPack product and REF_CANONICAL_CARD_COUNTS ref has >= 1,000 unique fact keys, terms, and front_texts,
+       with zero `[핵심 변별 #N]` or `(#N)` synthetic suffixes, zero coefficient swaps, and zero particle clones.
+    2) 4-Surface Catalog Map Parity: `pack_store.py` == `static/viewmodel.js` == `docs/viewmodel.js` == `BrainPackStoreCatalog.kt` == `PACK_CANONICAL_CARD_COUNTS`.
+    3) Korean History spoiler detector (`has_history_front_spoiler`) catches parenthetical token spoilers (`check_parenthetical=True` -> True/raises, `check_parenthetical=False` -> False), and passes on all 1,080 Korean History cards (`spoilers=0`).
+    4) `get_due_cards` default session limit is 50 while full deck size (`saved_count`) is >= 1,000 and `get_due_cards(limit=1500)` returns all `saved_count` cards.
+    """
+    import re
+    from anki_studio.domain.full_scale_corpus import (
+        PACK_CANONICAL_CARD_COUNTS,
+        REF_CANONICAL_CARD_COUNTS,
+        build_full_scale_deck_cards,
+        has_history_front_spoiler,
+    )
+    from anki_studio.domain.pack_store import list_store_catalog
+
+    # 0) Negative test for Korean History spoiler detector (including parenthetical token branch sensitivity)
+    with pytest.raises(AssertionError, match="History spoiler detected"):
+        _check_history_card_spoiler(
+            {
+                "front_text": "1443년 세종이 창제한 훈민정음은 무엇인가?",
+                "target_answer": "훈민정음",
+            }
+        )
+    # Parenthetical token negative test: "훈민정음" is NOT in front_text, only parenthetical token "세종대왕" is!
+    parenthetical_spoiler_card = {
+        "front_text": "🏛️ [한국사 핵심] 1443년 세종대왕이 창제한 우리 고유의 문자는?",
+        "target_answer": "훈민정음 (세종대왕)",
+        "term": "훈민정음",
+    }
+    assert (
+        has_history_front_spoiler(
+            parenthetical_spoiler_card["front_text"],
+            parenthetical_spoiler_card["target_answer"],
+            parenthetical_spoiler_card["term"],
+            check_parenthetical=False,
+        )
+        is False
+    ), "Without parenthetical check, parenthetical-only spoiler must NOT be detected"
+    assert (
+        has_history_front_spoiler(
+            parenthetical_spoiler_card["front_text"],
+            parenthetical_spoiler_card["target_answer"],
+            parenthetical_spoiler_card["term"],
+            check_parenthetical=True,
+        )
+        is True
+    ), "With parenthetical check enabled, parenthetical token spoiler MUST be detected"
+    with pytest.raises(AssertionError, match="History spoiler detected"):
+        _check_history_card_spoiler(parenthetical_spoiler_card, check_parenthetical=True)
+
+    # 1) 4-Surface Catalog Map Parity (pack_store.py == static/viewmodel.js == docs/viewmodel.js == BrainPackStoreCatalog.kt)
+    static_vm_bytes = (STATIC_DIR / "viewmodel.js").read_bytes()
+    docs_vm_bytes = (REPO_ROOT / "docs" / "viewmodel.js").read_bytes()
+    assert static_vm_bytes == docs_vm_bytes, "static/viewmodel.js and docs/viewmodel.js drifted!"
+
+    all_packs = list_store_catalog(category_filter="all")["packs"]
+    assert len(all_packs) == 18
+    py_map = {p["pack_id"]: p["estimated_card_count"] for p in all_packs}
+
+    static_vm_text = static_vm_bytes.decode("utf-8")
+    docs_vm_text = docs_vm_bytes.decode("utf-8")
+    static_vm_map = {
+        m.group(1): int(m.group(2))
+        for m in re.finditer(r'pack_id:\s*"([^"]+)"[\s\S]*?estimated_card_count:\s*(\d+)', static_vm_text)
+    }
+    docs_vm_map = {
+        m.group(1): int(m.group(2))
+        for m in re.finditer(r'pack_id:\s*"([^"]+)"[\s\S]*?estimated_card_count:\s*(\d+)', docs_vm_text)
+    }
+    kt_text = (
+        REPO_ROOT
+        / "android-app"
+        / "domain"
+        / "src"
+        / "main"
+        / "kotlin"
+        / "com"
+        / "ankistudio"
+        / "domain"
+        / "catalog"
+        / "BrainPackStoreCatalog.kt"
+    ).read_text(encoding="utf-8")
+    kt_map = {
+        m.group(1): int(m.group(2))
+        for m in re.finditer(r'packId\s*=\s*"([^"]+)"[\s\S]*?estimatedCardCount\s*=\s*(\d+)', kt_text)
+    }
+
+    assert py_map == PACK_CANONICAL_CARD_COUNTS
+    assert static_vm_map == PACK_CANONICAL_CARD_COUNTS
+    assert docs_vm_map == PACK_CANONICAL_CARD_COUNTS
+    assert kt_map == PACK_CANONICAL_CARD_COUNTS
+
+    # Verify all 17 REF_CANONICAL_CARD_COUNTS and all 18 packs have 100% unique fact_keys, terms, fronts, and clean tail[-50:]
+    for ref_id, expected_cnt in REF_CANONICAL_CARD_COUNTS.items():
+        corpus_cards = build_full_scale_deck_cards(ref_id, target_count=expected_cnt)
+        assert len(corpus_cards) == expected_cnt >= 1000
+        assert len({c["fact_key"] for c in corpus_cards}) == expected_cnt, f"Duplicate fact_keys in {ref_id}"
+        assert len({c["term"] for c in corpus_cards}) == expected_cnt, f"Duplicate terms in {ref_id}"
+        assert len({c["front_text"] for c in corpus_cards}) == expected_cnt, f"Duplicate front_text in {ref_id}"
+        for c in corpus_cards[-50:]:
+            assert "[핵심 변별 #" not in c["front_text"]
+            assert not re.search(r"\(#\d+\)", c["front_text"])
+            assert not re.search(r"#\d+", c["term"])
+        if "hist" in ref_id:
+            for c in corpus_cards:
+                _check_history_card_spoiler(c, check_parenthetical=True)
+
+    for pack in all_packs:
+        pid = pack["pack_id"]
+        expected_cnt = PACK_CANONICAL_CARD_COUNTS[pid]
+        corpus_cards = build_full_scale_deck_cards(pack["primary_ref_id"], target_count=expected_cnt)
+        assert len(corpus_cards) == expected_cnt
+        assert len({c["fact_key"] for c in corpus_cards}) == expected_cnt
+        assert len({c["term"] for c in corpus_cards}) == expected_cnt
+        assert len({c["front_text"] for c in corpus_cards}) == expected_cnt
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "full_scale_1000.sqlite3"
+        svc = AnkiStudioService(db_path=db_path, seed_defaults=False)
+
+        # 2) Purchase a store pack: deck saved_count == 1200, while default session get_due_cards limit == 50
+        res_pack = svc.purchase_store_pack(
+            pack_id="pack.moe.eng.mid1200",
+            payment_token="BDPAY-1000-TEST",
+            auto_create_deck=True,
+        )
+        assert res_pack["ok"] is True
+        mounted = res_pack["mounted_deck"]
+        assert mounted["saved_count"] == 1200
+        due_session = svc.get_due_cards(deck_id=mounted["deck_id"])
+        assert due_session["count"] == 50
+        due_all = svc.get_due_cards(deck_id=mounted["deck_id"], limit=1500)
+        assert due_all["count"] == 1200
+
+        # 3) Purchase Korean History pack and verify 1,080 cards + zero front spoiler across all 1,080 cards
+        hist_pack = svc.purchase_store_pack(
+            pack_id="pack.moe.hist.essential",
+            payment_token="BDPAY-HIST-1000",
+            auto_create_deck=True,
+        )
+        assert hist_pack["ok"] is True
+        col_res = hist_pack["mounted_deck"]
+        assert col_res["saved_count"] == 1080
+        khist_due = svc.get_due_cards(deck_id=col_res["deck_id"], limit=1500)
+        assert khist_due["count"] == 1080
+        for c in khist_due["cards"]:
+            _check_history_card_spoiler(c)
+
+        # 4) Purchase textbook pack & generate an exam scope deck with limit=1000 -> canonical 1024 cards
+        svc.purchase_store_pack(
+            pack_id="pack.mid1.eng.donga_yoon.full",
+            payment_token="BDPAY-TB-1000",
+            auto_create_deck=False,
+        )
+        tb_res = svc.generate_exam_scope_deck(
+            textbook_id="kr.mid1.eng.donga_yoon.2022",
+            unit_ids=["kr.mid1.eng.donga_yoon.2022:U01"],
+            difficulty_level="mixed",
+            limit=1000,
+        )
+        assert tb_res["ok"] is True
+        assert tb_res["saved_count"] == 1024
+
 

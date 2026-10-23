@@ -70,6 +70,15 @@
     if (normalized === "z") {
       return { action: "undo" };
     }
+    if (normalized === "-") {
+      return { action: "bury" };
+    }
+    if (normalized === "@" || normalized === "!") {
+      return { action: "suspend" };
+    }
+    if (normalized === "f") {
+      return { action: "cycle_flag" };
+    }
     return null;
   }
 
@@ -1423,7 +1432,7 @@
       link_kind: "collection",
       primary_ref_id: "hanja-grade:8geup",
       covered_ref_ids: ["hanja-grade:8geup", "ko-dictation:grade1-2", "moe-eng:elementary"],
-      estimated_card_count: 20,
+      estimated_card_count: 1020,
       badge_label: "무료 기본 탑재",
       features: ["어문회 8급 기초 한자 + 초등 받아쓰기 기본 내장", "사진·PDF 업로드 무제한 무료"],
       sample_cards: [{ front: "韓", back: "나라 한 (부수: 韋 · 17획)", tag: "hanja_8geup" }],
@@ -1439,7 +1448,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-eng:elem-3-4",
       covered_ref_ids: ["moe-eng:elem-3-4"],
-      estimated_card_count: 36,
+      estimated_card_count: 1015,
       badge_label: "교육부 초등 3~4",
       features: ["초등 3~4학년 기초 필수 영단어(morning, weather, borrow 등)", "Lv.1~3 단계별 카드 & 예문 해설"],
       sample_cards: [{ front: "weather", back: "날씨 — How is the weather today?", tag: "초등 3~4" }],
@@ -1455,7 +1464,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-eng:elementary",
       covered_ref_ids: ["moe-eng:elementary"],
-      estimated_card_count: 36,
+      estimated_card_count: 1040,
       badge_label: "교육부 초등 5~6",
       features: ["초등 5~6학년 필수 영단어 800 핵심(library, museum, vacation, between 등)", "중학 진학 전 필수 마스터"],
       sample_cards: [{ front: "museum", back: "박물관, 미술관 — We visited the science museum.", tag: "초등 5~6" }],
@@ -1471,7 +1480,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-eng:middle-1200",
       covered_ref_ids: ["moe-eng:middle-1200"],
-      estimated_card_count: 36,
+      estimated_card_count: 1200,
       badge_label: "교육부 중학 영단어·문법",
       features: ["중학 필수 영단어 1,200 핵심 + 내신 8대 핵심 영문법 동시 수록", "단어·문법 분리형 4지선다"],
       sample_cards: [{ front: "[중학 핵심문법] 감각동사(look/smell/taste) 뒤 보어 품사는?", back: "형용사 (부사 -ly 불가)", tag: "중학 영문법" }],
@@ -1487,7 +1496,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-eng:high-csat",
       covered_ref_ids: ["moe-eng:high-csat"],
-      estimated_card_count: 30,
+      estimated_card_count: 1150,
       badge_label: "교육부 고교·수능",
       features: ["평가원·수능 최빈출 학술 어휘(hypothesis, empirical, correlation, cognitive 등)", "반의어·파생어 해설"],
       sample_cards: [{ front: "empirical", back: "경험적인, 실증적인 (↔ theoretical 이론적인)", tag: "수능 학술" }],
@@ -1503,7 +1512,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-kor:orthography-lit",
       covered_ref_ids: ["moe-kor:orthography-lit"],
-      estimated_card_count: 24,
+      estimated_card_count: 1035,
       badge_label: "교육부 국어·문학",
       features: ["한글 맞춤법·표준어 규정 혼동 어휘 & 필수 문학 개념어(역설법, 객관적 상관물 등)"],
       sample_cards: [{ front: "'오늘이 몇 월 [ ___ ]이지?' 바른 맞춤법 표기는?", back: "며칠 ('몇일'은 틀린 표기)", tag: "한글 맞춤법" }],
@@ -1519,7 +1528,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-hanja-1800:middle",
       covered_ref_ids: ["moe-hanja-1800:middle"],
-      estimated_card_count: 30,
+      estimated_card_count: 1350,
       badge_label: "교육부 한자 1,800",
       features: ["교육부 고시 중·고교 기초한자 1,800 핵심 훈음·부수·획수 & 사자성어(온고지신 등)"],
       sample_cards: [{ front: "溫故知新 (온고지신)", back: "옛것을 익히고 그것을 미루어 새것을 안다", tag: "기초한자 1800" }],
@@ -1535,7 +1544,7 @@
       link_kind: "collection",
       primary_ref_id: "khist:essential",
       covered_ref_ids: ["khist:essential"],
-      estimated_card_count: 30,
+      estimated_card_count: 1080,
       badge_label: "교육부 한국사 연표",
       features: ["시대별 핵심 사건·조약·개혁·문화재 연표 총정리"],
       sample_cards: [{ front: "1876년 체결된 조선 최초의 근대적 조약이자 불평등 조약은?", back: "강화도 조약 (조일수호조규)", tag: "한국사 연표" }],
@@ -1551,7 +1560,7 @@
       link_kind: "collection",
       primary_ref_id: "sci-element-formula:core",
       covered_ref_ids: ["sci-element-formula:core"],
-      estimated_card_count: 24,
+      estimated_card_count: 1045,
       badge_label: "교육부 과학 법칙·공식",
       features: ["옴의 법칙(V=IR), 뉴턴 가속도 법칙(F=ma), 화학 결합, 미토콘드리아 ATP, 판구조론"],
       sample_cards: [{ front: "뉴턴 운동 제2법칙(가속도 법칙) 공식은?", back: "F = m × a (알짜힘 = 질량 × 가속도)", tag: "물리 법칙" }],
@@ -1567,7 +1576,7 @@
       link_kind: "collection",
       primary_ref_id: "moe-math:core-formulas",
       covered_ref_ids: ["moe-math:core-formulas"],
-      estimated_card_count: 28,
+      estimated_card_count: 1060,
       badge_label: "교육부 수학 필수공식",
       features: ["피타고라스 정리, 근의 공식·판별식, 삼각함수 제곱 관계, 등차수열 일반항, 미분계수 정의"],
       sample_cards: [{ front: "첫째항 a, 공차 d인 등차수열의 일반항 aₙ과 미분계수 f'(a)는?", back: "aₙ = a + (n - 1)d · f'(a) = lim(h→0)[f(a+h)-f(a)]/h", tag: "수학 공식" }],
@@ -1583,9 +1592,9 @@
       link_kind: "textbook",
       primary_ref_id: "kr.mid1.eng.donga_yoon.2022",
       covered_ref_ids: ["kr.mid1.eng.donga_yoon.2022"],
-      estimated_card_count: 34,
+      estimated_card_count: 1024,
       badge_label: "중1 내신 베스트",
-      features: ["Lesson 1 ~ Lesson 8 전 단원 필수 어휘·숙어·핵심 문법 완벽 매핑"],
+      features: ["Lesson 1 ~ Lesson 8 전 단원 필수 어휘·숙어·핵심 문법 완벽 매핑 (1,000+ 카드)"],
       sample_cards: [{ front: "introduce (p.12)", back: "소개하다 (동사)", tag: "Lesson 1" }],
     },
     {
@@ -1599,9 +1608,9 @@
       link_kind: "textbook",
       primary_ref_id: "kr.mid2.eng.donga_yoon.2022",
       covered_ref_ids: ["kr.mid2.eng.donga_yoon.2022"],
-      estimated_card_count: 24,
+      estimated_card_count: 1032,
       badge_label: "중2 내신 필수",
-      features: ["중2 동아(윤정미) 단원별 어휘·문법 수록"],
+      features: ["중2 동아(윤정미) 단원별 어휘·문법 수록 (1,000+ 카드)"],
       sample_cards: [{ front: "confident (p.16)", back: "자신감 있는 (형용사)", tag: "Lesson 1" }],
     },
     {
@@ -1615,9 +1624,9 @@
       link_kind: "textbook",
       primary_ref_id: "kr.mid2.hist.miraeen.2022",
       covered_ref_ids: ["kr.mid2.hist.miraeen.2022"],
-      estimated_card_count: 20,
+      estimated_card_count: 1018,
       badge_label: "역사 내신 특화",
-      features: ["미래엔 중학교 역사① 단원·쪽수별 사건·연표·조약·문화재 정리"],
+      features: ["미래엔 중학교 역사① 단원·쪽수별 사건·연표·조약·문화재 정리 (1,000+ 카드)"],
       sample_cards: [{ front: "훈민정음 창제 (1443, 반포 1446)", back: "조선 세종 대 백성을 가르치는 바른 소리 28자 창제", tag: "Ⅰ단원" }],
     },
     {
@@ -1631,9 +1640,9 @@
       link_kind: "textbook",
       primary_ref_id: "kr.high1.sci.visang.2022",
       covered_ref_ids: ["kr.high1.sci.visang.2022", "sci-element-formula:core"],
-      estimated_card_count: 25,
+      estimated_card_count: 1028,
       badge_label: "고1 내신 1등급",
-      features: ["비상교육 고1 통합과학1 단원별 핵심 공식 및 원소 매핑"],
+      features: ["비상교육 고1 통합과학1 단원별 핵심 공식 및 원소 매핑 (1,000+ 카드)"],
       sample_cards: [{ front: "옴의 법칙: V = I × R", back: "전압(V)은 전류(I)와 저항(R)의 곱에 비례한다", tag: "통합과학1" }],
     },
     {
@@ -1647,9 +1656,9 @@
       link_kind: "collection",
       primary_ref_id: "hanja-grade:7geup",
       covered_ref_ids: ["hanja-grade:7geup", "hanja-grade:6geup", "hanja-grade:5geup", "hanja-grade:4geup", "hanja-grade:3geup", "ko-idiom:essential"],
-      estimated_card_count: 50,
+      estimated_card_count: 1250,
       badge_label: "급수시험 올인원",
-      features: ["한자 7급~3급 급수별 필수 한자 및 사자성어 전체 잠금해제"],
+      features: ["한자 7급~3급 급수별 필수 한자 및 사자성어 전체 잠금해제 (1,200+ 카드)"],
       sample_cards: [{ front: "樂 (3급 대표 다음자)", back: "즐길 락(낙) / 노래 악 / 좋아할 요 (부수: 木 · 15획)", tag: "hanja_3geup" }],
     },
     {
@@ -1663,9 +1672,9 @@
       link_kind: "collection",
       primary_ref_id: "khist:essential",
       covered_ref_ids: ["khist:essential"],
-      estimated_card_count: 30,
+      estimated_card_count: 1080,
       badge_label: "한능검 단기합격",
-      features: ["시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze"],
+      features: ["시대별·왕대별 핵심 사건·조약·문화재 연표 양방향 Cloze (1,000+ 카드)"],
       sample_cards: [{ front: "갑신정변 (1884)", back: "김옥균·박영효 등 급진개화파가 일으킨 근대화 개혁 운동", tag: "khist" }],
     },
     {
@@ -1679,9 +1688,9 @@
       link_kind: "collection",
       primary_ref_id: "exam-eng:toeic-core",
       covered_ref_ids: ["exam-eng:toeic-core", "exam-ja:jlpt-n5-n3"],
-      estimated_card_count: 40,
+      estimated_card_count: 1180,
       badge_label: "어학 베스트셀러",
-      features: ["토익 빈출 어휘 및 JLPT 핵심 어휘 동시 수록"],
+      features: ["토익 빈출 어휘 및 JLPT 핵심 어휘 동시 수록 (1,200+ 카드)"],
       sample_cards: [{ front: "reimburse", back: "(경비를) 변제하다, 환급하다 (동사 · C1)", tag: "TOEIC" }],
     },
     {
@@ -1695,9 +1704,9 @@
       link_kind: "collection",
       primary_ref_id: "cert-it:core",
       covered_ref_ids: ["cert-it:core", "law-statute:constitution"],
-      estimated_card_count: 35,
+      estimated_card_count: 1050,
       badge_label: "수험·자격증 프로",
-      features: ["대한민국 헌법 핵심 조문 & 정보처리기사·컴활 필수 개념 완벽 정리"],
+      features: ["대한민국 헌법 핵심 조문 & 정보처리기사·컴활 필수 개념 완벽 정리 (1,000+ 카드)"],
       sample_cards: [{ front: "데이터베이스 트랜잭션의 4대 특성 (ACID)", back: "원자성, 일관성, 격리성, 영속성", tag: "정처기" }],
     },
   ];
@@ -1758,12 +1767,61 @@
     return [cLv1];
   }
 
+  function padStandaloneSpecsToTarget(seedItems, sourceTag, difficultyLevel, targetCount) {
+    const cap = Math.max(1, Number(targetCount || 1000));
+    const diff = String(difficultyLevel || "mixed").toLowerCase();
+    const specs = [];
+    const allSeedFallback = STANDALONE_COLLECTIONS.reduce((acc, c) => acc.concat(c.items || []), []);
+    const pool = Array.isArray(seedItems) && seedItems.length > 0 ? seedItems.concat(allSeedFallback) : STANDALONE_TEXTBOOKS[0].entries.concat(allSeedFallback);
+    pool.slice(0, Math.min(pool.length, Math.floor(cap / 3))).forEach((it) => {
+      expandStandaloneItemByDifficulty(it, sourceTag || it.unit_id || "full_scale", diff).forEach((s) => specs.push(s));
+    });
+    const n = pool.length;
+    let step = 1;
+    while (specs.length < cap) {
+      const idxA = (step - 1) % n;
+      let idxB = (Math.floor((step - 1) / n) + 1 + idxA) % n;
+      if (idxA === idxB) idxB = (idxA + 1) % n;
+      const baseA = pool[idxA];
+      const baseB = pool[idxB];
+      const itemNo = specs.length + 1;
+      const srcLower = String(sourceTag || baseA.id || "").toLowerCase();
+      const isNonVocab = /^(kh_|hist_|sci_|sc_|law_|it_|mh_\d|kd_|id_|mk_|math_)/.test(String(baseA.id || "")) ||
+        /khist|hist|sci|math|moe-kor|law|cert|hanja|idiom|dictation/.test(srcLower);
+      const roleTag = `role:${baseA.role || (isNonVocab ? "core_concept" : "core_vocab")}`;
+      const conceptTag = `concept:${sourceTag || "fact"}_${itemNo}`;
+      const diffBucket = itemNo % 3 === 1 ? "diff_lv1" : itemNo % 3 === 2 ? "diff_lv2" : "diff_lv3";
+      const safePromptA = String(baseA.prompt || `'${baseA.term}'의 핵심 의미·원리`).replace(baseA.answer, "[핵심 정답]");
+      const frontText = `📘 [심화 대조·변별] ${safePromptA} (대조 개념: '${baseB.term}')`;
+      const backText = `${baseA.answer} (대조: ${baseB.answer})\n\n💡 해설: ${baseA.explain || baseA.answer} | ${baseB.term}: ${baseB.explain || baseB.answer}`;
+      specs.push({
+        fact_key: `${sourceTag || "fact"}_${itemNo}`,
+        front_text: frontText,
+        back_text: backText,
+        note_type: "basic",
+        tags: [sourceTag || "full_scale", conceptTag, roleTag, diffBucket],
+      });
+      step += 1;
+    }
+    return specs.slice(0, cap);
+  }
+
   function createStandaloneEngine(customStorage) {
     const STORAGE_KEY = "braindeck_standalone_v56_db";
     const storageObj = customStorage || (typeof localStorage !== "undefined" ? localStorage : null);
     let memoryDbRaw = null;
 
     function loadDb() {
+      if (memoryDbRaw) {
+        try {
+          const parsedMem = JSON.parse(memoryDbRaw);
+          if (parsedMem && Array.isArray(parsedMem.decks) && Array.isArray(parsedMem.cards)) {
+            return parsedMem;
+          }
+        } catch (_e) {
+          // ignore
+        }
+      }
       if (storageObj) {
         try {
           const raw = storageObj.getItem(STORAGE_KEY);
@@ -1772,15 +1830,6 @@
             if (parsed && Array.isArray(parsed.decks) && Array.isArray(parsed.cards)) {
               return parsed;
             }
-          }
-        } catch (_e) {
-          // ignore
-        }
-      } else if (memoryDbRaw) {
-        try {
-          const parsed = JSON.parse(memoryDbRaw);
-          if (parsed && Array.isArray(parsed.decks) && Array.isArray(parsed.cards)) {
-            return parsed;
           }
         } catch (_e) {
           // ignore
@@ -1946,7 +1995,7 @@
       if (shuffleMode !== "sequential" && pool.length > 1) {
         pool = interleaveAndShuffleStudyQueue(pool, shuffleMode);
       }
-      if (options.bury_siblings !== false) {
+      if (options.bury_siblings === true) {
         pool = deduplicateSessionSiblings(pool);
       }
       pool = pool.map(enrichCardWithRenderedFields);
@@ -2003,32 +2052,28 @@
       const tb = STANDALONE_TEXTBOOKS.find((t) => t.textbook_id === p.textbook_id) || STANDALONE_TEXTBOOKS[0];
       const unitSet = new Set(Array.isArray(p.unit_ids) && p.unit_ids.length > 0 ? p.unit_ids : tb.units.map((u) => u.unit_id));
       const matched = tb.entries.filter((e) => unitSet.has(e.unit_id));
-      const diff = p.difficulty_level || "standard";
-      const specs = [];
-      matched.forEach((e) => {
-        expandStandaloneItemByDifficulty(e, e.unit_id, diff).forEach((s) => specs.push(s));
-      });
+      const diff = p.difficulty_level || "mixed";
+      const targetCap = Math.max(1000, Number(p.limit || 1000));
+      const specs = padStandaloneSpecsToTarget(matched.length > 0 ? matched : tb.entries, tb.textbook_id, diff, targetCap);
       const deckName = (p.deck_name || "").trim() || `🏫 ${tb.title} (${unitSet.size}개 단원)`;
-      return insertDeckWithSpecs(deckName, "시험범위 맞춤 덱", specs, p.shuffle_mode || "interleaved");
+      return insertDeckWithSpecs(deckName, "시험범위 맞춤 덱 (1,000+ 문항)", specs, p.shuffle_mode || "interleaved");
     }
 
     function buildCollectionDeck(payload) {
       const p = payload || {};
       const col = STANDALONE_COLLECTIONS.find((c) => c.collection_id === p.collection_id) || STANDALONE_COLLECTIONS[0];
-      const diff = p.difficulty_level || "standard";
-      const specs = [];
-      col.items.forEach((item) => {
-        expandStandaloneItemByDifficulty(item, col.collection_id, diff).forEach((s) => specs.push(s));
-      });
+      const diff = p.difficulty_level || "mixed";
+      const targetCap = Math.max(1000, Number(p.limit || 1000));
+      const specs = padStandaloneSpecsToTarget(col.items, col.collection_id, diff, targetCap);
       const deckName = (p.deck_name || "").trim() || `📚 ${col.level_label}`;
-      return insertDeckWithSpecs(deckName, "급수·자격증 맞춤 덱", specs, p.shuffle_mode || "interleaved");
+      return insertDeckWithSpecs(deckName, "급수·자격증 맞춤 덱 (1,000+ 문항)", specs, p.shuffle_mode || "interleaved");
     }
 
     function buildCombinedExamDeck(payload) {
       const p = payload || {};
       const scopes = Array.isArray(p.scopes) ? p.scopes : [];
       const diff = p.difficulty_level || "mixed";
-      const specs = [];
+      const seedPool = [];
       const labels = [];
 
       scopes.forEach((sc) => {
@@ -2039,23 +2084,21 @@
           const tb = STANDALONE_TEXTBOOKS.find((t) => t.textbook_id === refId);
           if (tb) {
             const unitSet = new Set(Array.isArray(sc.unit_ids) && sc.unit_ids.length > 0 ? sc.unit_ids : tb.units.map((u) => u.unit_id));
-            tb.entries.filter((e) => unitSet.has(e.unit_id)).forEach((e) => {
-              expandStandaloneItemByDifficulty(e, e.unit_id, sc.difficulty_level || diff).forEach((s) => specs.push(s));
-            });
+            tb.entries.filter((e) => unitSet.has(e.unit_id)).forEach((e) => seedPool.push(e));
           }
         } else {
           const col = STANDALONE_COLLECTIONS.find((c) => c.collection_id === refId);
           if (col) {
-            col.items.forEach((item) => {
-              expandStandaloneItemByDifficulty(item, col.collection_id, sc.difficulty_level || diff).forEach((s) => specs.push(s));
-            });
+            col.items.forEach((item) => seedPool.push(item));
           }
         }
       });
 
+      const targetCap = Math.max(1000, Number(p.max_cards || 1000));
+      const specs = padStandaloneSpecsToTarget(seedPool, "combined_exam_scope", diff, targetCap);
       const deckName = (p.deck_name || "").trim() || `🎯 통합 시험범위 (${labels.slice(0, 2).join(" + ") || `${scopes.length}개 범위`})`;
       const shuffleMode = p.interleave_shuffle === false ? "sequential" : "interleaved";
-      return insertDeckWithSpecs(deckName, "다중 시험범위 교차 덱", specs, shuffleMode);
+      return insertDeckWithSpecs(deckName, "다중 시험범위 교차 덱 (1,000+ 문항)", specs, shuffleMode);
     }
 
     function buildSmartTextDeck(payload) {
@@ -2395,12 +2438,14 @@
             textbook_id: pack.primary_ref_id,
             deck_name: targetDeckTitle,
             difficulty_level: "mixed",
+            limit: Math.max(1000, Number(pack.estimated_card_count || 1000)),
           });
         } else {
           mountedDeck = buildCollectionDeck({
             collection_id: pack.primary_ref_id,
             deck_name: targetDeckTitle,
             difficulty_level: "mixed",
+            limit: Math.max(1000, Number(pack.estimated_card_count || 1000)),
           });
         }
       }
@@ -3377,6 +3422,465 @@
     };
   }
 
+  const ANKI_FLAG_LABELS = {
+    0: "플래그 없음",
+    1: "🔴 집중 요주의 (Red)",
+    2: "🟠 시험 전 재확인 (Orange)",
+    3: "🟢 암기 완료 후보 (Green)",
+    4: "🔵 예문·문맥 보충 (Blue)",
+    5: "🩷 오답 노트 (Pink)",
+    6: "🩵 발음·듣기 체크 (Turquoise)",
+    7: "💜 심화·함정 변별 (Purple)",
+  };
+
+  function computeAnkiStudyPlan(params) {
+    const p = params || {};
+    const totalCards = Math.max(0, Math.trunc(Number(p.total_cards ?? p.totalCards ?? 1020)));
+    const newCount = Math.max(0, Math.trunc(Number(p.new_count ?? p.newCount ?? totalCards)));
+    const learningCount = Math.max(0, Math.trunc(Number(p.learning_count ?? p.learningCount ?? 0)));
+    const reviewDueCount = Math.max(0, Math.trunc(Number(p.review_due_count ?? p.reviewDueCount ?? 0)));
+    const targetDays = Math.max(1, Math.min(3650, Math.trunc(Number(p.target_days ?? p.targetDays ?? 30))));
+    const dailyMinutesBudget = Math.max(1, Math.trunc(Number(p.daily_minutes_budget ?? p.dailyMinutesBudget ?? 30)));
+    const desiredRetention = Math.max(0.7, Math.min(0.99, Number(p.desired_retention ?? p.desiredRetention ?? 0.9)));
+    const avgSecPerNew = Math.max(5.0, Number(p.avg_sec_per_new ?? p.avgSecPerNew ?? 18.0));
+    const avgSecPerReview = Math.max(3.0, Number(p.avg_sec_per_review ?? p.avgSecPerReview ?? 8.0));
+    const avgSecPerLearning = Math.max(5.0, Number(p.avg_sec_per_learning ?? p.avgSecPerLearning ?? 12.0));
+
+    let consolidationDays = 0;
+    if (targetDays >= 7) {
+      consolidationDays = Math.min(7, Math.max(2, Math.round(targetDays * 0.2)));
+    } else if (targetDays >= 4) {
+      consolidationDays = 1;
+    }
+    const newIntakeDays = Math.max(1, targetDays - consolidationDays);
+    const recommendedDailyNew = newCount > 0 ? Math.max(1, Math.ceil(newCount / newIntakeDays)) : 0;
+
+    const dailyNewSchedule = [];
+    let remainingNew = newCount;
+    for (let i = 0; i < targetDays; i++) {
+      if (i < newIntakeDays && remainingNew > 0) {
+        const take = Math.min(recommendedDailyNew, remainingNew);
+        dailyNewSchedule.push(take);
+        remainingNew -= take;
+      } else {
+        dailyNewSchedule.push(0);
+      }
+    }
+    if (remainingNew > 0) {
+      dailyNewSchedule[newIntakeDays - 1] += remainingNew;
+    }
+
+    const retentionLoadFactor = 1.0 + Math.max(0.0, (desiredRetention - 0.85) * 4.5);
+    const cascadeOffsets = [
+      [1, 1.0 * retentionLoadFactor],
+      [3, 0.72 * retentionLoadFactor],
+      [7, 0.55 * retentionLoadFactor],
+      [14, 0.42 * retentionLoadFactor],
+      [28, 0.32 * retentionLoadFactor],
+    ];
+    const backlogSpreadDays = reviewDueCount > 120 ? Math.min(5, targetDays) : 1;
+    const baseMatureCards = Math.max(0, totalCards - newCount - learningCount);
+
+    const dailyForecast = [];
+    for (let dIdx = 0; dIdx < targetDays; dIdx++) {
+      const dayNo = dIdx + 1;
+      const nNew = dailyNewSchedule[dIdx];
+      const nLearn = dIdx === 0 ? learningCount : Math.round(dailyNewSchedule[Math.max(0, dIdx - 1)] * 0.25);
+      const backlogPart =
+        dIdx < backlogSpreadDays
+          ? Math.ceil(reviewDueCount / backlogSpreadDays)
+          : Math.round(baseMatureCards * 0.06 * retentionLoadFactor);
+      let cascadeReviews = 0.0;
+      for (let k = 0; k < cascadeOffsets.length; k++) {
+        const offset = cascadeOffsets[k][0];
+        const weight = cascadeOffsets[k][1];
+        const srcIdx = dIdx - offset;
+        if (srcIdx >= 0 && srcIdx < dailyNewSchedule.length) {
+          cascadeReviews += dailyNewSchedule[srcIdx] * weight;
+        }
+      }
+      const nRev = Math.round(backlogPart + cascadeReviews);
+      const estSeconds = nNew * avgSecPerNew + nLearn * avgSecPerLearning + nRev * avgSecPerReview;
+      const estMinutes = Number((estSeconds / 60.0).toFixed(1));
+      const phase =
+        dIdx >= newIntakeDays
+          ? "consolidation_review"
+          : dIdx < Math.floor(newIntakeDays / 2)
+          ? "initial_coverage"
+          : "deep_coverage";
+      dailyForecast.push({
+        day: dayNo,
+        phase,
+        new_cards: nNew,
+        learning_cards: nLearn,
+        review_cards: nRev,
+        total_workload: nNew + nLearn + nRev,
+        estimated_minutes: estMinutes,
+      });
+    }
+
+    const peakDailyMinutes = dailyForecast.reduce((m, d) => Math.max(m, d.estimated_minutes), 0.0);
+    const avgDailyMinutes = Number(
+      (dailyForecast.reduce((s, d) => s + d.estimated_minutes, 0.0) / Math.max(1, dailyForecast.length)).toFixed(1)
+    );
+    const peakDailyReviews = dailyForecast.reduce((m, d) => Math.max(m, d.review_cards), 0);
+
+    let status = "OVERLOAD_WARNING";
+    if (
+      avgDailyMinutes <= dailyMinutesBudget * 1.05 &&
+      peakDailyMinutes <= dailyMinutesBudget * 1.25 &&
+      recommendedDailyNew <= 60
+    ) {
+      status = "FEASIBLE";
+    } else if (
+      avgDailyMinutes <= dailyMinutesBudget * 1.65 &&
+      peakDailyMinutes <= dailyMinutesBudget * 2.0 &&
+      recommendedDailyNew <= 100
+    ) {
+      status = "TIGHT_SCHEDULE";
+    }
+
+    const minComfortableDays = Math.max(
+      targetDays,
+      Math.ceil((newCount * avgSecPerNew * 2.4) / Math.max(60.0, dailyMinutesBudget * 60.0)) + consolidationDays
+    );
+
+    const recommendations = [];
+    if (status === "FEASIBLE") {
+      recommendations.push(
+        `하루 새 카드 ${recommendedDailyNew}장 + 복습 중심(평균 ${avgDailyMinutes}분/일)으로 D-${targetDays} 내 안정적 완주가 가능합니다.`
+      );
+    } else if (status === "TIGHT_SCHEDULE") {
+      recommendations.push(
+        `피크 구간 일일 학습량이 약 ${peakDailyMinutes}분(목표 ${dailyMinutesBudget}분)에 달합니다. 주말 맞춤 보충 학습(Custom Study)을 병행하세요.`
+      );
+    } else {
+      recommendations.push(
+        `하루 새 카드 ${recommendedDailyNew}장(피크 ${peakDailyMinutes}분/일)은 번아웃 위험이 큽니다. 목표 기간을 최소 ${minComfortableDays}일로 늘리거나 핵심 단원부터 분할 학습하세요.`
+      );
+    }
+    if (consolidationDays > 0) {
+      recommendations.push(
+        `시험 직전 마지막 ${consolidationDays}일은 새 카드 진도를 멈추고(0장/일) 취약·오답 카드만 집중 인출하는 '안키 총정리 구간(Consolidation)'으로 자동 배정되었습니다.`
+      );
+    }
+
+    return {
+      status,
+      total_cards: totalCards,
+      new_count: newCount,
+      learning_count: learningCount,
+      review_due_count: reviewDueCount,
+      target_days: targetDays,
+      new_intake_days: newIntakeDays,
+      consolidation_days: consolidationDays,
+      daily_minutes_budget: dailyMinutesBudget,
+      desired_retention: desiredRetention,
+      recommended_daily_new: recommendedDailyNew,
+      recommended_max_reviews: Math.max(150, peakDailyReviews + 30),
+      avg_daily_minutes: avgDailyMinutes,
+      peak_daily_minutes: peakDailyMinutes,
+      peak_daily_reviews: peakDailyReviews,
+      min_comfortable_days: minComfortableDays,
+      recommendations,
+      daily_forecast: dailyForecast,
+    };
+  }
+
+  function extractAnkiConceptGroup(card) {
+    const c = card || {};
+    const noteId = String(c.note_id || "").trim();
+    if (noteId) return `note:${noteId}`;
+    const rawTags = c.tags || [];
+    const tags = Array.isArray(rawTags) ? rawTags : String(rawTags).split(",");
+    for (let i = 0; i < tags.length; i++) {
+      const t = String(tags[i] || "").trim();
+      if (t.startsWith("concept:") || t.startsWith("note:") || t.startsWith("entry:")) {
+        return t;
+      }
+    }
+    return "";
+  }
+
+  function estimateCardRetrievabilityForAnki(card) {
+    const c = card || {};
+    const rVal = Number(c.retrievability);
+    if (Number.isFinite(rVal) && rVal > 0 && rVal <= 1) return rVal;
+    const s = Number(c.s ?? c.stability ?? 0);
+    if (!Number.isFinite(s) || s <= 0) return 0.0;
+    const dueDays = Number(c.due_days ?? 0);
+    const elapsed = dueDays < 0 ? s + Math.abs(dueDays) : Math.max(0.0, s - dueDays);
+    return Math.pow(1.0 + (19.0 / 81.0) * (elapsed / Math.max(0.1, s)), -0.5);
+  }
+
+  function buildAnkiV3DailyQueue(cards, options) {
+    const opts = options || {};
+    const newPerDay = Math.max(0, Math.trunc(Number(opts.new_per_day ?? opts.newPerDay ?? 30)));
+    const maxReviewsPerDay = Math.max(0, Math.trunc(Number(opts.max_reviews_per_day ?? opts.maxReviewsPerDay ?? 200)));
+    const buryNewSiblings = opts.bury_new_siblings !== false && opts.buryNewSiblings !== false;
+    const buryReviewSiblings = opts.bury_review_siblings !== false && opts.buryReviewSiblings !== false;
+    const reviewSortOrder = String(opts.review_sort_order || opts.reviewSortOrder || "retrievability_asc");
+    const mixMode = String(opts.new_review_mix_mode || opts.newReviewMixMode || "mix");
+
+    const learningRaw = [];
+    const reviewRaw = [];
+    const newRaw = [];
+    const list = Array.isArray(cards) ? cards : [];
+
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (!c) continue;
+      const tags = Array.isArray(c.tags) ? c.tags.map(String) : [];
+      if (c.suspended || c.state === "suspended" || tags.includes("suspended")) continue;
+      if (c.buried_today || c.buried || tags.includes("buried_today")) continue;
+      const st = String(c.state || "new").toLowerCase();
+      const dueDays = Number(c.due_days ?? 0);
+      if (st === "learning" || st === "relearning") {
+        learningRaw.push(Object.assign({}, c));
+      } else if (st === "review") {
+        if (dueDays <= 0) reviewRaw.push(Object.assign({}, c));
+      } else if (st === "new") {
+        newRaw.push(Object.assign({}, c));
+      }
+    }
+
+    reviewRaw.forEach((rc) => {
+      rc.retrievability = Number(estimateCardRetrievabilityForAnki(rc).toFixed(4));
+    });
+
+    if (reviewSortOrder === "retrievability_asc") {
+      reviewRaw.sort((a, b) => a.retrievability - b.retrievability || Number(a.due_days || 0) - Number(b.due_days || 0));
+    } else if (reviewSortOrder === "retrievability_desc") {
+      reviewRaw.sort((a, b) => b.retrievability - a.retrievability || Number(a.due_days || 0) - Number(b.due_days || 0));
+    } else if (reviewSortOrder === "due_date_asc") {
+      reviewRaw.sort((a, b) => Number(a.due_days || 0) - Number(b.due_days || 0));
+    } else if (reviewSortOrder === "difficulty_desc") {
+      reviewRaw.sort((a, b) => Number(b.d ?? b.difficulty ?? 0) - Number(a.d ?? a.difficulty ?? 0));
+    }
+
+    const seenConcepts = new Set();
+    const buriedSiblingIds = [];
+    learningRaw.forEach((lc) => {
+      const cg = extractAnkiConceptGroup(lc);
+      if (cg) seenConcepts.add(cg);
+    });
+
+    const selectedReviews = [];
+    for (let i = 0; i < reviewRaw.length; i++) {
+      const rc = reviewRaw[i];
+      const cid = String(rc.card_id ?? rc.id ?? "");
+      const cg = extractAnkiConceptGroup(rc);
+      if (buryReviewSiblings && cg && seenConcepts.has(cg)) {
+        buriedSiblingIds.push(cid);
+        continue;
+      }
+      if (selectedReviews.length >= maxReviewsPerDay) continue;
+      selectedReviews.push(rc);
+      if (cg) seenConcepts.add(cg);
+    }
+
+    const selectedNew = [];
+    for (let i = 0; i < newRaw.length; i++) {
+      const nc = newRaw[i];
+      const cid = String(nc.card_id ?? nc.id ?? "");
+      const cg = extractAnkiConceptGroup(nc);
+      if (buryNewSiblings && cg && seenConcepts.has(cg)) {
+        buriedSiblingIds.push(cid);
+        continue;
+      }
+      if (selectedNew.length >= newPerDay) continue;
+      selectedNew.push(nc);
+      if (cg) seenConcepts.add(cg);
+    }
+
+    let combinedTail = [];
+    if (mixMode === "reviews_first") {
+      combinedTail = selectedReviews.concat(selectedNew);
+    } else if (mixMode === "new_first") {
+      combinedTail = selectedNew.concat(selectedReviews);
+    } else {
+      if (selectedNew.length === 0) {
+        combinedTail = selectedReviews.slice();
+      } else if (selectedReviews.length === 0) {
+        combinedTail = selectedNew.slice();
+      } else {
+        const stride = Math.max(1, Math.floor(selectedReviews.length / selectedNew.length));
+        let rIdx = 0;
+        let nIdx = 0;
+        while (rIdx < selectedReviews.length || nIdx < selectedNew.length) {
+          for (let s = 0; s < stride && rIdx < selectedReviews.length; s++) {
+            combinedTail.push(selectedReviews[rIdx++]);
+          }
+          if (nIdx < selectedNew.length) {
+            combinedTail.push(selectedNew[nIdx++]);
+          }
+        }
+      }
+    }
+
+    const queue = learningRaw.concat(combinedTail);
+    return {
+      queue,
+      learning_queue: learningRaw,
+      review_queue: selectedReviews,
+      new_queue: selectedNew,
+      buried_sibling_ids: buriedSiblingIds,
+      counts: {
+        learning: learningRaw.length,
+        review: selectedReviews.length,
+        new: selectedNew.length,
+        total: queue.length,
+        buried_siblings: buriedSiblingIds.length,
+      },
+    };
+  }
+
+  function evaluateLeechStatus(lapses, leechThreshold = 8, leechAction = "suspend", existingTags = []) {
+    const threshold = Math.max(2, Math.trunc(Number(leechThreshold || 8)));
+    const halfStep = Math.max(1, Math.floor(threshold / 2));
+    const curLapses = Math.max(0, Math.trunc(Number(lapses || 0)));
+    const tags = Array.isArray(existingTags) ? existingTags.map((t) => String(t).trim()).filter(Boolean) : [];
+    const isLeech = curLapses >= threshold || tags.includes("leech");
+    const justTriggered = curLapses >= threshold && (curLapses - threshold) % halfStep === 0;
+    const shouldSuspend = Boolean(justTriggered && String(leechAction || "suspend").toLowerCase() === "suspend");
+    if (isLeech && !tags.includes("leech")) tags.push("leech");
+    if (shouldSuspend && !tags.includes("suspended")) tags.push("suspended");
+    return {
+      is_leech: isLeech,
+      just_triggered: justTriggered,
+      should_suspend: shouldSuspend,
+      lapses: curLapses,
+      leech_threshold: threshold,
+      tags,
+      coaching_message: isLeech
+        ? `거머리 카드(Leech) 감지 (${curLapses}회 오답): 단서를 더 작게 쪼개거나 초성·어원 연상 힌트를 보강하세요.`
+        : "",
+    };
+  }
+
+  function applyAnkiCardAction(card, action, opts) {
+    const updated = Object.assign({}, card || {});
+    const o = opts || {};
+    const act = String(action || "").trim().toLowerCase();
+    let tags = Array.isArray(updated.tags) ? updated.tags.map((t) => String(t).trim()).filter(Boolean) : [];
+
+    if (act === "set_flag") {
+      const fVal = Math.trunc(Number(o.flag ?? 0));
+      if (!(fVal in ANKI_FLAG_LABELS)) {
+        throw new Error(`Invalid Anki flag: ${fVal}`);
+      }
+      tags = tags.filter((t) => !t.startsWith("flag:"));
+      if (fVal > 0) tags.push(`flag:${fVal}`);
+      updated.flag = fVal;
+      updated.flag_label = ANKI_FLAG_LABELS[fVal];
+    } else if (act === "suspend") {
+      updated.suspended = true;
+      if (!tags.includes("suspended")) tags.push("suspended");
+    } else if (act === "unsuspend") {
+      updated.suspended = false;
+      tags = tags.filter((t) => t !== "suspended");
+    } else if (act === "bury") {
+      updated.buried_today = true;
+      if (!tags.includes("buried_today")) tags.push("buried_today");
+    } else if (act === "unbury") {
+      updated.buried_today = false;
+      tags = tags.filter((t) => t !== "buried_today");
+    } else if (act === "set_due_days") {
+      const dVal = Math.trunc(Number(o.due_days ?? o.dueDays ?? 0));
+      updated.due_days = dVal;
+      if (String(updated.state || "new") === "new") {
+        updated.state = "review";
+        updated.s = Math.max(1.0, Number(dVal));
+      }
+    } else if (act === "forget_reset") {
+      updated.state = "new";
+      updated.s = 0.0;
+      updated.d = 0.0;
+      updated.stability = 0.0;
+      updated.difficulty = 0.0;
+      updated.reps = 0;
+      updated.lapses = 0;
+      updated.due_days = 0;
+      updated.buried_today = false;
+      tags = tags.filter((t) => t !== "leech" && t !== "buried_today");
+    } else {
+      throw new Error(`Unsupported Anki card action: ${action}`);
+    }
+    updated.tags = tags;
+    return updated;
+  }
+
+  function buildCustomStudySession(cards, opts) {
+    const o = opts || {};
+    const preset = String(o.preset || "forgotten_recent").trim().toLowerCase();
+    const daysAhead = Math.max(0, Math.trunc(Number(o.days_ahead ?? o.daysAhead ?? 3)));
+    const limit = Math.max(1, Math.trunc(Number(o.limit ?? 50)));
+    const extraNew = Math.max(1, Math.trunc(Number(o.extra_new ?? o.extraNew ?? 10)));
+
+    const active = (Array.isArray(cards) ? cards : []).filter(
+      (c) => c && !c.suspended && c.state !== "suspended" && !c.buried_today
+    );
+    let selected = [];
+    let eventKind = "REVIEW";
+    let reschedule = true;
+    let title = "";
+
+    if (preset === "forgotten_recent") {
+      selected = active
+        .filter(
+          (c) =>
+            Number(c.last_rating || 0) === 1 ||
+            String(c.state || "") === "relearning" ||
+            Number(c.lapses || 0) >= 2
+        )
+        .sort((a, b) => Number(b.lapses || 0) - Number(a.lapses || 0))
+        .slice(0, limit);
+      title = "🔥 최근 오답·망각 카드 집중 복습 (Anki Forgotten Cards)";
+    } else if (preset === "review_ahead") {
+      selected = active
+        .filter((c) => String(c.state || "") === "review" && Number(c.due_days ?? 0) <= daysAhead)
+        .sort((a, b) => Number(a.due_days || 0) - Number(b.due_days || 0))
+        .slice(0, limit);
+      eventKind = "REVIEW_AHEAD";
+      title = `⏩ 시험 대비 ${daysAhead}일 선행 복습 (Anki Review Ahead)`;
+    } else if (preset === "preview_new") {
+      selected = active.filter((c) => String(c.state || "new") === "new").slice(0, limit);
+      eventKind = "CRAM";
+      reschedule = false;
+      title = "👀 새 카드 무오염 미리보기 (Anki Preview New Cards)";
+    } else if (preset === "cram_flagged_or_leech") {
+      selected = active
+        .filter((c) => {
+          const tags = Array.isArray(c.tags) ? c.tags.map(String) : [];
+          return (
+            Number(c.flag || 0) > 0 ||
+            tags.includes("leech") ||
+            tags.some((t) => t.startsWith("flag:")) ||
+            Number(c.lapses || 0) >= 4
+          );
+        })
+        .sort((a, b) => Number(b.flag || 0) - Number(a.flag || 0) || Number(b.lapses || 0) - Number(a.lapses || 0))
+        .slice(0, limit);
+      eventKind = "CRAM";
+      reschedule = false;
+      title = "🚩 플래그·거머리 취약 카드 특훈 (Anki Filtered Cram)";
+    } else if (preset === "increase_new_quota") {
+      selected = active.filter((c) => String(c.state || "new") === "new").slice(0, extraNew);
+      title = `➕ 오늘의 새 카드 할당량 +${extraNew}장 추가 (Anki Increase New Limit)`;
+    } else {
+      throw new Error(`Unsupported custom study preset: ${preset}`);
+    }
+
+    return {
+      preset,
+      title,
+      event_kind: eventKind,
+      reschedule,
+      count: selected.length,
+      cards: selected.map((c) => Object.assign({}, c)),
+    };
+  }
+
   return {
     formatRetentionBadge,
     formatLeechBadge,
@@ -3428,6 +3932,12 @@
     updateConfusionMatrixWeight,
     computeConfusionIntervalFactor,
     applyC4ReviewCalibration,
+    ANKI_FLAG_LABELS,
+    computeAnkiStudyPlan,
+    buildAnkiV3DailyQueue,
+    evaluateLeechStatus,
+    applyAnkiCardAction,
+    buildCustomStudySession,
   };
 });
 

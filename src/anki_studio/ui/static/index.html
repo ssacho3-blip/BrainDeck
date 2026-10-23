@@ -501,6 +501,37 @@
             </button>
             <button id="btn-reset-card-arena" type="button" style="padding:6px 11px;font-size:0.76rem;color:#be123c;border-color:#fecdd3;background:#fff0f0;margin-left:auto;" title="현재 덱 처음부터 초기화">🔄 덱 진도 초기화</button>
           </div>
+
+          <!-- BrainDeck v3 Study Planner & Custom Study Suite -->
+          <div id="bd-planner-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px 10px;border-radius:14px;background:#eef2ff;border:1px solid #c7d2fe;">
+            <span style="font-size:0.76rem;font-weight:800;color:#1d4ed8;">📅 D-Day 학습계획 · 맞춤학습:</span>
+            <select id="bd-plan-days" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="시험·완주 목표 기간 (D-Day)">
+              <option value="7">D-7 (단기 집중)</option>
+              <option value="14">D-14 (2주 내신)</option>
+              <option value="30" selected>D-30 (1개월 표준)</option>
+              <option value="60">D-60 (2개월 완주)</option>
+            </select>
+            <select id="bd-plan-minutes" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="하루 가용 학습 시간 예산">
+              <option value="15">하루 15분</option>
+              <option value="30" selected>하루 30분 (추천)</option>
+              <option value="45">하루 45분</option>
+              <option value="60">하루 60분</option>
+            </select>
+            <button type="button" id="btn-compute-study-plan" class="btn-primary" style="padding:5px 11px;font-size:0.76rem;">
+              📊 학습계획 산출
+            </button>
+            <select id="bd-custom-study-preset" style="width:auto;padding:5px 8px;font-size:0.76rem;margin-left:auto;" title="맞춤 보충 학습 (Custom Study)">
+              <option value="forgotten_recent">🔥 최근 오답·망각 복습</option>
+              <option value="review_ahead">⏩ 시험 대비 3일 선행 복습</option>
+              <option value="preview_new">👀 새 카드 무오염 미리보기</option>
+              <option value="cram_flagged_or_leech">🚩 플래그·거머리 취약 특훈</option>
+              <option value="increase_new_quota">➕ 오늘 새 카드 할당량 추가</option>
+            </select>
+            <button type="button" id="btn-run-custom-study" style="padding:5px 11px;font-size:0.76rem;background:#ffffff;color:#1d4ed8;border-color:#93c5fd;">
+              ⚡ 맞춤학습 시작
+            </button>
+          </div>
+          <div id="bd-study-plan-banner" class="ai-box" style="display:none;margin-top:8px;background:#ffffff;border:1px solid #c7d2fe;color:#1e293b;"></div>
         </div>
 
         <!-- Electronic Red-Cellophane Summary Sheet Panel (v5.6 RN-1) -->
@@ -525,11 +556,21 @@
                 <span id="sprint-progress-badge" class="badge-pill" style="font-size:0.72rem;background:#ecfdf5;color:#047857;">🏁 스프린트 1</span>
                 <span id="card-meta">준비 중...</span>
               </div>
-              <div style="display:flex;align-items:center;gap:6px;">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span id="card-fsrs-meta" style="display:none;"></span>
+                <select id="select-card-flag" style="width:auto;padding:3px 7px;font-size:0.72rem;border-radius:10px;" title="7색 플래그 지정 (단축키 F)">
+                  <option value="0">🏳️ 플래그</option>
+                  <option value="1">🔴 집중 요주의</option>
+                  <option value="2">🟠 시험 전 재확인</option>
+                  <option value="3">🟢 암기 완료 후보</option>
+                  <option value="4">🔵 예문 보충</option>
+                  <option value="5">🩷 오답 노트</option>
+                  <option value="6">🩵 발음 체크</option>
+                  <option value="7">💜 심화 변별</option>
+                </select>
                 <button id="btn-mark-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="중요 별표 표시">☆ 별표</button>
-                <button id="btn-bury-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="오늘 하루 숨기기">💤 숨김</button>
-                <button id="btn-suspend-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="카드 일시 정지">⏸️ 정지</button>
+                <button id="btn-bury-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="오늘 하루 숨기기 (단축키 -)">💤 숨김</button>
+                <button id="btn-suspend-card" type="button" style="padding:4px 9px;font-size:0.74rem;" title="카드 일시 정지 (단축키 @)">⏸️ 정지</button>
               </div>
             </div>
             <div class="card-question" id="card-question">오늘 카드를 모두 끝냈어요! 🎉</div>
