@@ -84,8 +84,8 @@ def get_authentic_history_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
         safe_desc = _strip_spoiler_tokens(desc, head)
         term = head
         ans = head
-        ctx = f"[{era}] {safe_desc} — 위 설명에 해당하는 역사적 사건·인물·제도·유산은?"
-        tip = f"[{era}] {head}: {desc}"
+        ctx = safe_desc if safe_desc.endswith("?") else f"[{era}] {safe_desc} — 해당 역사 개념은?"
+        tip = desc
         used_terms.add(term)
         items.append((term, ans, ctx, tip))
 

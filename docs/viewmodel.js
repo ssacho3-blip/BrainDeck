@@ -1711,6 +1711,128 @@
     },
   ];
 
+  const GENERIC_SECTION_LABELS_JS = new Set([
+    "특징", "배경", "개요", "목적", "의의", "종류", "장점", "단점", "장단점",
+    "원인", "결과", "원인과 결과", "정의", "개념", "요약", "결론", "서론", "본론",
+    "구분", "내용", "핵심", "핵심 내용", "정리", "핵심 정리", "예시", "사례",
+    "비교", "차이", "차이점", "공통점", "효과", "기대 효과", "영향", "한계",
+    "문제점", "해결책", "대책", "방안", "절차", "과정", "순서", "방법", "원리",
+    "구조", "기능", "역할", "조건", "요건", "성립 요건", "주의", "참고", "비고",
+    "보충", "심화", "출처", "기타", "도입", "전개", "정착", "배경과 원인",
+    "주요 내용", "추진 배경", "발생 원인", "목차", "차례", "참고문헌", "참고 문헌",
+    "부록", "머리말", "서문", "맺음말", "문제 제기", "이론적 배경", "선행 연구",
+    "현황", "과제", "전망", "찾아보기", "판권", "저작권",
+    "introduction", "background", "overview", "methodology", "methods",
+    "results", "discussion", "conclusion", "summary", "references",
+    "bibliography", "appendix", "table of contents", "contents", "index", "preface"
+  ]);
+
+  function normalizeLabelCoreJs(rawLabel) {
+    const cleaned = String(rawLabel || "").trim().replace(/^[:：\-\–\—[\]<>【】《》()"'\s]+|[:：\-\–\—[\]<>【】《》()"'\s]+$/g, "");
+    const stripped = cleaned
+      .replace(/^(?:[\[<【《(]?\s*(?:제\s*\d+\s*[장절편부관과단원]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+|\d+(?:\.\d+)*|[가-하]|[A-Za-z])\s*[\]>】》).:：\-])\s*)+/i, "")
+      .replace(/^[:：\-\–\—[\]<>【】《》()"'\s]+|[:：\-\–\—[\]<>【】《》()"'\s]+$/g, "");
+    return stripped || cleaned;
+  }
+
+  function isGenericSectionLabel(rawLabel) {
+    const rawClean = String(rawLabel || "").replace(/\s+/g, " ").trim();
+    if (!rawClean || rawClean.length > 28) return false;
+    const core = normalizeLabelCoreJs(rawClean).toLowerCase();
+    if (!core) return true;
+    if (GENERIC_SECTION_LABELS_JS.has(core)) return true;
+    if (/^(?:제?\s*\d+\s*[장절편부관과단원]|파트\s*\d+|단계\s*\d+|유형\s*\d+|특징\s*\d+|원인\s*\d+|목적\s*\d+|내용\s*\d+|배경\s*\d+|의의\s*\d+)$/i.test(core)) {
+      return true;
+    }
+    return false;
+  }
+
+  function hasFactualPredicateJs(text) {
+    return /(?:이다|입니다|한다|된다|있다|없다|말한다|뜻한다|의미한다|가리킨다|정의된다|구성된다|분류된다|나뉜다|발생한다|일어난다|작용한다|억제한다|촉진한다|유발한다|소멸한다|규정한다|보장한다|제한한다|위반한다|합성하는|전환하는|교환하는|수행하는|is\s+defined\s+as|refers\s+to|means|leads\s+to|results\s+in|causes|consists\s+of|->|→)/i.test(String(text || ""));
+  }
+
+  function isTocOrStructuralHeading(text, kind) {
+    const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+    if (cleaned.length < 2) return true;
+    const stripped = cleaned.replace(/^[#*•\-\s]+/, "").trim();
+    if (!stripped) return true;
+
+    if (/^[\[<【《(]*\s*(?:목\s*차|차\s*례|table\s+of\s+contents|contents|index|찾아보기|참고\s*문헌|references|bibliography|부\s*록|appendix|머리말|서문|일러두기|판권|저작권|단원\s*요약|학습\s*목표|핵심\s*정리|생각해보기|연습\s*문제|확인\s*문제|출제\s*포인트)\s*[\]>】》)]*$/i.test(stripped)) {
+      return true;
+    }
+    if (/^(?:목\s*차|차\s*례|table\s+of\s+contents|contents)\s*(?::|：|-|—|\d|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])/i.test(stripped)) {
+      return true;
+    }
+    if (/(?:\.{2,}|…+|·{2,}|•{2,}|-{2,}|─{2,}|_{2,}|\s{3,})\s*(?:p\.?\s*)?\d{1,4}\s*(?:쪽|페이지|p)?$/i.test(stripped)) {
+      return true;
+    }
+    if (/^(?:제\s*\d+\s*[장절편부관과단원]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+\.?|\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩])\s+[^\n]{1,55}?\s+(?:p\.?\s*\d{1,4}|\d{1,4}\s*(?:쪽|페이지|p))$/i.test(stripped)) {
+      return true;
+    }
+    if (!/[:：]|->|→/.test(stripped) && isGenericSectionLabel(stripped)) {
+      return true;
+    }
+    if (/^(?:제\s*\d+\s*(?:장|절|편|부|관|과|단원)|chapter\s+\d+|part\s+[0-9ivx]+|unit\s+\d+|lesson\s+\d+|section\s+\d+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)(?:\s|$|:)/i.test(stripped)) {
+      if (!hasFactualPredicateJs(stripped)) return true;
+      if (/[:：]/.test(stripped)) {
+        const rhs = stripped.split(/[:：]/).slice(1).join(":").trim();
+        if (rhs.length < 12 && !hasFactualPredicateJs(rhs)) return true;
+      }
+    }
+    const numMatches = stripped.match(/(?:[①②③④⑤⑥⑦⑧⑨⑩]|\(\d+\)|\d+\)|\d+\.)\s*([^\d①-⑩()]+)/g) || [];
+    if (numMatches.length >= 2) {
+      let tocHits = 0;
+      numMatches.forEach((m) => {
+        const core = normalizeLabelCoreJs(m).toLowerCase();
+        if (GENERIC_SECTION_LABELS_JS.has(core) || /(?:\.{2,}|…+)\s*\d+/.test(m)) tocHits += 1;
+      });
+      if (tocHits >= 2 && tocHits * 2 >= numMatches.length) return true;
+    }
+    if (String(kind || "") === "heading" && !hasFactualPredicateJs(stripped)) {
+      return true;
+    }
+    if (!hasFactualPredicateJs(stripped) && !/[:：]|->|→/.test(stripped) && stripped.length <= 28) {
+      if (/^(?:\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?|[가-하]\.)\s+\S+/.test(stripped)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function maskTermInDescJs(desc, term) {
+    const d = String(desc || "").trim();
+    const t = String(term || "").trim();
+    if (!d || !t) return d;
+    const candidates = [t];
+    const baseTerm = t.replace(/\s*\([^)]*\)\s*/g, "").trim();
+    if (baseTerm && baseTerm.length >= 2 && !candidates.includes(baseTerm)) {
+      candidates.push(baseTerm);
+    }
+    let masked = d;
+    candidates.forEach((cand) => {
+      if (cand.length >= 2) {
+        const escaped = cand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        masked = masked.replace(new RegExp(escaped, "gi"), "[ ___ ]");
+      }
+    });
+    return masked;
+  }
+
+  function formatConciseBackJs(answerText, explainText, termText) {
+    const ans = String(answerText || "").trim();
+    let exp = String(explainText || "").trim();
+    if (!exp) return ans;
+    if (exp === ans) return ans;
+    const t = String(termText || "").trim();
+    if (t && (exp === `${t} — ${ans}` || exp === `${t}: ${ans}`)) {
+      return ans;
+    }
+    exp = exp.replace(/^표제어\s+'[^']+'\s*의\s*핵심\s*뜻은\s*'[^']+'\s*입니다\.?\s*/g, "").trim();
+    exp = exp.replace(/^한자\s+\S+\s*—\s*훈음:\s*[^.]+(?:\.\s*|\s*$)/g, "").trim();
+    if (!exp || exp === ans || ans.includes(exp)) return ans;
+    return `${ans}\n\n💡 해설: ${exp}`;
+  }
+
   function expandStandaloneItemByDifficulty(item, sourceTag, difficultyLevel) {
     const diff = String(difficultyLevel || "standard").toLowerCase();
     const itemId = String((item && item.id) || "");
@@ -1722,24 +1844,29 @@
     const conceptTag = `concept:${itemId}`;
     const roleTag = `role:${item.role || defaultRole}`;
     const baseTags = [sourceTag, conceptTag, roleTag];
-    const explainSuffix = item.explain ? `\n\n💡 해설: ${item.explain}` : "";
     const isGrammar = item.role === "key_grammar";
+    const cleanPrompt = String(item.prompt || "")
+      .replace(/\s*—\s*다음\s*어휘·표현의\s*문맥\s*속\s*정확한\s*뜻은\??/g, "")
+      .replace(/\s*—\s*위\s*설명에\s*해당하는\s*역사적\s*사건·인물·제도·유산은\??/g, "")
+      .trim();
 
-    const lv1Front = item.prompt
-      ? `${isGrammar ? "📐 [핵심 문법]" : "🌱 [Lv.1 핵심 개념]"} ${item.prompt}`
-      : `🌱 [Lv.1 기초 인지] '${item.term}'의 뜻·의미는 무엇인가요?`;
-    const lv1Back = `${item.answer}${explainSuffix}`;
+    const lv1Front = cleanPrompt
+      ? `${isGrammar ? "📐 [핵심 문법]" : "🌱 [Lv.1]"} ${cleanPrompt}`
+      : `🌱 [Lv.1] ${item.term}`;
+    const lv1Back = formatConciseBackJs(item.answer, item.explain, item.term);
 
     const lv2Front = item.sentence
-      ? `${isGrammar ? "📐 [문법 문맥 빈칸]" : "📘 [Lv.2 문맥 빈칸]"} ${item.sentence}`
-      : `📘 [Lv.2 핵심 빈칸] ${item.prompt || item.term} ➔ {{c1::${item.answer}}}`;
-    const lv2Back = isGrammar ? `${item.answer}${explainSuffix}` : `${item.term} — ${item.answer}${explainSuffix}`;
+      ? `${isGrammar ? "📐 [문법 빈칸]" : "📘 [Lv.2 빈칸]"} ${item.sentence}`
+      : `📘 [Lv.2 빈칸] ${cleanPrompt || item.term} ➔ {{c1::${item.answer}}}`;
+    const lv2Back = formatConciseBackJs(item.answer, item.explain, item.term);
 
-    const isFactPrompt = Boolean(item.prompt && (item.term === item.answer || isGrammar));
+    const isFactPrompt = Boolean(cleanPrompt && (item.term === item.answer || isGrammar));
     const lv3Front = isFactPrompt
-      ? `${isGrammar ? "📐 [심화 문법 인출]" : "🔥 [Lv.3 심화 서술 인출]"} ${item.prompt}`
-      : `🔥 [Lv.3 역방향 능동 산출] 뜻·정의가 '${item.answer}'에 해당하는 정확한 용어/표현을 쓰시오.`;
-    const lv3Back = isFactPrompt ? `${item.answer}${explainSuffix}` : `${item.term}${explainSuffix}`;
+      ? `${isGrammar ? "📐 [심화 문법]" : "🔥 [Lv.3 심화]"} ${cleanPrompt}`
+      : `🔥 [Lv.3 역방향] ${item.answer}`;
+    const lv3Back = isFactPrompt
+      ? formatConciseBackJs(item.answer, item.explain, item.term)
+      : formatConciseBackJs(item.term, item.explain, item.term);
 
     const cLv1 = {
       front_text: lv1Front,
@@ -1767,39 +1894,121 @@
     return [cLv1];
   }
 
+  function detectSubjectCategoryFromTag(sourceTag, seedItems) {
+    const s = String(sourceTag || "").toLowerCase();
+    if (/hanja|idiom|8geup|7geup|6geup|5geup|4geup|3geup/.test(s)) return "hanja";
+    if (/khist|hist/.test(s)) return "history";
+    if (/math/.test(s)) return "math";
+    if (/sci/.test(s)) return "science";
+    if (/moe-kor|dictation|kor\.orthography/.test(s)) return "korean";
+    if (/law|cert/.test(s)) return "law_it";
+    if (/eng|toeic|jlpt/.test(s)) return "english";
+    const firstId = String((seedItems && seedItems[0] && seedItems[0].id) || "").toLowerCase();
+    if (/^(hj_|id_|mh_)/.test(firstId)) return "hanja";
+    if (/^(kh_|hist_)/.test(firstId)) return "history";
+    if (/^math_/.test(firstId)) return "math";
+    if (/^(sci_|sc_)/.test(firstId)) return "science";
+    if (/^(kd_|mk_)/.test(firstId)) return "korean";
+    if (/^(law_|it_)/.test(firstId)) return "law_it";
+    return "english";
+  }
+
+  function getSubjectPureSeedPool(subj, seedItems) {
+    const cleanSeeds = Array.isArray(seedItems) ? seedItems.filter(Boolean) : [];
+    const sameSubjectCollections = STANDALONE_COLLECTIONS.filter((c) => {
+      const cid = String(c.collection_id || "").toLowerCase();
+      if (subj === "hanja") return /hanja|idiom/.test(cid);
+      if (subj === "history") return /khist|hist/.test(cid);
+      if (subj === "math") return /math/.test(cid);
+      if (subj === "science") return /sci/.test(cid);
+      if (subj === "korean") return /kor|dictation/.test(cid);
+      if (subj === "law_it") return /law|cert/.test(cid);
+      return /eng|toeic|jlpt/.test(cid);
+    }).reduce((acc, c) => acc.concat(c.items || []), []);
+
+    const sameSubjectTextbooks = STANDALONE_TEXTBOOKS.filter((tb) => {
+      const tid = String(tb.textbook_id || "").toLowerCase();
+      if (subj === "history") return /hist/.test(tid);
+      if (subj === "science") return /sci/.test(tid);
+      if (subj === "english") return /eng/.test(tid);
+      return false;
+    }).reduce((acc, tb) => acc.concat(tb.entries || []), []);
+
+    const merged = cleanSeeds.concat(sameSubjectCollections).concat(sameSubjectTextbooks);
+    const seen = new Set();
+    const deduped = [];
+    merged.forEach((it) => {
+      const k = String((it && (it.id || it.term)) || "");
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        deduped.push(it);
+      }
+    });
+    return deduped.length > 0 ? deduped : cleanSeeds;
+  }
+
   function padStandaloneSpecsToTarget(seedItems, sourceTag, difficultyLevel, targetCount) {
     const cap = Math.max(1, Number(targetCount || 1000));
     const diff = String(difficultyLevel || "mixed").toLowerCase();
+    const subj = detectSubjectCategoryFromTag(sourceTag, seedItems);
+    const pool = getSubjectPureSeedPool(subj, seedItems);
     const specs = [];
-    const allSeedFallback = STANDALONE_COLLECTIONS.reduce((acc, c) => acc.concat(c.items || []), []);
-    const pool = Array.isArray(seedItems) && seedItems.length > 0 ? seedItems.concat(allSeedFallback) : STANDALONE_TEXTBOOKS[0].entries.concat(allSeedFallback);
+
     pool.slice(0, Math.min(pool.length, Math.floor(cap / 3))).forEach((it) => {
       expandStandaloneItemByDifficulty(it, sourceTag || it.unit_id || "full_scale", diff).forEach((s) => specs.push(s));
     });
-    const n = pool.length;
-    let step = 1;
+
+    const n = Math.max(1, pool.length);
+    const facetLabels = [
+      { prefix: "🌱 [Lv.1]", tag: "diff_lv1", mode: "prompt" },
+      { prefix: "📘 [Lv.2 빈칸]", tag: "diff_lv2", mode: "context" },
+      { prefix: "🔥 [Lv.3 역방향]", tag: "diff_lv3", mode: "reverse" },
+      { prefix: "🎯 [Lv.4 연어·적용]", tag: "diff_lv2", mode: "application" },
+      { prefix: "🛡️ [Lv.5 핵심 변별]", tag: "diff_lv3", mode: "exam_focus" },
+    ];
+
+    let step = 0;
     while (specs.length < cap) {
-      const idxA = (step - 1) % n;
-      let idxB = (Math.floor((step - 1) / n) + 1 + idxA) % n;
-      if (idxA === idxB) idxB = (idxA + 1) % n;
-      const baseA = pool[idxA];
-      const baseB = pool[idxB];
+      const base = pool[step % n] || { id: `item_${step + 1}`, term: `핵심 개념 ${step + 1}`, answer: "정답", explain: "필수 학습 개념" };
+      const facetIdx = Math.floor(step / n) % facetLabels.length;
+      const cycleNo = Math.floor(step / (n * facetLabels.length)) + 1;
+      const facet = facetLabels[facetIdx];
       const itemNo = specs.length + 1;
-      const srcLower = String(sourceTag || baseA.id || "").toLowerCase();
-      const isNonVocab = /^(kh_|hist_|sci_|sc_|law_|it_|mh_\d|kd_|id_|mk_|math_)/.test(String(baseA.id || "")) ||
-        /khist|hist|sci|math|moe-kor|law|cert|hanja|idiom|dictation/.test(srcLower);
-      const roleTag = `role:${baseA.role || (isNonVocab ? "core_concept" : "core_vocab")}`;
-      const conceptTag = `concept:${sourceTag || "fact"}_${itemNo}`;
-      const diffBucket = itemNo % 3 === 1 ? "diff_lv1" : itemNo % 3 === 2 ? "diff_lv2" : "diff_lv3";
-      const safePromptA = String(baseA.prompt || `'${baseA.term}'의 핵심 의미·원리`).replace(baseA.answer, "[핵심 정답]");
-      const frontText = `📘 [심화 대조·변별] ${safePromptA} (대조 개념: '${baseB.term}')`;
-      const backText = `${baseA.answer} (대조: ${baseB.answer})\n\n💡 해설: ${baseA.explain || baseA.answer} | ${baseB.term}: ${baseB.explain || baseB.answer}`;
+      const isNonVocab = subj !== "english";
+      const roleTag = `role:${base.role || (isNonVocab ? "core_concept" : "core_vocab")}`;
+      const conceptTag = `concept:${sourceTag || subj}_${(step % n) + 1}`;
+      const rawPrompt = String(base.prompt || base.term)
+        .replace(/\s*—\s*다음\s*어휘·표현의\s*문맥\s*속\s*정확한\s*뜻은\??/g, "")
+        .replace(/\s*—\s*위\s*설명에\s*해당하는\s*역사적\s*사건·인물·제도·유산은\??/g, "")
+        .replace(String(base.answer || ""), "[ ___ ]")
+        .trim();
+      const stageSuffix = cycleNo > 1 ? ` · 단계 ${cycleNo}` : "";
+
+      let frontText = "";
+      let backText = formatConciseBackJs(base.answer, base.explain, base.term);
+      if (facet.mode === "prompt") {
+        frontText = `${facet.prefix}${stageSuffix} ${rawPrompt}`;
+      } else if (facet.mode === "context") {
+        const cleanSent = base.sentence
+          ? String(base.sentence).replace(/\{\{c\d+::([^:}]+)(?:::[^}]+)?\}\}/g, "[ ___ ]")
+          : `${rawPrompt} ➔ [ ___ ]`;
+        frontText = `${facet.prefix}${stageSuffix} ${cleanSent}`;
+      } else if (facet.mode === "reverse") {
+        const cueText = base.explain && base.explain !== base.answer ? maskTermInDescJs(base.explain, base.term) : base.answer;
+        frontText = `${facet.prefix}${stageSuffix} ${cueText}`;
+        backText = formatConciseBackJs(base.term, base.explain || base.answer, base.term);
+      } else if (facet.mode === "application") {
+        frontText = `${facet.prefix}${stageSuffix} 【 ${base.term} 】`;
+      } else {
+        frontText = `${facet.prefix}${stageSuffix} ${rawPrompt}`;
+      }
+
       specs.push({
-        fact_key: `${sourceTag || "fact"}_${itemNo}`,
+        fact_key: `${sourceTag || subj}_${itemNo}`,
         front_text: frontText,
         back_text: backText,
         note_type: "basic",
-        tags: [sourceTag || "full_scale", conceptTag, roleTag, diffBucket],
+        tags: [sourceTag || "full_scale", conceptTag, roleTag, facet.tag],
       });
       step += 1;
     }
@@ -1934,6 +2143,50 @@
       return dueTime <= nowMs;
     }
 
+    function getDeckDailyQuota(db, deckId) {
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const hasDeck = deckId !== undefined && deckId !== null && deckId !== "" && deckId !== "all";
+      const targetDeck = hasDeck ? db.decks.find((d) => Number(d.deck_id) === Number(deckId)) : null;
+      const deckCardIds = new Set(
+        db.cards
+          .filter((c) => !hasDeck || Number(c.deck_id) === Number(deckId))
+          .map((c) => Number(c.card_id))
+      );
+      const defaultNewLimit = deckCardIds.size >= 50
+        ? Math.max(10, Math.min(80, Math.ceil(deckCardIds.size / 26)))
+        : 30;
+      const targetDays = Math.max(1, Number((targetDeck && targetDeck.target_days) || 30));
+      const dailyNewLimit = Math.max(1, Number((targetDeck && targetDeck.daily_new_limit) || defaultNewLimit));
+      const dailyReviewLimit = Math.max(10, Number((targetDeck && targetDeck.daily_review_limit) || 200));
+      const planApplied = Boolean(targetDeck && targetDeck.plan_applied);
+      const history = Array.isArray(db.reviewHistory) ? db.reviewHistory : [];
+      let newStudiedToday = 0;
+      let reviewsStudiedToday = 0;
+      const seenNewCards = new Set();
+      history.forEach((h) => {
+        if (!h || !deckCardIds.has(Number(h.card_id))) return;
+        const hDate = String(h.at || "").slice(0, 10);
+        if (hDate && hDate !== todayKey) return;
+        if ((h.prev_state === "new" || Number(h.prev_reps || 0) === 0) && !seenNewCards.has(Number(h.card_id))) {
+          seenNewCards.add(Number(h.card_id));
+          newStudiedToday += 1;
+        } else {
+          reviewsStudiedToday += 1;
+        }
+      });
+      return {
+        deck_id: hasDeck ? Number(deckId) : null,
+        target_days: targetDays,
+        daily_new_limit: dailyNewLimit,
+        daily_review_limit: dailyReviewLimit,
+        plan_applied: planApplied,
+        new_studied_today: newStudiedToday,
+        reviews_studied_today: reviewsStudiedToday,
+        remaining_new_today: Math.max(0, dailyNewLimit - newStudiedToday),
+        remaining_review_today: Math.max(0, dailyReviewLimit - reviewsStudiedToday),
+      };
+    }
+
     function computeDeckSummaries(db) {
       const nowMs = Date.now();
       return db.decks.map((d) => {
@@ -1942,6 +2195,7 @@
         const newCount = dueCards.filter((c) => c.state === "new").length;
         const learnCount = dueCards.filter((c) => c.state === "learning" || c.state === "relearning").length;
         const reviewCount = dueCards.filter((c) => c.state === "review").length;
+        const q = getDeckDailyQuota(db, d.deck_id);
         return {
           deck_id: d.deck_id,
           name: d.name,
@@ -1951,6 +2205,12 @@
           new_count: newCount,
           learn_count: learnCount,
           review_count: reviewCount,
+          target_days: q.target_days,
+          daily_new_limit: q.daily_new_limit,
+          daily_review_limit: q.daily_review_limit,
+          plan_applied: q.plan_applied,
+          new_studied_today: q.new_studied_today,
+          remaining_new_today: Math.min(newCount, q.remaining_new_today),
         };
       });
     }
@@ -1981,11 +2241,12 @@
     }
 
     function getDueCards(opts) {
-      const options = opts || {};
+      const options = opts && typeof opts === "object" ? opts : {};
       const db = loadDb();
       const nowMs = Date.now();
       let pool = db.cards.slice();
-      if (options.deck_id !== undefined && options.deck_id !== null && options.deck_id !== "") {
+      const hasDeck = options.deck_id !== undefined && options.deck_id !== null && options.deck_id !== "" && options.deck_id !== "all";
+      if (hasDeck) {
         pool = pool.filter((c) => Number(c.deck_id) === Number(options.deck_id));
       }
       if (!options.include_all_cards) {
@@ -1998,14 +2259,153 @@
       if (options.bury_siblings === true) {
         pool = deduplicateSessionSiblings(pool);
       }
+      const quota = getDeckDailyQuota(db, hasDeck ? options.deck_id : null);
+      const explicitFullDump = Boolean(options.include_all_cards === true || options.respect_plan === false || Number(options.limit || 0) > 100);
+      const shouldSliceByQuota =
+        !explicitFullDump &&
+        Boolean(options.respect_plan === true || options.respect_daily_quota === true || quota.plan_applied);
+      if (shouldSliceByQuota) {
+        const sliced = [];
+        let newTaken = 0;
+        let revTaken = 0;
+        for (let i = 0; i < pool.length; i += 1) {
+          const c = pool[i];
+          const st = String(c.state || "new").toLowerCase();
+          if (st === "learning" || st === "relearning") {
+            sliced.push(c);
+          } else if (st === "review") {
+            if (revTaken < quota.remaining_review_today) {
+              sliced.push(c);
+              revTaken += 1;
+            }
+          } else {
+            if (newTaken < quota.remaining_new_today) {
+              sliced.push(c);
+              newTaken += 1;
+            }
+          }
+        }
+        pool = sliced;
+      }
       pool = pool.map(enrichCardWithRenderedFields);
       return {
         ok: true,
         standalone: true,
         count: pool.length,
         shuffle_mode: shuffleMode,
+        daily_quota: quota,
         cards: pool,
       };
+    }
+
+    function getStudyPlan(payload) {
+      const p = payload || {};
+      const db = loadDb();
+      const hasDeck = p.deck_id !== undefined && p.deck_id !== null && p.deck_id !== "" && p.deck_id !== "all";
+      const deckCards = hasDeck
+        ? db.cards.filter((c) => Number(c.deck_id) === Number(p.deck_id))
+        : db.cards;
+      const totalCards = deckCards.length > 0 ? deckCards.length : 1020;
+      const newCount = deckCards.length > 0 ? deckCards.filter((c) => c.state === "new").length : totalCards;
+      const learnCount = deckCards.filter((c) => c.state === "learning" || c.state === "relearning").length;
+      const revCount = deckCards.filter((c) => c.state === "review").length;
+      const quota = getDeckDailyQuota(db, hasDeck ? p.deck_id : null);
+      const targetDays = Math.max(1, Number(p.target_days || quota.target_days || 30));
+      const dailyMinutes = Math.max(5, Number(p.daily_minutes_budget || 30));
+      const plan = computeAnkiStudyPlan({
+        total_cards: totalCards,
+        new_count: newCount,
+        learning_count: learnCount,
+        review_due_count: revCount,
+        target_days: targetDays,
+        daily_minutes_budget: dailyMinutes,
+      });
+      const effDailyNew =
+        p.new_per_day !== undefined && p.new_per_day !== null && p.new_per_day !== "" && Number(p.new_per_day) > 0
+          ? Number(p.new_per_day)
+          : quota.plan_applied
+          ? quota.daily_new_limit
+          : plan.recommended_daily_new;
+      const budgetRevCap = Math.max(20, Math.floor((dailyMinutes * 60) / 8));
+      const effDailyRev = Math.max(20, Math.min(quota.daily_review_limit || 200, budgetRevCap));
+      if (hasDeck && !quota.plan_applied && deckCards.length >= 100) {
+        db.decks.forEach((d) => {
+          if (Number(d.deck_id) === Number(p.deck_id)) {
+            d.target_days = targetDays;
+            d.daily_new_limit = effDailyNew;
+            d.daily_review_limit = effDailyRev;
+            d.plan_applied = true;
+          }
+        });
+        saveDb(db);
+        quota.plan_applied = true;
+        quota.daily_new_limit = effDailyNew;
+        quota.daily_review_limit = effDailyRev;
+        quota.remaining_new_today = Math.max(0, effDailyNew - quota.new_studied_today);
+        quota.remaining_review_today = Math.max(0, effDailyRev - quota.reviews_studied_today);
+      }
+      const queueRes = buildAnkiV3DailyQueue(deckCards, {
+        new_per_day: Math.max(0, effDailyNew - quota.new_studied_today),
+        max_reviews_per_day: quota.remaining_review_today,
+      });
+      return {
+        ok: true,
+        standalone: true,
+        deck_id: hasDeck ? Number(p.deck_id) : null,
+        plan,
+        daily_quota: Object.assign({}, quota, {
+          target_days: targetDays,
+          daily_new_limit: effDailyNew,
+          remaining_new_today: Math.max(0, effDailyNew - quota.new_studied_today),
+        }),
+        daily_queue_counts: queueRes.counts,
+      };
+    }
+
+    function applyStudyPlan(payload) {
+      const p = payload || {};
+      const db = loadDb();
+      const hasDeck = p.deck_id !== undefined && p.deck_id !== null && p.deck_id !== "" && p.deck_id !== "all";
+      const deckCards = hasDeck
+        ? db.cards.filter((c) => Number(c.deck_id) === Number(p.deck_id))
+        : db.cards;
+      const totalCards = deckCards.length > 0 ? deckCards.length : 1020;
+      const newCount = deckCards.length > 0 ? deckCards.filter((c) => c.state === "new").length : totalCards;
+      const targetDays = Math.max(1, Number(p.target_days || 30));
+      const dailyMinutes = Math.max(5, Number(p.daily_minutes_budget || 30));
+      const plan = computeAnkiStudyPlan({
+        total_cards: totalCards,
+        new_count: newCount,
+        target_days: targetDays,
+        daily_minutes_budget: dailyMinutes,
+      });
+      const rawNewLimit = p.new_per_day !== undefined && p.new_per_day !== null && p.new_per_day !== ""
+        ? Number(p.new_per_day)
+        : p.daily_new_limit !== undefined && p.daily_new_limit !== null && p.daily_new_limit !== ""
+        ? Number(p.daily_new_limit)
+        : 0;
+      const effDailyNew = rawNewLimit > 0 ? rawNewLimit : Math.max(1, Number(plan.recommended_daily_new || 30));
+      const budgetRevCap = Math.max(20, Math.floor((dailyMinutes * 60) / 8));
+      const effDailyRev = Math.max(
+        20,
+        Math.min(Number(p.max_reviews_per_day || p.daily_review_limit || plan.recommended_max_reviews || 200), budgetRevCap)
+      );
+
+      db.decks.forEach((d) => {
+        if (!hasDeck || Number(d.deck_id) === Number(p.deck_id)) {
+          d.target_days = targetDays;
+          d.daily_new_limit = effDailyNew;
+          d.daily_review_limit = effDailyRev;
+          d.plan_applied = true;
+        }
+      });
+      saveDb(db);
+      return getStudyPlan({
+        deck_id: hasDeck ? p.deck_id : null,
+        target_days: targetDays,
+        daily_minutes_budget: dailyMinutes,
+        new_per_day: effDailyNew,
+      });
     }
 
     function insertDeckWithSpecs(deckName, description, specs, shuffleMode) {
@@ -2101,34 +2501,118 @@
       return insertDeckWithSpecs(deckName, "다중 시험범위 교차 덱 (1,000+ 문항)", specs, shuffleMode);
     }
 
+    function extractContentPivotJs(sentence) {
+      const tokens = extractMeaningfulAnswerTokens(sentence).filter((tok) => {
+        if (tok.length < 2) return false;
+        if (isGenericSectionLabel(tok)) return false;
+        if (/(?:이다|입니다|한다|된다|있다|없다|말한다|뜻한다|의미한다|가리킨다|정의된다|합성하는|과정|경우|통해|대한|위한)$/.test(tok)) {
+          return false;
+        }
+        return true;
+      });
+      if (tokens.length === 0) return "";
+      tokens.sort((a, b) => {
+        const aNum = /\d/.test(a) ? 1 : 0;
+        const bNum = /\d/.test(b) ? 1 : 0;
+        if (aNum !== bNum) return bNum - aNum;
+        return b.length - a.length;
+      });
+      return tokens[0];
+    }
+
     function buildSmartTextDeck(payload) {
       const p = payload || {};
       const rawText = String(p.text || p.raw_text || "").trim();
       const diff = String(p.difficulty_level || "standard").toLowerCase();
-      const lines = rawText.split(/\r?\n/).map((l) => l.replace(/^[\s•\-*]+/, "").trim()).filter((l) => l.length >= 4);
+      const rawLines = rawText
+        .split(/\r?\n/)
+        .map((l) => l.replace(/^[\s•\-*]+/, "").trim())
+        .filter((l) => l.length >= 2);
       const specs = [];
+      let activeHeadingTopic = "";
 
-      lines.forEach((line, idx) => {
+      rawLines.forEach((rawLine, idx) => {
+        if (isTocOrStructuralHeading(rawLine, "paragraph")) {
+          const cleanH = rawLine.replace(/^[#*•\-\s[\]<>《》「」『』]+|[\]<>《》「」『』\s]+$/g, "").trim();
+          if (
+            cleanH.length >= 2 &&
+            cleanH.length <= 40 &&
+            !isGenericSectionLabel(cleanH) &&
+            !/(?:목\s*차|차\s*례|table\s+of\s+contents|\.{2,}|…+)/i.test(cleanH)
+          ) {
+            activeHeadingTopic = cleanH;
+          }
+          return;
+        }
+        if (rawLine.length < 4) return;
+
+        let line = rawLine;
         const conceptTag = `concept:doc_${idx + 1}`;
-        const colonParts = line.split(/\s*(?::|—|->|→|\|)\s*/);
-        if (colonParts.length >= 2 && colonParts[0].length >= 1 && colonParts[1].length >= 2) {
-          const term = colonParts[0].trim();
-          const defText = colonParts.slice(1).join(" — ").trim();
-          const item = {
-            id: `doc_${idx + 1}`,
-            term,
-            answer: defText,
-            sentence: `{{c1::${term}::핵심 개념}}: ${defText}`,
-            explain: `${term} — ${defText}`,
-          };
-          expandStandaloneItemByDifficulty(item, "custom_doc", diff).forEach((s) => specs.push(s));
-        } else {
-          const words = line.split(/\s+/).filter((w) => w.length >= 2);
-          const pivot = words[0] || line.slice(0, 6);
-          const clozeLine = line.replace(pivot, `{{c1::${pivot}}}`);
+        const colonMatch = line.match(/^([^\n:：\-–—]{2,55}?)\s*(?::|：|\s—\s|\s-\s|->|→|\|)\s*(.{3,300})$/);
+        let topicPrefix = "";
+
+        if (colonMatch) {
+          const term = colonMatch[1].trim();
+          const defText = colonMatch[2].trim();
+          if (isTocOrStructuralHeading(defText, "paragraph")) {
+            return;
+          }
+          if (isGenericSectionLabel(term)) {
+            line = defText;
+            if (activeHeadingTopic && !line.includes(activeHeadingTopic)) {
+              topicPrefix = `[${activeHeadingTopic}] `;
+            }
+          } else {
+            const safeDef = maskTermInDescJs(defText, term);
+            const conciseBack = `${term}\n\n💡 해설: ${defText}`;
+            const cLv1 = {
+              front_text: `🌱 [Lv.1 개념 확인] ${safeDef}`,
+              back_text: conciseBack,
+              note_type: "basic",
+              tags: ["custom_doc", conceptTag, "role:core_concept", "diff_lv1"],
+            };
+            const cLv2 = {
+              front_text: `{{c1::${term}::핵심 개념}}: ${safeDef}`,
+              back_text: conciseBack,
+              note_type: "cloze",
+              tags: ["custom_doc", conceptTag, "role:core_concept", "diff_lv2"],
+            };
+            const cLv3 = {
+              front_text: `🔥 [Lv.3 용어 인출] ${safeDef}`,
+              back_text: conciseBack,
+              note_type: "basic",
+              tags: ["custom_doc", conceptTag, "role:core_concept", "diff_lv3"],
+            };
+            if (diff === "lv2") {
+              specs.push(cLv2);
+            } else if (diff === "lv3") {
+              specs.push(cLv3);
+            } else if (diff === "mixed" || diff === "all") {
+              specs.push(cLv1, cLv2, cLv3);
+            } else {
+              specs.push(cLv1);
+            }
+            return;
+          }
+        }
+
+        const pivot = extractContentPivotJs(line);
+        if (!pivot) return;
+        const escapedPivot = pivot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const clozeLine = `${topicPrefix}${line.replace(new RegExp(escapedPivot, "i"), `{{c1::${pivot}::핵심 키워드}}`)}`;
+        const maskedLine = `${topicPrefix}${line.replace(new RegExp(escapedPivot, "i"), "[ ___ ]")}`;
+        const backText = `${pivot}\n\n💡 해설: ${topicPrefix}${line}`;
+        if (diff === "lv3") {
           specs.push({
-            front_text: diff === "lv1" ? `🌱 [핵심 문장 빈칸] ${clozeLine}` : clozeLine,
-            back_text: `${pivot}\n\n💡 해설: ${line}`,
+            front_text: `🔥 [Lv.3 핵심 인출] ${maskedLine}`,
+            back_text: backText,
+            note_type: "basic",
+            tags: ["custom_doc", conceptTag, "diff_lv3"],
+          });
+        } else {
+          specs.push({
+            front_text: clozeLine,
+            back_text: backText,
             note_type: "cloze",
             tags: ["custom_doc", conceptTag, `diff_${diff}`],
           });
@@ -2353,6 +2837,7 @@
         standalone: true,
         deck_id: targetDeckId,
         reset_cards: resetCount,
+        reset_count: resetCount,
         cleared_reviews: clearedReviews,
         due_at: nowIso,
       };
@@ -2521,6 +3006,8 @@
       refundStorePack,
       getDashboard,
       getDueCards,
+      getStudyPlan,
+      applyStudyPlan,
       buildExamScopeDeck,
       buildCollectionDeck,
       buildCombinedExamDeck,
@@ -3938,6 +4425,8 @@
     evaluateLeechStatus,
     applyAnkiCardAction,
     buildCustomStudySession,
+    isGenericSectionLabel,
+    isTocOrStructuralHeading,
   };
 });
 

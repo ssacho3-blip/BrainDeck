@@ -210,6 +210,8 @@ class MainActivity : ComponentActivity() {
                     onUpdatePreviewCard = viewModel::updatePreviewCard,
                     onRemovePreviewCard = viewModel::removePreviewCard,
                     onSavePreviewDeck = viewModel::savePreviewAsDeck,
+                    onApplyStudyPlan = viewModel::applyStudyPlan,
+                    onIncreaseDailyNewQuota = viewModel::increaseDailyNewQuota,
                     onRevealAnswer = viewModel::revealAnswer,
                     onRateCard = viewModel::submitReviewRating
                 )
@@ -301,6 +303,8 @@ fun AnkiStudioScreen(
     onUpdatePreviewCard: (Int, String, String) -> Unit,
     onRemovePreviewCard: (Int) -> Unit,
     onSavePreviewDeck: () -> Unit,
+    onApplyStudyPlan: (Int, Int?) -> Unit = { _, _ -> },
+    onIncreaseDailyNewQuota: (Int) -> Unit = {},
     onRevealAnswer: () -> Unit,
     onRateCard: (Rating) -> Unit
 ) {
@@ -451,6 +455,8 @@ fun AnkiStudioScreen(
                         onSpeakText = onSpeakText,
                         onRevealAnswer = onRevealAnswer,
                         onRateCard = onRateCard,
+                        onApplyStudyPlan = onApplyStudyPlan,
+                        onIncreaseDailyNewQuota = onIncreaseDailyNewQuota,
                         onGoToStore = { onSelectTab("store") },
                         onGoToCurriculum = { onSelectTab("curriculum") }
                     )
@@ -616,6 +622,8 @@ private fun StudyTabScreen(
     onSpeakText: (String) -> Unit,
     onRevealAnswer: () -> Unit,
     onRateCard: (Rating) -> Unit,
+    onApplyStudyPlan: (Int, Int?) -> Unit = { _, _ -> },
+    onIncreaseDailyNewQuota: (Int) -> Unit = {},
     onGoToStore: () -> Unit,
     onGoToCurriculum: () -> Unit
 ) {
@@ -681,6 +689,64 @@ private fun StudyTabScreen(
                         )
                     }
                 )
+            }
+        }
+
+        // Always-Visible D-Day Study Planner & Daily Quota Bar
+        item {
+            val plan = state.studyPlan
+            val remNew = (state.dailyNewLimit - state.newStudiedToday).coerceAtLeast(0)
+            Surface(
+                color = Color(0xFFEEF2FF),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "📅 D-${state.targetDays} 학습 계획 · 오늘 목표 ${state.dueCards.size}장 (새 카드 ${state.dailyNewLimit}장 중 남은 ${remNew}장 · 전체 ${activeRaw.size}장)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF1D4ED8)
+                    )
+                    if (plan != null) {
+                        Text(
+                            text = "💡 진도 ${plan.newIntakeDays}일 + 총정리 복습 ${plan.consolidationDays}일 · 일평균 약 ${plan.avgDailyMinutes}분 소요",
+                            fontSize = 11.sp,
+                            color = Color(0xFF1E3A8A)
+                        )
+                    }
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val dayPresets = listOf(7 to "D-7 단기", 14 to "D-14 집중", 30 to "D-30 표준", 60 to "D-60 완주")
+                        items(dayPresets) { (days, label) ->
+                            FilterChip(
+                                selected = state.targetDays == days,
+                                onClick = { onApplyStudyPlan(days, null) },
+                                label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                        val quotaPresets = listOf(20 to "하루 20장", 30 to "하루 30장", 50 to "하루 50장")
+                        items(quotaPresets) { (qLimit, qLabel) ->
+                            FilterChip(
+                                selected = state.dailyNewLimit == qLimit,
+                                onClick = { onApplyStudyPlan(state.targetDays, qLimit) },
+                                label = { Text(qLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = false,
+                                onClick = { onIncreaseDailyNewQuota(15) },
+                                label = { Text("➕ 오늘 +15장", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                }
             }
         }
 

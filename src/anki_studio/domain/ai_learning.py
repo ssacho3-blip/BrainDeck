@@ -498,17 +498,38 @@ def extract_smart_cards_deterministic(
     if not text:
         return []
 
-    diff_norm = (difficulty_level or "standard").strip().lower()
-    lines = [ln.strip(" \t•-*") for ln in text.splitlines() if len(ln.strip(" \t•-*")) >= 6]
-    cards: List[GeneratedCardSpec] = []
+    from anki_studio.domain.document_deck_builder import (
+        _extract_noun_candidates,
+        _mask_term_in_desc,
+        is_generic_section_label,
+        is_toc_or_structural_heading,
+    )
 
-    for line_idx, line in enumerate(lines):
+    diff_norm = (difficulty_level or "standard").strip().lower()
+    raw_lines = [ln.strip(" \t•-*") for ln in text.splitlines() if len(ln.strip(" \t•-*")) >= 2]
+    cards: List[GeneratedCardSpec] = []
+    active_heading_topic = ""
+
+    for line_idx, line in enumerate(raw_lines):
         if len(cards) >= max_cards:
             break
 
+        if is_toc_or_structural_heading(line, "paragraph"):
+            cleaned_h = line.lstrip("#*•- ").strip(" []<>《》「」『』")
+            if (
+                2 <= len(cleaned_h) <= 40
+                and not is_generic_section_label(cleaned_h)
+                and not re.search(r"(?:목\s*차|차\s*례|table\s+of\s+contents|\.{2,}|…+)", cleaned_h, re.IGNORECASE)
+            ):
+                active_heading_topic = cleaned_h
+            continue
+
+        if len(line) < 6:
+            continue
+
         eff_diff = diff_norm
         if diff_norm in ("mixed", "all"):
-            eff_diff = ("lv1", "lv2", "lv3")[line_idx % 3]
+            eff_diff = ("lv1", "lv2", "lv3")[len(cards) % 3]
 
         # 1. Already contains Cloze syntax
         if extract_cloze_ordinals(line):
@@ -527,13 +548,15 @@ def extract_smart_cards_deterministic(
         arrow_match = re.split(r"\s*(?:->|→|=>|\|)\s*", line, maxsplit=1)
         if len(arrow_match) == 2 and len(arrow_match[0]) >= 3 and len(arrow_match[1]) >= 3:
             left, right = arrow_match[0].strip(), arrow_match[1].strip()
+            if is_generic_section_label(left) and is_generic_section_label(right):
+                continue
             is_english = sum(1 for c in right if "a" <= c.lower() <= "z") > len(right) * 0.4
             if is_english or domain_mode == "english":
                 if eff_diff == "lv1":
                     cards.append(
                         GeneratedCardSpec(
                             note_type="basic",
-                            front_text=f"📘 [Lv.1 기초 뜻 인출] 다음 영어 표현의 의미는?\n{right}",
+                            front_text=f"📘 [Lv.1] {right}",
                             back_text=left,
                             tags=("english", "lv1", "ai-factory"),
                             rationale="Lv.1 영어 표현 의미 인지 카드",
@@ -544,7 +567,7 @@ def extract_smart_cards_deterministic(
                     cards.append(
                         GeneratedCardSpec(
                             note_type="speaking",
-                            front_text=f"🔥 [Lv.3 심화 영작·발화] '{left}'을(를) 영어로 표현하시오.\n(구조 단서: {mask_s1}, {char_c}자)",
+                            front_text=f"🔥 [Lv.3 영작·발화] {left}\n(단서: {mask_s1}, {char_c}자)",
                             back_text=right,
                             tags=("english", "speaking-drill", "lv3", "ai-factory"),
                             rationale="Lv.3 역방향 능동 영작·발화 카드",
@@ -554,7 +577,7 @@ def extract_smart_cards_deterministic(
                     cards.append(
                         GeneratedCardSpec(
                             note_type="speaking",
-                            front_text=f"🗣️ [영어 표현 인출] {left}",
+                            front_text=f"🗣️ [영어 발화] {left}",
                             back_text=right,
                             tags=("english", "speaking-drill", "ai-factory"),
                             rationale="한영/교정 쌍을 스피킹 액티브 리콜 카드로 변환",
@@ -565,7 +588,7 @@ def extract_smart_cards_deterministic(
                     cards.append(
                         GeneratedCardSpec(
                             note_type="basic",
-                            front_text=f"🔥 [Lv.3 역방향 인과 추론] 결과·정의가 '{right}'일 때 그 선행 조건(원인·개념)은 무엇인가?",
+                            front_text=f"🔥 [Lv.3 원인·조건] {right}",
                             back_text=left,
                             tags=(domain_mode, "causal-reverse", "lv3", "ai-factory"),
                             rationale="Lv.3 결과에서 원인을 역추적하는 심화 카드",
@@ -576,7 +599,7 @@ def extract_smart_cards_deterministic(
                         GeneratedCardSpec(
                             note_type="cloze",
                             front_text=f"{left} ➔ {{{{c1::{right}::핵심 결과/정의}}}}",
-                            back_text=f"{left} → {right}",
+                            back_text=f"{right}\n\n💡 해설: {left} → {right}",
                             tags=(domain_mode, "causal-cloze", "ai-factory"),
                             rationale="인과/화살표 구문을 Cloze 빈칸 카드로 변환",
                         )
@@ -584,44 +607,58 @@ def extract_smart_cards_deterministic(
             continue
 
         # 3. `Term : Definition` or `Term — Definition`
-        colon_match = re.split(r"\s*(?::|—| - )\s*", line, maxsplit=1)
+        colon_match = re.split(r"\s*(?::|：|—| - )\s*", line, maxsplit=1)
+        topic_prefix = ""
         if len(colon_match) == 2 and 2 <= len(colon_match[0]) <= 45 and len(colon_match[1]) >= 6:
             term, definition = colon_match[0].strip(), colon_match[1].strip()
-            if eff_diff == "lv1":
-                cards.append(
-                    GeneratedCardSpec(
-                        note_type="basic",
-                        front_text=f"🌱 [Lv.1 핵심 개념] '{term}'의 핵심 뜻·정의는 무엇인가요?",
-                        back_text=definition,
-                        tags=(domain_mode, "term-basic", "lv1", "ai-factory"),
-                        rationale=f"Lv.1 용어('{term}')의 기본 정의 확인",
-                    )
-                )
-            elif eff_diff == "lv3":
-                cards.append(
-                    GeneratedCardSpec(
-                        note_type="basic",
-                        front_text=f"🔥 [Lv.3 심화 역방향 인출] 다음 설명에 해당하는 정확한 핵심 용어(개념)를 쓰시오.\n\"{definition}\"",
-                        back_text=f"{term}\n\n💡 해설: {term} — {definition}",
-                        tags=(domain_mode, "term-reverse", "lv3", "ai-factory"),
-                        rationale=f"Lv.3 정의를 보고 용어('{term}')를 역산출하는 심화 카드",
-                    )
-                )
+            if is_toc_or_structural_heading(definition, "paragraph"):
+                continue
+            if is_generic_section_label(term):
+                # Do NOT ask the generic label ('특징', '1. 배경', '의의') as the question or answer!
+                # Unwrap the content sentence on the right-hand side and attach heading context if available.
+                line = definition
+                if active_heading_topic and active_heading_topic not in line:
+                    topic_prefix = f"[{active_heading_topic}] "
             else:
-                cards.append(
-                    GeneratedCardSpec(
-                        note_type="cloze",
-                        front_text=f"{{{{c1::{term}::핵심 용어}}}}: {definition}",
-                        back_text=f"용어: {term}\n정의: {definition}",
-                        tags=(domain_mode, "term-cloze", "ai-factory"),
-                        rationale=f"핵심 용어('{term}')와 정의를 양방향 인출용 Cloze로 변환",
+                safe_def = _mask_term_in_desc(definition, term)
+                if eff_diff == "lv1":
+                    cards.append(
+                        GeneratedCardSpec(
+                            note_type="basic",
+                            front_text=f"🌱 [Lv.1 개념 확인] {safe_def}",
+                            back_text=f"{term}\n\n💡 해설: {definition}",
+                            tags=(domain_mode, "term-basic", "lv1", "ai-factory"),
+                            rationale=f"Lv.1 내용·정의를 보고 핵심 용어('{term}') 확인",
+                        )
                     )
-                )
-            continue
+                elif eff_diff == "lv3":
+                    cards.append(
+                        GeneratedCardSpec(
+                            note_type="basic",
+                            front_text=f"🔥 [Lv.3 용어 인출] {safe_def}",
+                            back_text=f"{term}\n\n💡 해설: {definition}",
+                            tags=(domain_mode, "term-reverse", "lv3", "ai-factory"),
+                            rationale=f"Lv.3 정의를 보고 용어('{term}')를 역산출하는 심화 카드",
+                        )
+                    )
+                else:
+                    cards.append(
+                        GeneratedCardSpec(
+                            note_type="cloze",
+                            front_text=f"{{{{c1::{term}::핵심 용어}}}}: {safe_def}",
+                            back_text=f"{term}\n\n💡 해설: {definition}",
+                            tags=(domain_mode, "term-cloze", "ai-factory"),
+                            rationale=f"핵심 용어('{term}')와 정의를 Cloze로 변환",
+                        )
+                    )
+                continue
 
         # 4. General prose sentence: convert key technical metric + key concept into Cloze
-        tokens = _extract_meaningful_tokens(line)
-        if len(tokens) >= 2:
+        noun_cands = _extract_noun_candidates(line)
+        tokens = noun_cands if noun_cands else [
+            t for t in _extract_meaningful_tokens(line) if not is_generic_section_label(t)
+        ]
+        if len(tokens) >= 1:
             ranked = sorted(
                 dict.fromkeys(tokens),
                 key=lambda t: (
@@ -634,19 +671,21 @@ def extract_smart_cards_deterministic(
             max_blanks = 1 if eff_diff == "lv1" else (3 if eff_diff == "lv3" else 2)
             cloze_line = line
             used = 0
+            used_tokens: List[str] = []
             for tok in ranked[:max_blanks]:
                 pat = re.compile(re.escape(tok), re.IGNORECASE)
                 if pat.search(cloze_line):
                     used += 1
+                    used_tokens.append(tok)
                     cloze_line = pat.sub(f"{{{{c{used}::{tok}}}}}", cloze_line, count=1)
             if used > 0:
                 cards.append(
                     GeneratedCardSpec(
                         note_type="cloze",
-                        front_text=cloze_line,
-                        back_text=line,
+                        front_text=f"{topic_prefix}{cloze_line}",
+                        back_text=f"{' · '.join(used_tokens)}\n\n💡 해설: {topic_prefix}{line}",
                         tags=(domain_mode, "prose-cloze", "ai-factory"),
-                        rationale="문장 내 핵심 기술 용어/수치를 다중 빈칸(Cloze) 카드로 자동 변환",
+                        rationale="문장 내 핵심 기술 용어/수치를 빈칸(Cloze) 카드로 자동 변환",
                     )
                 )
 
@@ -774,7 +813,9 @@ def build_ai_card_generation_prompt(raw_text: str, domain_mode: str = "auto", ma
         "규칙:\n"
         "1. 하나의 카드가 너무 많은 정보를 묻지 않도록 '최소 정보 원칙(Minimum Information Principle)'을 지키세요.\n"
         "2. `note_type`은 'cloze'(빈칸: `{{c1::정답::힌트}}`), 'basic'(질문/답변), 'speaking'(영어회화 발화) 중 하나입니다.\n"
-        "3. 반드시 순수 JSON 배열만 출력하세요:\n"
+        "3. 목차(차례, Table of Contents, 페이지 번호 점선), 단순 장·절 제목(제1장, Chapter 1), 일반 항목 라벨(특징, 배경, 개요, 의의, 목적 등)을 묻는 카드는 절대 생성하지 마세요.\n"
+        "4. 질문(front_text)에는 구체적인 내용·정의·맥락을 제시하고, 정답(back_text)에는 핵심 용어·개념만 간결하게 제시하세요. 불필요한 상투적 지시문과 중복 해설을 배제하세요.\n"
+        "5. 반드시 순수 JSON 배열만 출력하세요:\n"
         '[{"note_type":"cloze","front_text":"...","back_text":"...","tags":["tag1"],"rationale":"..."}]\n\n'
         f"원문:\n{raw_text.strip()}"
     )
@@ -784,8 +825,14 @@ def parse_ai_generated_cards(
     raw_llm_output: str,
     fallback_source_text: str = "",
     domain_mode: str = "auto",
+    max_cards: int = 12,
 ) -> List[GeneratedCardSpec]:
     """Parse LLM JSON response into `GeneratedCardSpec` list with Fail-Closed deterministic fallback."""
+    from anki_studio.domain.document_deck_builder import (
+        is_generic_section_label,
+        is_toc_or_structural_heading,
+    )
+
     cleaned = (raw_llm_output or "").strip()
     # Strip markdown code fences if present
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
@@ -809,6 +856,10 @@ def parse_ai_generated_cards(
                         ntype = "cloze" if "{{c" in front else "basic"
                     if not front:
                         continue
+                    if is_toc_or_structural_heading(front, "paragraph") or is_generic_section_label(front):
+                        continue
+                    if back and is_generic_section_label(back.splitlines()[0]):
+                        continue
                     if ntype == "cloze" and not extract_cloze_ordinals(front):
                         ntype = "basic"
                     raw_tags = item.get("tags")
@@ -824,11 +875,11 @@ def parse_ai_generated_cards(
                         )
                     )
                 if specs:
-                    return specs
+                    return specs[:max_cards]
         except (ValueError, TypeError):
             pass
 
-    return extract_smart_cards_deterministic(fallback_source_text, domain_mode=domain_mode)
+    return extract_smart_cards_deterministic(fallback_source_text, domain_mode=domain_mode, max_cards=max_cards)
 
 
 def resolve_card_solve_mode(

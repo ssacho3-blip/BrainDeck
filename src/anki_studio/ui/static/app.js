@@ -218,7 +218,12 @@
       const qs = qIdx >= 0 ? new URLSearchParams(path.slice(qIdx + 1)) : new URLSearchParams();
       const deckId = qs.get("deck_id") || "";
       const shuffleMode = qs.get("shuffle") || state.shuffleMode || "interleaved";
-      const dueRes = standaloneEngine.getDueCards({ deck_id: deckId, shuffle_mode: shuffleMode });
+      const respectPlan = qs.get("respect_plan") === "1" || qs.get("respect_plan") === "true";
+      const dueRes = standaloneEngine.getDueCards({
+        deck_id: deckId,
+        shuffle_mode: shuffleMode,
+        respect_plan: respectPlan,
+      });
       dueRes.cards = (dueRes.cards || []).map(enrichStandaloneCard);
       return dueRes;
     }
@@ -331,6 +336,13 @@
       };
     }
     if (path.startsWith("/api/study-plan")) {
+      const shouldApply = path.startsWith("/api/study-plan/apply") || Boolean(p.apply || p.apply_plan);
+      if (shouldApply && typeof standaloneEngine.applyStudyPlan === "function") {
+        return standaloneEngine.applyStudyPlan(p);
+      }
+      if (typeof standaloneEngine.getStudyPlan === "function") {
+        return standaloneEngine.getStudyPlan(p);
+      }
       if (vm && typeof vm.computeAnkiStudyPlan === "function") {
         const cards = state.rawDueCards || [];
         const total = Math.max(cards.length, 1020);
@@ -682,6 +694,28 @@
     }
   }
 
+  async function renderStudyPlanBanner(planRes) {
+    const banner = el("bd-study-plan-banner");
+    if (!banner || !planRes || !planRes.ok || !planRes.plan) return;
+    const pl = planRes.plan;
+    const dq = planRes.daily_quota || {};
+    const dailyNewLimit = Number(dq.daily_new_limit || pl.recommended_daily_new || 30);
+    const newStudied = Number(dq.new_studied_today || 0);
+    const remNew = dq.remaining_new_today !== undefined ? Number(dq.remaining_new_today) : Math.max(0, dailyNewLimit - newStudied);
+    const badgeTone =
+      pl.status === "FEASIBLE"
+        ? "✅ 완주 가능"
+        : pl.status === "TIGHT_SCHEDULE"
+        ? "⚠️ 타이트한 일정"
+        : "🚨 집중 배분 권장";
+    const appliedLabel = dq.plan_applied ? "🟢 맞춤 계획 적용 중" : "🔵 기본 일일 할당 적용 중";
+    banner.style.display = "block";
+    banner.textContent =
+      `📅 [D-${pl.target_days} 학습 계획 · ${badgeTone} · ${appliedLabel}] 전체 ${pl.total_cards}장 (진도 ${pl.new_intake_days}일 + 총정리 복습 ${pl.consolidation_days}일)\n` +
+      `🎯 오늘의 할당량: 새 카드 ${dailyNewLimit}장 중 남은 ${remNew}장 (오늘 완료 ${newStudied}장) · 일평균 약 ${pl.avg_daily_minutes}분 (권장 최대 복습 ${pl.recommended_max_reviews}장/일)\n` +
+      `💡 코칭: ${(pl.recommendations && pl.recommendations[0]) || ""}`;
+  }
+
   async function refreshDashboardAndQueue() {
     const status = await apiGet("/api/status");
     if (status && status.ok) {
@@ -702,7 +736,8 @@
       state.decks.forEach((d) => {
         const opt = document.createElement("option");
         opt.value = String(d.deck_id);
-        opt.textContent = `${d.name} (${d.due_cards}/${d.total_cards})`;
+        const dailyTag = d.daily_new_limit ? ` · 일일 목표 ${d.daily_new_limit}장` : "";
+        opt.textContent = `${d.name} (${d.due_cards}/${d.total_cards}${dailyTag})`;
         sel.appendChild(opt);
       });
       sel.value = prevVal;
@@ -711,11 +746,29 @@
     const params = new URLSearchParams();
     if (state.selectedDeckId) params.set("deck_id", state.selectedDeckId);
     if (state.shuffleMode) params.set("shuffle", state.shuffleMode);
+    params.set("respect_plan", "1");
     const q = params.toString() ? `?${params.toString()}` : "";
     const dueRes = await apiGet(`/api/due${q}`);
     state.rawDueCards = (dueRes && dueRes.cards) || [];
+    state.currentDailyQuota = (dueRes && dueRes.daily_quota) || null;
     applyStudyFilter();
     renderCurrentCard();
+
+    const daysSel = el("bd-plan-days");
+    const minsSel = el("bd-plan-minutes");
+    const newSel = el("bd-plan-daily-new");
+    const targetDays = Number((daysSel && daysSel.value) || (state.currentDailyQuota && state.currentDailyQuota.target_days) || 30);
+    const dailyMinutes = Number((minsSel && minsSel.value) || 30);
+    const customNew = newSel && newSel.value && newSel.value !== "auto" ? Number(newSel.value) : null;
+    const planRes = await apiPost("/api/study-plan", {
+      deck_id: state.selectedDeckId || null,
+      target_days: targetDays,
+      daily_minutes_budget: dailyMinutes,
+      new_per_day: customNew,
+    });
+    if (planRes && planRes.ok) {
+      await renderStudyPlanBanner(planRes);
+    }
   }
 
   function revealAnswer() {
@@ -2704,40 +2757,71 @@
     });
 
     // BrainDeck v3 Study Planner & Custom Study Suite bindings
+    async function computeAndPreviewPlan(showToastMsg = true) {
+      const daysSel = el("bd-plan-days");
+      const minsSel = el("bd-plan-minutes");
+      const newSel = el("bd-plan-daily-new");
+      const targetDays = Number((daysSel && daysSel.value) || 30);
+      const dailyMinutes = Number((minsSel && minsSel.value) || 30);
+      const customNew = newSel && newSel.value && newSel.value !== "auto" ? Number(newSel.value) : null;
+      const res = await apiPost("/api/study-plan", {
+        deck_id: state.selectedDeckId || null,
+        target_days: targetDays,
+        daily_minutes_budget: dailyMinutes,
+        new_per_day: customNew,
+      });
+      if (res && res.ok && res.plan) {
+        await renderStudyPlanBanner(res);
+        if (showToastMsg) {
+          const pl = res.plan;
+          const effNew = customNew || pl.recommended_daily_new;
+          showUxToast(
+            `📅 D-${pl.target_days} 학습계획 산출: 전체 ${pl.total_cards}장 ➔ 하루 새 카드 ${effNew}장 · 평균 ${pl.avg_daily_minutes}분/일`,
+            pl.status === "FEASIBLE" ? "emerald" : "amber"
+          );
+        }
+      }
+    }
+
     const btnComputePlan = el("btn-compute-study-plan");
     if (btnComputePlan) {
-      btnComputePlan.addEventListener("click", async () => {
+      btnComputePlan.addEventListener("click", () => computeAndPreviewPlan(true));
+    }
+
+    const btnApplyPlan = el("btn-apply-study-plan");
+    if (btnApplyPlan) {
+      btnApplyPlan.addEventListener("click", async () => {
         const daysSel = el("bd-plan-days");
         const minsSel = el("bd-plan-minutes");
+        const newSel = el("bd-plan-daily-new");
         const targetDays = Number((daysSel && daysSel.value) || 30);
         const dailyMinutes = Number((minsSel && minsSel.value) || 30);
-        const res = await apiPost("/api/study-plan", {
+        const customNew = newSel && newSel.value && newSel.value !== "auto" ? Number(newSel.value) : null;
+        const res = await apiPost("/api/study-plan/apply", {
           deck_id: state.selectedDeckId || null,
           target_days: targetDays,
           daily_minutes_budget: dailyMinutes,
+          new_per_day: customNew,
+          apply: true,
         });
-        const banner = el("bd-study-plan-banner");
-        if (res && res.ok && res.plan && banner) {
-          const pl = res.plan;
-          const badgeTone =
-            pl.status === "FEASIBLE"
-              ? "✅ 완주 가능 (FEASIBLE)"
-              : pl.status === "TIGHT_SCHEDULE"
-              ? "⚠️ 타이트한 일정 (TIGHT)"
-              : "🚨 과부하 경고 (OVERLOAD)";
-          banner.style.display = "block";
-          banner.textContent =
-            `📅 [D-${pl.target_days} 맞춤 학습 계획 · ${badgeTone}]\n` +
-            `• 전체 ${pl.total_cards}장 중 하루 새 카드 권장: ${pl.recommended_daily_new}장/일 (진도 ${pl.new_intake_days}일 + 총정리 복습 ${pl.consolidation_days}일)\n` +
-            `• 예상 소요 시간: 일평균 ${pl.avg_daily_minutes}분 / 피크 ${pl.peak_daily_minutes}분 (권장 최대 복습 상한: ${pl.recommended_max_reviews}장/일)\n` +
-            `💡 코칭: ${(pl.recommendations && pl.recommendations[0]) || ""}`;
+        if (res && res.ok && res.plan) {
+          await refreshDashboardAndQueue();
+          const dq = res.daily_quota || {};
+          const dailyNewLimit = Number(dq.daily_new_limit || res.plan.recommended_daily_new || 30);
           showUxToast(
-            `📅 D-${pl.target_days} 학습계획 산출 완료: 하루 새 카드 ${pl.recommended_daily_new}장 · 평균 ${pl.avg_daily_minutes}분/일`,
-            pl.status === "FEASIBLE" ? "emerald" : "amber"
+            `✅ D-${res.plan.target_days} 일일 학습 계획 적용 완료! 오늘부터 하루 새 카드 ${dailyNewLimit}장씩 맞춤 출제됩니다.`,
+            "emerald"
           );
         }
       });
     }
+
+    ["bd-plan-days", "bd-plan-daily-new", "bd-plan-minutes"].forEach((selId) => {
+      const sEl = el(selId);
+      if (sEl) {
+        sEl.addEventListener("change", () => computeAndPreviewPlan(false));
+      }
+    });
 
     const btnRunCustomStudy = el("btn-run-custom-study");
     if (btnRunCustomStudy) {

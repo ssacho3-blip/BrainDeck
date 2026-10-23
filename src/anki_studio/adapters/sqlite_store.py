@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS decks (
     name TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
     desired_retention REAL NOT NULL DEFAULT 0.90,
+    target_days INTEGER NOT NULL DEFAULT 30,
+    daily_new_limit INTEGER NOT NULL DEFAULT 30,
+    daily_review_limit INTEGER NOT NULL DEFAULT 200,
+    plan_applied INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -254,6 +258,167 @@ class AnkiStudioStore:
                 conn.execute("ALTER TABLE cards ADD COLUMN buried_today INTEGER NOT NULL DEFAULT 0;")
             if "buried_until_date" not in card_cols:
                 conn.execute("ALTER TABLE cards ADD COLUMN buried_until_date TEXT;")
+            deck_cols = {
+                str(r["name"])
+                for r in conn.execute("PRAGMA table_info(decks)").fetchall()
+            }
+            if "target_days" not in deck_cols:
+                conn.execute("ALTER TABLE decks ADD COLUMN target_days INTEGER NOT NULL DEFAULT 30;")
+            if "daily_new_limit" not in deck_cols:
+                conn.execute("ALTER TABLE decks ADD COLUMN daily_new_limit INTEGER NOT NULL DEFAULT 30;")
+            if "daily_review_limit" not in deck_cols:
+                conn.execute("ALTER TABLE decks ADD COLUMN daily_review_limit INTEGER NOT NULL DEFAULT 200;")
+            if "plan_applied" not in deck_cols:
+                conn.execute("ALTER TABLE decks ADD COLUMN plan_applied INTEGER NOT NULL DEFAULT 0;")
+
+    def save_deck_study_plan(
+        self,
+        deck_id: Optional[int],
+        target_days: int = 30,
+        daily_new_limit: int = 30,
+        daily_review_limit: int = 200,
+        desired_retention: float = 0.90,
+        as_of_iso: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist D-Day study plan & daily quota settings for a deck (or all decks if deck_id is None)."""
+        t_days = max(1, min(3650, int(target_days)))
+        n_lim = max(1, min(2000, int(daily_new_limit)))
+        r_lim = max(10, min(5000, int(daily_review_limit)))
+        ret = max(0.70, min(0.99, float(desired_retention)))
+        now_dt = datetime.fromisoformat(as_of_iso) if as_of_iso else datetime.now(timezone.utc)
+        exam_date_iso = (now_dt + timedelta(days=t_days)).date().isoformat()
+
+        with self._write_tx() as conn:
+            if deck_id is not None:
+                conn.execute(
+                    """
+                    UPDATE decks
+                    SET target_days = ?, daily_new_limit = ?, daily_review_limit = ?,
+                        desired_retention = ?, plan_applied = 1
+                    WHERE deck_id = ?
+                    """,
+                    (t_days, n_lim, r_lim, ret, int(deck_id)),
+                )
+                plan_id = f"plan_deck_{int(deck_id)}"
+                conn.execute(
+                    """
+                    INSERT INTO exam_plans (plan_id, deck_id, exam_date_iso, daily_cap, target_retention, status)
+                    VALUES (?, ?, ?, ?, ?, 'ACTIVE')
+                    ON CONFLICT(plan_id) DO UPDATE SET
+                        exam_date_iso = excluded.exam_date_iso,
+                        daily_cap = excluded.daily_cap,
+                        target_retention = excluded.target_retention,
+                        status = 'ACTIVE'
+                    """,
+                    (plan_id, int(deck_id), exam_date_iso, n_lim, ret),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE decks
+                    SET target_days = ?, daily_new_limit = ?, daily_review_limit = ?,
+                        desired_retention = ?, plan_applied = 1
+                    """,
+                    (t_days, n_lim, r_lim, ret),
+                )
+        return self.get_deck_daily_quota_status(deck_id=deck_id, as_of_iso=as_of_iso)
+
+    def get_deck_daily_quota_status(
+        self,
+        deck_id: Optional[int] = None,
+        as_of_iso: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Return today's study plan quota status (`daily_new_limit`, `new_studied_today`, `remaining_new_today`, etc.)."""
+        now_str = as_of_iso or _utc_now_iso()
+        today_prefix = now_str[:10]
+        conn = self._connect()
+        try:
+            if deck_id is not None:
+                d_row = conn.execute(
+                    "SELECT * FROM decks WHERE deck_id = ?",
+                    (int(deck_id),),
+                ).fetchone()
+                if d_row is None:
+                    raise KeyError(f"Deck {deck_id} not found")
+                target_days = int(d_row["target_days"] or 30)
+                daily_new_limit = int(d_row["daily_new_limit"] or 30)
+                daily_review_limit = int(d_row["daily_review_limit"] or 200)
+                plan_applied = bool(int(d_row["plan_applied"] or 0))
+                deck_name = str(d_row["name"])
+                rev_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(DISTINCT CASE WHEN r.state_before = 'new' THEN r.card_id END) AS new_studied_today,
+                        COUNT(DISTINCT CASE WHEN r.state_before != 'new' THEN r.card_id END) AS reviews_studied_today
+                    FROM revlog r
+                    JOIN cards c ON c.card_id = r.card_id
+                    WHERE c.deck_id = ? AND substr(r.reviewed_at, 1, 10) = ?
+                    """,
+                    (int(deck_id), today_prefix),
+                ).fetchone()
+                cnt_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(CASE WHEN state != 'suspended' THEN 1 END) AS total_cards,
+                        COUNT(CASE WHEN state = 'new' THEN 1 END) AS remaining_new_in_deck
+                    FROM cards
+                    WHERE deck_id = ?
+                    """,
+                    (int(deck_id),),
+                ).fetchone()
+            else:
+                d_row = conn.execute(
+                    "SELECT target_days, daily_new_limit, daily_review_limit, MAX(plan_applied) AS plan_applied FROM decks LIMIT 1"
+                ).fetchone()
+                target_days = int(d_row["target_days"] or 30) if d_row else 30
+                daily_new_limit = int(d_row["daily_new_limit"] or 30) if d_row else 30
+                daily_review_limit = int(d_row["daily_review_limit"] or 200) if d_row else 200
+                plan_applied = bool(int(d_row["plan_applied"] or 0)) if d_row else False
+                deck_name = "전체 덱 통합"
+                rev_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(DISTINCT CASE WHEN r.state_before = 'new' THEN r.card_id END) AS new_studied_today,
+                        COUNT(DISTINCT CASE WHEN r.state_before != 'new' THEN r.card_id END) AS reviews_studied_today
+                    FROM revlog r
+                    WHERE substr(r.reviewed_at, 1, 10) = ?
+                    """,
+                    (today_prefix,),
+                ).fetchone()
+                cnt_row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(CASE WHEN state != 'suspended' THEN 1 END) AS total_cards,
+                        COUNT(CASE WHEN state = 'new' THEN 1 END) AS remaining_new_in_deck
+                    FROM cards
+                    """
+                ).fetchone()
+
+            new_studied_today = int((rev_row["new_studied_today"] if rev_row else 0) or 0)
+            reviews_studied_today = int((rev_row["reviews_studied_today"] if rev_row else 0) or 0)
+            total_cards = int((cnt_row["total_cards"] if cnt_row else 0) or 0)
+            remaining_new_in_deck = int((cnt_row["remaining_new_in_deck"] if cnt_row else 0) or 0)
+            remaining_new_today = min(remaining_new_in_deck, max(0, daily_new_limit - new_studied_today))
+            remaining_review_today = max(0, daily_review_limit - reviews_studied_today)
+            studied_total_cards = max(0, total_cards - remaining_new_in_deck)
+
+            return {
+                "deck_id": int(deck_id) if deck_id is not None else None,
+                "deck_name": deck_name,
+                "target_days": target_days,
+                "daily_new_limit": daily_new_limit,
+                "daily_review_limit": daily_review_limit,
+                "plan_applied": plan_applied,
+                "new_studied_today": new_studied_today,
+                "reviews_studied_today": reviews_studied_today,
+                "remaining_new_today": remaining_new_today,
+                "remaining_review_today": remaining_review_today,
+                "total_cards": total_cards,
+                "studied_total_cards": studied_total_cards,
+                "remaining_new_in_deck": remaining_new_in_deck,
+            }
+        finally:
+            conn.close()
 
     def ensure_deck(
         self,
@@ -281,6 +446,7 @@ class AnkiStudioStore:
 
     def list_decks(self, as_of_iso: Optional[str] = None) -> List[Dict[str, Any]]:
         now = as_of_iso or _utc_now_iso()
+        today_prefix = now[:10]
         conn = self._connect()
         try:
             rows = conn.execute(
@@ -290,33 +456,57 @@ class AnkiStudioStore:
                     d.name,
                     d.description,
                     d.desired_retention,
+                    COALESCE(d.target_days, 30) AS target_days,
+                    COALESCE(d.daily_new_limit, 30) AS daily_new_limit,
+                    COALESCE(d.daily_review_limit, 200) AS daily_review_limit,
+                    COALESCE(d.plan_applied, 0) AS plan_applied,
                     COUNT(CASE WHEN c.state != 'suspended' THEN c.card_id END) AS total_cards,
                     SUM(CASE WHEN c.state != 'suspended' AND c.due_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                     SUM(CASE WHEN c.state = 'new' THEN 1 ELSE 0 END) AS new_cards,
                     SUM(CASE WHEN c.state != 'suspended' AND c.lapses >= 2 THEN 1 ELSE 0 END) AS leech_cards,
-                     COALESCE(AVG(CASE WHEN c.state != 'suspended' AND c.stability > 0 THEN c.stability END), 0.0) AS avg_stability
+                    COALESCE(AVG(CASE WHEN c.state != 'suspended' AND c.stability > 0 THEN c.stability END), 0.0) AS avg_stability,
+                    (
+                        SELECT COUNT(DISTINCT r.card_id)
+                        FROM revlog r
+                        JOIN cards rc ON rc.card_id = r.card_id
+                        WHERE rc.deck_id = d.deck_id
+                          AND r.state_before = 'new'
+                          AND substr(r.reviewed_at, 1, 10) = ?
+                    ) AS new_studied_today
                 FROM decks d
                 LEFT JOIN cards c ON c.deck_id = d.deck_id
                 GROUP BY d.deck_id
                 ORDER BY d.deck_id ASC
                 """,
-                (now,),
+                (now, today_prefix),
             ).fetchall()
-            return [
-                {
-                    "id": int(r["deck_id"]),
-                    "deck_id": int(r["deck_id"]),
-                    "name": str(r["name"]),
-                    "description": str(r["description"]),
-                    "desired_retention": float(r["desired_retention"]),
-                    "total_cards": int(r["total_cards"] or 0),
-                    "due_cards": int(r["due_cards"] or 0),
-                    "new_cards": int(r["new_cards"] or 0),
-                    "leech_cards": int(r["leech_cards"] or 0),
-                    "avg_stability": round(float(r["avg_stability"] or 0.0), 2),
-                }
-                for r in rows
-            ]
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                d_new_lim = int(r["daily_new_limit"] or 30)
+                n_studied = int(r["new_studied_today"] or 0)
+                n_remaining_deck = int(r["new_cards"] or 0)
+                rem_today = min(n_remaining_deck, max(0, d_new_lim - n_studied))
+                out.append(
+                    {
+                        "id": int(r["deck_id"]),
+                        "deck_id": int(r["deck_id"]),
+                        "name": str(r["name"]),
+                        "description": str(r["description"]),
+                        "desired_retention": float(r["desired_retention"]),
+                        "target_days": int(r["target_days"] or 30),
+                        "daily_new_limit": d_new_lim,
+                        "daily_review_limit": int(r["daily_review_limit"] or 200),
+                        "plan_applied": bool(int(r["plan_applied"] or 0)),
+                        "new_studied_today": n_studied,
+                        "remaining_new_today": rem_today,
+                        "total_cards": int(r["total_cards"] or 0),
+                        "due_cards": int(r["due_cards"] or 0),
+                        "new_cards": n_remaining_deck,
+                        "leech_cards": int(r["leech_cards"] or 0),
+                        "avg_stability": round(float(r["avg_stability"] or 0.0), 2),
+                    }
+                )
+            return out
         finally:
             conn.close()
 
@@ -668,9 +858,19 @@ class AnkiStudioStore:
         as_of_iso: Optional[str] = None,
         limit: int = 50,
         shuffle_mode: str = "sequential",
+        respect_daily_quota: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         now_str = as_of_iso or _utc_now_iso()
         now_dt = datetime.fromisoformat(now_str)
+        quota_snap: Optional[Dict[str, Any]] = None
+        if respect_daily_quota is True or (respect_daily_quota is None and int(limit) <= 100):
+            try:
+                q_cand = self.get_deck_daily_quota_status(deck_id=deck_id, as_of_iso=now_str)
+                if respect_daily_quota is True or q_cand.get("plan_applied"):
+                    quota_snap = q_cand
+            except Exception:
+                quota_snap = None
+
         conn = self._connect()
         try:
             query = """
@@ -689,9 +889,29 @@ class AnkiStudioStore:
             if deck_id is not None:
                 query += " AND c.deck_id = ?"
                 params.append(int(deck_id))
-            query += " ORDER BY c.due_at ASC, c.card_id ASC LIMIT ?"
-            params.append(int(limit))
+            sql_fetch_limit = max(int(limit), 300) if quota_snap is not None else int(limit)
+            query += " ORDER BY CASE WHEN c.state IN ('learning', 'relearning') THEN 0 WHEN c.state = 'review' THEN 1 ELSE 2 END ASC, c.due_at ASC, c.card_id ASC LIMIT ?"
+            params.append(int(sql_fetch_limit))
             rows = conn.execute(query, params).fetchall()
+            if quota_snap is not None:
+                rem_new = int(quota_snap["remaining_new_today"])
+                rem_rev = int(quota_snap["remaining_review_today"])
+                filtered_rows = []
+                new_taken = 0
+                rev_taken = 0
+                for r in rows:
+                    st = str(r["state"] or "new")
+                    if st in ("learning", "relearning"):
+                        filtered_rows.append(r)
+                    elif st == "review":
+                        if rev_taken < rem_rev:
+                            filtered_rows.append(r)
+                            rev_taken += 1
+                    else:
+                        if new_taken < rem_new:
+                            filtered_rows.append(r)
+                            new_taken += 1
+                rows = filtered_rows[: max(int(limit), rem_new + rem_rev)]
             result: List[Dict[str, Any]] = []
             for r in rows:
                 item = dict(r)

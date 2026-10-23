@@ -24,7 +24,11 @@ from anki_studio.domain.ai_learning import (
     extract_smart_cards_deterministic,
     parse_ai_generated_cards,
 )
-from anki_studio.domain.document_deck_builder import DocumentBlock
+from anki_studio.domain.document_deck_builder import (
+    DocumentBlock,
+    is_generic_section_label,
+    is_toc_or_structural_heading,
+)
 from anki_studio.domain.rea_v56 import resolve_smart_ai_engine
 
 OLLAMA_CLOUD_DEFAULT_URL = "https://ollama.com"
@@ -279,6 +283,8 @@ class AICardSynthesizer:
             txt = str(b.text or "").strip()
             if not txt:
                 continue
+            if is_toc_or_structural_heading(txt, b.kind):
+                continue
             pg = max(1, int(b.page or 1))
             blocks_by_page.setdefault(pg, []).append(txt)
             page_lines.append(f"[p.{pg}] {txt}")
@@ -300,7 +306,9 @@ class AICardSynthesizer:
         sys_prompt = (
             "당신은 사진·PDF 학습 문서에서 핵심 개념 플래시카드를 정밀 추출하는 전문가입니다.\n"
             "반드시 원문에 등장하는 사실과 용어만 사용하여 JSON 객체로 응답하세요.\n"
-            '형식: {"cards": [{"front_text": "질문 또는 {{c1::정답::힌트}} 문장", "back_text": "핵심 정답\\n\\n💡 해설: 원문 요약", "note_type": "basic|cloze", "source_page": 1, "source_excerpt": "원문 발췌"}]}'
+            "절대 목차(차례, 페이지 번호 점선), 장·절 제목(제1장 등), 일반 항목 라벨(특징, 배경, 개요, 의의, 목적)을 질문이나 정답으로 만들지 마세요.\n"
+            "질문(front_text)에는 구체적 내용·정의·맥락을 담고, 정답(back_text)에는 핵심 용어만 간결히 제시하세요.\n"
+            '형식: {"cards": [{"front_text": "구체적 내용 질문 또는 {{c1::정답::힌트}} 문장", "back_text": "핵심 정답\\n\\n💡 해설: 원문 요약", "note_type": "basic|cloze", "source_page": 1, "source_excerpt": "원문 발췌"}]}'
         )
         user_prompt = (
             f"난이도 모드: {difficulty_level} | 최대 카드 수: {max_cards}\n"
@@ -336,6 +344,10 @@ class AICardSynthesizer:
                         front = str(item.get("front_text") or item.get("front") or "").strip()
                         back = str(item.get("back_text") or item.get("back") or "").strip()
                         if not front or not back:
+                            continue
+                        if is_toc_or_structural_heading(front, "paragraph") or is_generic_section_label(front):
+                            continue
+                        if is_generic_section_label(back.splitlines()[0]):
                             continue
                         pg = max(1, int(item.get("source_page") or 1))
                         if pg not in blocks_by_page and blocks_by_page:
@@ -475,8 +487,8 @@ class AICardSynthesizer:
                         user_prompt=prompt,
                     )
                     specs = parse_ai_generated_cards(
-                        text,
                         raw_resp,
+                        fallback_source_text=text,
                         domain_mode=domain_mode,
                         max_cards=max_cards,
                     )
@@ -532,8 +544,8 @@ class AICardSynthesizer:
                         .get("content", "")
                     )
                     specs = parse_ai_generated_cards(
-                        text,
                         content,
+                        fallback_source_text=text,
                         domain_mode=domain_mode,
                         max_cards=max_cards,
                     )

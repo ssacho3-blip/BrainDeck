@@ -555,6 +555,39 @@ def _synthesize_distinct_facts(
     return facts
 
 
+_VERBOSE_PROMPT_TAIL_RE = re.compile(
+    r"\s*—\s*위\s*설명에\s*해당하는\s*(?:역사적\s*사건·인물·제도·유산|과학\s*법칙·개념·물질·현상|수학\s*공식·정리·개념|국어\s*규범·속담·어휘·문학\s*작품|법학·정보처리기사\s*핵심\s*원칙·제도|핵심\s*법칙·정리|생명·지구·화학·물리\s*개념)은\?"
+)
+
+
+def _strip_verbose_prompt_tail(prompt: str) -> str:
+    cleaned = _VERBOSE_PROMPT_TAIL_RE.sub(" — 해당 개념은?", (prompt or "").strip())
+    return cleaned
+
+
+def _format_concise_back(ans: str, tip: str, term: str = "") -> str:
+    clean_ans = (ans or "").strip()
+    clean_tip = (tip or "").strip()
+    if not clean_tip:
+        return clean_ans
+    # Strip redundant leading [Category] prefix and repeated headword/answer prefix
+    clean_tip = re.sub(r"^\[[^\]]+\]\s*", "", clean_tip).strip()
+    clean_term = re.sub(r"^\[[^\]]+\]\s*", "", (term or "").strip()).strip()
+    for prefix in (
+        f"{clean_ans}:",
+        f"{clean_ans} —",
+        f"{clean_term}:",
+        f"{clean_term} —",
+    ):
+        if prefix and len(prefix) > 1 and clean_tip.startswith(prefix):
+            clean_tip = clean_tip[len(prefix) :].strip()
+    if not clean_tip or clean_tip == clean_ans or clean_tip in clean_ans:
+        return clean_ans
+    if clean_ans in clean_tip and len(clean_tip) - len(clean_ans) < 8:
+        return clean_ans
+    return f"{clean_ans}\n\n💡 해설: {clean_tip}"
+
+
 @lru_cache(maxsize=64)
 def build_full_scale_deck_cards(
     ref_id: str,
@@ -587,31 +620,33 @@ def build_full_scale_deck_cards(
         base_tags = [tag_clean, subj_tag, concept_tag, level_tag, f"diff_{diff_norm}", *extra_tags]
 
         if subj == "history":
-            q_prompt = ctx if "?" in ctx else f"{ctx}에 해당하는 역사적 사건·인물·유산은?"
+            q_prompt = _strip_verbose_prompt_tail(ctx if "?" in ctx else f"{ctx} — 해당 역사 개념은?")
             safe_prompt = _mask_history_spoilers(q_prompt, ans, term)
             front = f"🏛️ [한국사 핵심] {safe_prompt}"
-            back = f"{ans}\n\n💡 해설: {tip}"
+            back = _format_concise_back(ans, tip, term)
             ntype = "basic"
         elif subj == "hanja":
-            q_prompt = ctx if "?" in ctx else f"'{term}'의 정확한 훈음(뜻과 음)은?"
+            q_prompt = ctx if ("?" in ctx or "【" in ctx) else f"【 {term} 】"
             front = f"漢字 [한자·성어] {q_prompt}"
-            back = f"{ans}\n\n💡 해설: {tip}"
+            back = _format_concise_back(ans, tip, term)
             ntype = "basic"
         elif subj in ("science", "math", "law_it"):
             icon = "📐" if subj == "math" else ("⚖️" if subj == "law_it" else "🔬")
             label = "수학 공식·정리" if subj == "math" else ("헌법·IT 자격증" if subj == "law_it" else "과학 법칙·개념")
-            q_prompt = ctx if "?" in ctx else f"'{term}'의 핵심 공식·원리는 무엇인가요?"
+            q_prompt = _strip_verbose_prompt_tail(ctx if "?" in ctx else f"'{term}'의 핵심 원리는?")
             front = f"{icon} [{label}] {q_prompt}"
-            back = f"{ans}\n\n💡 해설: {tip}"
+            back = _format_concise_back(ans, tip, term)
             ntype = "basic"
         elif subj == "korean":
-            q_prompt = ctx if "?" in ctx else f"'{term}'의 올바른 어문 규정·문학 개념은?"
+            q_prompt = _strip_verbose_prompt_tail(ctx if "?" in ctx else f"'{term}'의 핵심 규범·개념은?")
             front = f"🇰🇷 [국어·문학] {q_prompt}"
-            back = f"{ans}\n\n💡 해설: {tip}"
+            back = _format_concise_back(ans, tip, term)
             ntype = "basic"
         else:
-            front = f"📘 [필수 영어] 다음 어휘·표현의 정확한 뜻은?\n{term} — {ctx}"
-            back = f"{ans}\n\n💡 해설: {tip}"
+            clean_ctx = re.sub(r"\{\{c\d+::([^:}]+)(?:::[^}]+)?\}\}", r"[ \1 ]", ctx)
+            clean_ctx = re.sub(r"^예문:\s*", "", clean_ctx).strip()
+            front = f"📘 [필수 영어] 【 {term} 】\n{clean_ctx}"
+            back = _format_concise_back(ans, tip, term)
             ntype = "basic"
 
         cards.append(
@@ -627,3 +662,79 @@ def build_full_scale_deck_cards(
         )
 
     return tuple(cards)
+
+
+def validate_deck_quality_gate(
+    cards: Sequence[Dict[str, Any]],
+    subject: str = "",
+) -> Dict[str, Any]:
+    """Audit a deck against Q1~Q7 quality invariants (zero front spoilers, zero raw cloze on basic, 100% distinct)."""
+    violations: List[str] = []
+    seen_fronts: set[str] = set()
+    seen_terms: set[str] = set()
+    subj_norm = (subject or "").strip().lower()
+    front_spoiler_count = 0
+    raw_cloze_leak_count = 0
+    synthetic_contrast_count = 0
+    duplicate_front_count = 0
+
+    for idx, c in enumerate(cards):
+        front = str(c.get("front_text") or "").strip()
+        back = str(c.get("back_text") or "").strip()
+        term = str(c.get("term") or "").strip()
+        ans = str(c.get("target_answer") or "").strip()
+        ntype = str(c.get("note_type") or "basic").strip().lower()
+
+        if not front or not back:
+            violations.append(f"card[{idx}]: empty front or back")
+            continue
+        if front in seen_fronts:
+            duplicate_front_count += 1
+            violations.append(f"card[{idx}]: duplicate front_text '{front[:40]}'")
+        seen_fronts.add(front)
+        if term:
+            if term in seen_terms:
+                violations.append(f"card[{idx}]: duplicate term '{term}'")
+            seen_terms.add(term)
+
+        # Q1: Basic cards must never expose raw {{c1::}} Anki markup on the front
+        if ntype == "basic" and "{{c" in front:
+            raw_cloze_leak_count += 1
+            violations.append(f"card[{idx}]: raw cloze markup leaked on basic front '{front[:60]}'")
+
+        # Q2: Synthetic cross-subject padding ban
+        if "[심화 대조·변별]" in front or "[핵심 변별 #" in front:
+            synthetic_contrast_count += 1
+            violations.append(f"card[{idx}]: synthetic template detected in '{front[:60]}'")
+
+        # Q3: Front spoiler check by subject (inspect prompt content after the static subject badge `[...]`)
+        prompt_body = front.split("]", 1)[-1].strip() if "]" in front else front
+        if subj_norm == "english" or front.startswith("📘 [필수 영어]"):
+            # Check the example/context line after the header so meta-words like 'English' ('영어') or 'vocabulary' ('어휘')
+            # don't false-positive on the static instruction line
+            ctx_line = prompt_body.split("\n", 1)[-1].strip() if "\n" in prompt_body else prompt_body
+            if ans and len(ans) >= 2 and ans in ctx_line:
+                front_spoiler_count += 1
+                violations.append(f"card[{idx}]: English Korean-meaning spoiler '{ans}' in front '{front[:60]}'")
+        elif subj_norm == "hanja" or front.startswith("漢字 [한자·성어]"):
+            base_ans = ans.split("—")[0].split("(")[0].strip()
+            if base_ans and len(base_ans) >= 2 and base_ans in front:
+                front_spoiler_count += 1
+                violations.append(f"card[{idx}]: Hanja reading/meaning spoiler '{base_ans}' in front '{front[:60]}'")
+        elif subj_norm == "history" or front.startswith("🏛️ [한국사 핵심]"):
+            if has_history_front_spoiler(front, ans, term, check_parenthetical=True):
+                front_spoiler_count += 1
+                violations.append(f"card[{idx}]: History spoiler '{ans}' in front '{front[:60]}'")
+
+    return {
+        "ok": len(violations) == 0,
+        "card_count": len(cards),
+        "unique_fronts": len(seen_fronts),
+        "unique_terms": len(seen_terms),
+        "front_spoiler_count": front_spoiler_count,
+        "raw_cloze_leak_count": raw_cloze_leak_count,
+        "synthetic_contrast_count": synthetic_contrast_count,
+        "duplicate_front_count": duplicate_front_count,
+        "violation_count": len(violations),
+        "violations": violations[:20],
+    }

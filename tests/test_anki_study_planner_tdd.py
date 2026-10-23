@@ -463,3 +463,168 @@ def test_viewmodel_js_anki_planner_and_power_features_parity() -> None:
     proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
     assert "VM_ANKI_PLANNER_OK" in proc.stdout
 
+
+# ============================================================================
+# 8. v5.9 TDD: Corpus Quality Gate (Q1~Q7) + Persistent Daily Study Quota
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    "source_id,expected_subject",
+    [
+        ("moe-eng:middle-1200", "english"),
+        ("moe-eng:high-csat", "english"),
+        ("hanja-grade:8geup", "hanja"),
+        ("moe-hanja-1800:middle", "hanja"),
+        ("khist:essential", "history"),
+        ("sci-element-formula:core", "science"),
+        ("moe-math:core-formulas", "math"),
+        ("moe-kor:orthography-lit", "korean"),
+        ("law-statute:constitution", "law_it"),
+    ],
+)
+def test_v59_corpus_quality_gate_zero_spoilers_across_all_subjects(
+    source_id: str, expected_subject: str
+) -> None:
+    """Verify 1,000+ card corpus passes Q1~Q7 quality gate with zero front spoilers and zero synthetic padding."""
+    from anki_studio.domain.full_scale_corpus import (
+        build_full_scale_deck_cards,
+        validate_deck_quality_gate,
+    )
+
+    specs = build_full_scale_deck_cards(
+        ref_id=source_id,
+        difficulty_level="mixed",
+        target_count=1020,
+    )
+    assert len(specs) >= 1020
+    audit = validate_deck_quality_gate(specs, subject=expected_subject)
+    assert audit["ok"] is True, f"Quality gate failed for {source_id}: {audit}"
+    assert audit["front_spoiler_count"] == 0
+    assert audit["raw_cloze_leak_count"] == 0
+    assert audit["synthetic_contrast_count"] == 0
+    assert audit["duplicate_front_count"] == 0
+
+
+def test_v59_persistent_study_plan_slices_daily_due_cards_and_decrements_quota() -> None:
+    """Verify applying a D-Day study plan persists daily_new_limit and slices get_due_cards accordingly."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = AnkiStudioService(db_path=Path(tmpdir) / "v59_quota.sqlite3", seed_defaults=True)
+        mounted = svc.generate_collection_deck(
+            collection_id="moe-eng:middle-1200",
+            limit=1200,
+            difficulty_level="mixed",
+        )
+        deck_id = mounted["deck_id"]
+
+        # Apply D-30 plan with daily_new_limit = 25 cards/day
+        applied = svc.apply_anki_study_plan(
+            deck_id=deck_id,
+            target_days=30,
+            daily_new_limit=25,
+            daily_minutes_budget=30,
+        )
+        assert applied["ok"] is True
+        assert applied["daily_quota"]["plan_applied"] is True
+        assert applied["daily_quota"]["daily_new_limit"] == 25
+        assert applied["daily_quota"]["remaining_new_today"] == 25
+
+        # Calling get_due_cards now slices today's new cards to 25 (instead of dumping 1,000+ or 50)
+        due_today = svc.get_due_cards(deck_id=deck_id)
+        assert due_today["count"] == 25
+        assert due_today["daily_quota"]["remaining_new_today"] == 25
+
+        # Submit 3 reviews on new cards -> remaining_new_today drops to 22
+        for idx in range(3):
+            cid = due_today["cards"][idx]["id"]
+            svc.submit_review(card_id=cid, rating=3)
+
+        due_after_3 = svc.get_due_cards(deck_id=deck_id)
+        assert due_after_3["daily_quota"]["new_studied_today"] == 3
+        assert due_after_3["daily_quota"]["remaining_new_today"] == 22
+        assert due_after_3["count"] == 22
+
+        # Custom study preset 'increase_new_quota' boosts today's limit by +10 -> remaining becomes 32
+        boost = svc.build_anki_custom_study(
+            deck_id=deck_id,
+            preset="increase_new_quota",
+            extra_new=10,
+        )
+        assert boost["ok"] is True
+        assert boost["daily_quota"]["daily_new_limit"] == 35
+        assert boost["daily_quota"]["remaining_new_today"] == 32
+
+        # Pressing Again (rating=1) twice on the SAME new card on the same day must only increment new_studied_today by 1
+        same_new_cid = due_after_3["cards"][0]["id"]
+        svc.submit_review(card_id=same_new_cid, rating=1)
+        svc.submit_review(card_id=same_new_cid, rating=1)
+        svc.submit_review(card_id=same_new_cid, rating=3)
+        due_after_again_twice = svc.get_due_cards(deck_id=deck_id)
+        assert due_after_again_twice["daily_quota"]["new_studied_today"] == 4
+        assert due_after_again_twice["daily_quota"]["remaining_new_today"] == 31
+
+
+def test_v59_selecting_existing_1000_card_deck_populates_plan_and_caps_daily_queue() -> None:
+    """Verify selecting an already-created 1,000-card deck (not via generate_collection_deck) populates D-30 plan & slices queue."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = AnkiStudioService(db_path=Path(tmpdir) / "v59_existing.sqlite3", seed_defaults=False)
+        raw_notes = [
+            {"front_text": f"Word #{i}", "back_text": f"뜻 #{i}", "note_type": "basic", "tags": ["existing_1000"]}
+            for i in range(1, 1001)
+        ]
+        created = svc.store.create_deck_with_notes(deck_name="Existing 1000 Deck", notes=raw_notes)
+        existing_deck_id = created["deck_id"]
+
+        # Selecting this existing deck in the UI triggers get_anki_study_plan(deck_id=existing_deck_id)
+        plan_res = svc.get_anki_study_plan(deck_id=existing_deck_id, target_days=30, daily_minutes_budget=20)
+        assert plan_res["ok"] is True
+        assert plan_res["daily_quota"]["plan_applied"] is True
+        rec_new = plan_res["daily_quota"]["daily_new_limit"]
+        assert 10 <= rec_new <= 50
+        # daily_minutes_budget=20 (1200s / 8s = 150) caps daily_review_limit at <= 150
+        assert plan_res["daily_quota"]["daily_review_limit"] <= 150
+
+        # Calling get_due_cards on the selected existing 1000-card deck slices today's queue to rec_new (never 1000!)
+        due_res = svc.get_due_cards(deck_id=existing_deck_id)
+        assert due_res["count"] == rec_new
+        assert due_res["count"] < 100
+
+
+def test_v59_always_visible_planner_ui_and_standalone_subject_purity() -> None:
+    """Verify #bd-planner-bar is outside #study-tools-drawer and standaloneEngine slices daily quota & preserves subject purity."""
+    import json
+    import subprocess
+
+    root_dir = Path(__file__).resolve().parents[1]
+    index_html = (root_dir / "src" / "anki_studio" / "ui" / "static" / "index.html").read_text(encoding="utf-8")
+    drawer_pos = index_html.index('id="study-tools-drawer"')
+    planner_pos = index_html.index('id="bd-planner-bar"')
+    banner_pos = index_html.index('id="bd-study-plan-banner"')
+    apply_btn_pos = index_html.index('id="btn-apply-study-plan"')
+    assert planner_pos < drawer_pos, "#bd-planner-bar must be placed BEFORE and OUTSIDE #study-tools-drawer"
+    assert banner_pos < drawer_pos, "#bd-study-plan-banner must be placed BEFORE and OUTSIDE #study-tools-drawer"
+    assert apply_btn_pos < drawer_pos
+
+    static_vm = root_dir / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    script = f"""
+    const vm = require({json.dumps(str(static_vm))});
+    const eng = vm.createStandaloneEngine();
+    const mathDeck = eng.buildCollectionDeck({{ collection_id: "moe-math:core-formulas", difficulty_level: "mixed", limit: 1000 }});
+    if (!mathDeck.ok || mathDeck.cards.length < 1000) throw new Error("Expected >= 1000 math cards");
+    const badContrast = mathDeck.cards.filter(c => c.front_text.includes("[심화 대조·변별]") || c.front_text.includes("함무라비") || c.front_text.includes("introduce"));
+    if (badContrast.length > 0) throw new Error("Found cross-subject contamination in math deck: " + badContrast[0].front_text);
+
+    // Apply study plan (daily_new_limit: 20) and verify getDueCards slices to 20
+    const applied = eng.applyStudyPlan({{ deck_id: mathDeck.deck_id, target_days: 30, new_per_day: 20 }});
+    if (!applied.ok || applied.daily_quota.daily_new_limit !== 20) throw new Error("applyStudyPlan failed");
+    const slicedDue = eng.getDueCards({{ deck_id: mathDeck.deck_id }});
+    if (slicedDue.count !== 20) throw new Error("Expected 20 due cards after applyStudyPlan, got " + slicedDue.count);
+    eng.submitReview({{ card_id: slicedDue.cards[0].card_id, rating: 3 }});
+    const afterOne = eng.getDueCards({{ deck_id: mathDeck.deck_id }});
+    if (afterOne.count !== 19) throw new Error("Expected 19 remaining due cards after 1 review, got " + afterOne.count);
+    console.log("V59_STANDALONE_OK");
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    assert "V59_STANDALONE_OK" in proc.stdout
+
+

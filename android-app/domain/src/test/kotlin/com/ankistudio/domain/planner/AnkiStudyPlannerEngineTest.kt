@@ -1,5 +1,6 @@
 package com.ankistudio.domain.planner
 
+import com.ankistudio.domain.catalog.BuiltInCurriculumCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -65,5 +66,29 @@ class AnkiStudyPlannerEngineTest {
         assertEquals(1, cramSession.cards.size)
         assertFalse(cramSession.reschedule)
         assertEquals("CRAM", cramSession.eventKind)
+    }
+
+    @Test
+    fun `BuiltInCurriculumCatalog generates 1000+ subject-pure cards without cross-subject contrast or front spoilers`() {
+        val mathCards = BuiltInCurriculumCatalog.buildCollectionCards(
+            collectionId = "moe-math:core-formulas",
+            difficultyLevel = "mixed",
+            targetCount = 1000,
+        )
+        assertEquals(1000, mathCards.size)
+        assertTrue(mathCards.none { it.spec.frontText.contains("[심화 대조·변별]") || it.spec.frontText.contains("함무라비") })
+
+        val engCards = BuiltInCurriculumCatalog.buildCollectionCards(
+            collectionId = "moe-eng:middle-1200",
+            difficultyLevel = "mixed",
+            targetCount = 1000,
+        )
+        assertEquals(1000, engCards.size)
+        assertTrue(
+            engCards.none {
+                (it.spec.noteType == "basic" && it.spec.frontText.contains("{{c")) ||
+                    it.spec.frontText.contains("[심화 대조·변별]")
+            }
+        )
     }
 }

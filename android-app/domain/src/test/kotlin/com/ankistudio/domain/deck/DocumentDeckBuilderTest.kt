@@ -133,4 +133,51 @@ class DocumentDeckBuilderTest {
         assertTrue(planLv1.cards.first().spec.frontText != planLv3.cards.first().spec.frontText, "lv1 and lv3 fronts must be distinct")
         assertTrue(planMixed.cards.size >= planLv1.cards.size + planLv2.cards.size)
     }
+
+    @Test
+    fun `v60 BDD filters TOC and chapter headers and unwraps generic labels into content questions`() {
+        assertTrue(DocumentDeckBuilder.isTocOrStructuralHeading("목차", "heading"))
+        assertTrue(DocumentDeckBuilder.isTocOrStructuralHeading("1. 서론 ..... 3", "paragraph"))
+        assertTrue(DocumentDeckBuilder.isTocOrStructuralHeading("1. 서론 2. 본론 3. 결론", "paragraph"))
+        assertTrue(DocumentDeckBuilder.isTocOrStructuralHeading("제1장 근로기준법 총칙", "paragraph"))
+        assertTrue(DocumentDeckBuilder.isGenericSectionLabel("특징"))
+        assertTrue(DocumentDeckBuilder.isGenericSectionLabel("1. 배경"))
+
+        val doc = ExtractedDocument(
+            blocks = listOf(
+                DocumentBlock(kind = "heading", text = "목차", page = 1, confidence = 0.99),
+                DocumentBlock(kind = "paragraph", text = "1. 서론 ..... 3\n2. 본론 ..... 12", page = 1, confidence = 0.99),
+                DocumentBlock(kind = "heading", text = "제1장 광합성과 세포 호흡", page = 1, confidence = 0.99),
+                DocumentBlock(
+                    kind = "paragraph",
+                    text = "특징: 엽록체에서 빛에너지를 화학에너지로 전환하여 포도당을 합성한다.",
+                    page = 1,
+                    confidence = 0.98
+                ),
+                DocumentBlock(
+                    kind = "paragraph",
+                    text = "소멸시효: 권리자가 권리를 행사할 수 있음에도 일정 기간 행사하지 않는 경우 그 권리가 소멸하는 제도이다.",
+                    page = 1,
+                    confidence = 0.98
+                )
+            ),
+            titleHint = null,
+            sourceKind = "pdf",
+            pageCount = 1
+        )
+
+        val plan = DocumentDeckBuilder.buildDeckPlan(doc = doc, difficultyLevel = "mixed")
+        assertEquals("OK", plan.status)
+        assertTrue(plan.deckName != "목차")
+        for (card in plan.cards) {
+            val front = card.spec.frontText
+            val backPrimary = card.spec.backText.substringBefore("💡 해설:").trim()
+            assertTrue(backPrimary !in setOf("목차", "차례", "서론", "본론", "특징"))
+            assertTrue(!front.contains("....."))
+            assertTrue(!front.contains("{{c1::특징"))
+        }
+        val somyeolLv1 = plan.cards.filter { "diff_lv1" in it.spec.tags && it.spec.frontText.contains("권리자가") }
+        assertEquals(1, somyeolLv1.size)
+        assertTrue(somyeolLv1.first().spec.backText.startsWith("소멸시효"))
+    }
 }

@@ -230,6 +230,279 @@ _CAUSAL_COMPARE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_GENERIC_SECTION_LABELS: frozenset[str] = frozenset(
+    {
+        "특징",
+        "배경",
+        "개요",
+        "목적",
+        "의의",
+        "종류",
+        "장점",
+        "단점",
+        "장단점",
+        "원인",
+        "결과",
+        "원인과 결과",
+        "정의",
+        "개념",
+        "요약",
+        "결론",
+        "서론",
+        "본론",
+        "구분",
+        "내용",
+        "핵심",
+        "핵심 내용",
+        "정리",
+        "핵심 정리",
+        "예시",
+        "사례",
+        "비교",
+        "차이",
+        "차이점",
+        "공통점",
+        "효과",
+        "기대 효과",
+        "영향",
+        "한계",
+        "문제점",
+        "해결책",
+        "대책",
+        "방안",
+        "절차",
+        "과정",
+        "순서",
+        "방법",
+        "원리",
+        "구조",
+        "기능",
+        "역할",
+        "조건",
+        "요건",
+        "성립 요건",
+        "주의",
+        "참고",
+        "비고",
+        "보충",
+        "심화",
+        "출처",
+        "기타",
+        "도입",
+        "전개",
+        "정착",
+        "배경과 원인",
+        "주요 내용",
+        "추진 배경",
+        "발생 원인",
+    }
+)
+
+_TOC_OUTLINE_SECTIONS: frozenset[str] = frozenset(
+    {
+        "목차",
+        "차례",
+        "서론",
+        "본론",
+        "결론",
+        "개요",
+        "배경",
+        "연구 배경",
+        "목적",
+        "연구 목적",
+        "의의",
+        "필요성",
+        "연구 방법",
+        "결과",
+        "고찰",
+        "결론 및 제언",
+        "요약",
+        "참고문헌",
+        "참고 문헌",
+        "부록",
+        "머리말",
+        "서문",
+        "맺음말",
+        "문제 제기",
+        "이론적 배경",
+        "선행 연구",
+        "기대 효과",
+        "현황",
+        "과제",
+        "전망",
+        "찾아보기",
+        "판권",
+        "저작권",
+        "introduction",
+        "background",
+        "overview",
+        "methodology",
+        "methods",
+        "results",
+        "discussion",
+        "conclusion",
+        "summary",
+        "references",
+        "bibliography",
+        "appendix",
+        "table of contents",
+        "contents",
+        "index",
+        "preface",
+    }
+)
+
+_TOC_EXACT_TITLE_RE = re.compile(
+    r"^[\[<【《(]*\s*(?:목\s*차|차\s*례|table\s+of\s+contents|contents|index|찾아보기|참고\s*문헌|references|bibliography|부\s*록|appendix|머리말|서문|일러두기|판권|저작권|단원\s*요약|학습\s*목표|핵심\s*정리|생각해보기|연습\s*문제|확인\s*문제|출제\s*포인트)\s*[\]>】》)]*$",
+    re.IGNORECASE,
+)
+_TOC_PREFIX_RE = re.compile(
+    r"^(?:목\s*차|차\s*례|table\s+of\s+contents|contents)\s*(?::|：|-|—|\d|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])",
+    re.IGNORECASE,
+)
+_TOC_LEADER_PAGE_RE = re.compile(
+    r"(?:\.{2,}|…+|·{2,}|•{2,}|-{2,}|─{2,}|_{2,}|\s{3,})\s*(?:p\.?\s*)?\d{1,4}\s*(?:쪽|페이지|p)?$",
+    re.IGNORECASE,
+)
+_TOC_NUMBERED_PAGE_END_RE = re.compile(
+    r"^(?:제\s*\d+\s*[장절편부관과단원]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+\.?|\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩])\s+[^\n]{1,55}?\s+(?:p\.?\s*\d{1,4}|\d{1,4}\s*(?:쪽|페이지|p))$",
+    re.IGNORECASE,
+)
+_STRUCTURAL_CHAPTER_HEADER_RE = re.compile(
+    r"^(?:제\s*\d+\s*(?:장|절|편|부|관|과|단원)|chapter\s+\d+|part\s+[0-9ivx]+|unit\s+\d+|lesson\s+\d+|section\s+\d+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)(?:\s|$|:)",
+    re.IGNORECASE,
+)
+_LIST_PREFIX_STRIP_RE = re.compile(
+    r"^(?:[\[<【《(]?\s*(?:제\s*\d+\s*[장절편부관과단원]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+|\d+(?:\.\d+)*|[가-하]|[A-Za-z])\s*[\]>】》).:：\-])\s*)+"
+)
+_FACTUAL_PREDICATE_RE = re.compile(
+    r"(?:이다|입니다|한다|된다|있다|없다|말한다|뜻한다|의미한다|가리킨다|정의된다|구성된다|분류된다|나뉜다|발생한다|일어난다|작용한다|억제한다|촉진한다|유발한다|소멸한다|규정한다|보장한다|제한한다|위반한다|합성하는|전환하는|교환하는|수행하는|is\s+defined\s+as|refers\s+to|means|leads\s+to|results\s+in|causes|consists\s+of|->|→)",
+    re.IGNORECASE,
+)
+
+
+def _has_factual_predicate(text: str) -> bool:
+    return bool(_FACTUAL_PREDICATE_RE.search(text or ""))
+
+
+def _normalize_label_core(raw_label: str) -> str:
+    cleaned = _clean_line(raw_label).strip(" :：-–—[]<>【】《》()\"'")
+    stripped = _LIST_PREFIX_STRIP_RE.sub("", cleaned).strip(" :：-–—[]<>【】《》()\"'")
+    return stripped or cleaned
+
+
+def is_generic_section_label(raw_label: str) -> bool:
+    """Return True if `raw_label` is a generic structural label (e.g., '특징', '1. 배경', '(2) 의의') rather than a domain concept."""
+    raw_clean = _clean_line(raw_label)
+    if not raw_clean or len(raw_clean) > 28:
+        return False
+    core = _normalize_label_core(raw_clean).lower()
+    if not core:
+        return True
+    if core in _GENERIC_SECTION_LABELS or core in _TOC_OUTLINE_SECTIONS:
+        return True
+    if re.match(
+        r"^(?:제?\s*\d+\s*[장절편부관과단원]|파트\s*\d+|단계\s*\d+|유형\s*\d+|특징\s*\d+|원인\s*\d+|목적\s*\d+|내용\s*\d+|배경\s*\d+|의의\s*\d+)$",
+        core,
+    ):
+        return True
+    return False
+
+
+def is_toc_or_structural_heading(text: str, kind: str = "paragraph") -> bool:
+    """Return True if `text` is a Table of Contents line, chapter/section title, or non-propositional heading."""
+    cleaned = _clean_line(text)
+    if len(cleaned) < 2:
+        return True
+    stripped = cleaned.lstrip("#*•- ").strip()
+    if not stripped:
+        return True
+
+    # 1. Explicit TOC / Front-matter / Meta-header title or prefix
+    if _TOC_EXACT_TITLE_RE.match(stripped) or _TOC_PREFIX_RE.match(stripped):
+        return True
+
+    # 2. Dotted/dashed leader line or outline line ending with a page number
+    if _TOC_LEADER_PAGE_RE.search(stripped) or _TOC_NUMBERED_PAGE_END_RE.match(stripped):
+        return True
+
+    # 3. Standalone generic section label without content (e.g. "1. 배경", "Ⅱ. 본론", "[특징]")
+    if ":" not in stripped and "：" not in stripped and "->" not in stripped and "→" not in stripped:
+        if is_generic_section_label(stripped):
+            return True
+
+    # 4. Chapter / Section / Unit structural header without a factual proposition
+    if _STRUCTURAL_CHAPTER_HEADER_RE.match(stripped):
+        if not _has_factual_predicate(stripped):
+            return True
+        # Even if colon is present, e.g. "제1장: 총칙" or "Chapter 1: Overview"
+        if ":" in stripped or "：" in stripped:
+            rhs = re.split(r"[:：]", stripped, maxsplit=1)[-1].strip()
+            if len(rhs) < 12 and not _has_factual_predicate(rhs):
+                return True
+
+    # 5. Numbered outline where items are generic TOC section titles (e.g. "1. 서론 2. 본론 3. 결론")
+    numbered_items = [it.strip(" ,.;:") for it in _NUMBERED_ITEM_RE.findall(stripped) if len(it.strip()) >= 2]
+    if len(numbered_items) >= 2:
+        toc_item_hits = sum(
+            1
+            for it in numbered_items
+            if _normalize_label_core(it).lower() in _TOC_OUTLINE_SECTIONS
+            or _normalize_label_core(it).lower() in _GENERIC_SECTION_LABELS
+            or bool(_TOC_LEADER_PAGE_RE.search(it))
+        )
+        if toc_item_hits >= 2 and toc_item_hits * 2 >= len(numbered_items):
+            return True
+
+    # 6. Explicit heading blocks that do not contain a complete factual proposition
+    if kind == "heading":
+        if not _has_factual_predicate(stripped):
+            return True
+        if not (
+            _STATUTE_RE.search(stripped)
+            or _NUMERIC_UNIT_RE.search(stripped)
+            or _CAUSAL_COMPARE_RE.search(stripped)
+        ):
+            return True
+
+    # 7. Short numbered section header without predicate/colon/arrow (e.g. "1. 연구의 필요성")
+    if (
+        len(numbered_items) < 2
+        and len(stripped) <= 28
+        and not _has_factual_predicate(stripped)
+        and ":" not in stripped
+        and "：" not in stripped
+        and "->" not in stripped
+        and "→" not in stripped
+    ):
+        if re.match(
+            r"^(?:\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?|[가-하]\.)\s+\S+",
+            stripped,
+        ):
+            return True
+
+    return False
+
+
+def _mask_term_in_desc(desc: str, term: str) -> str:
+    """Mask any direct occurrence of `term` (or its base headword) in `desc` to prevent front-side spoilers."""
+    safe = (desc or "").strip()
+    clean_term = (term or "").strip()
+    if not safe or not clean_term:
+        return safe
+    base_term = clean_term.split("(")[0].strip()
+    candidates = [clean_term]
+    if len(base_term) >= 2 and base_term != clean_term:
+        candidates.append(base_term)
+    for m in re.finditer(r"\(([^()]{2,30})\)", clean_term):
+        inner = m.group(1).strip()
+        if len(inner) >= 2:
+            candidates.append(inner)
+    for cand in sorted(set(candidates), key=len, reverse=True):
+        if len(cand) >= 2 and cand in safe:
+            safe = safe.replace(cand, "[ ___ ]")
+    return safe
+
 
 def _clean_line(text: str) -> str:
     norm = unicodedata.normalize("NFKC", text or "")
@@ -279,7 +552,11 @@ def infer_deck_name(
     for b in doc.blocks:
         if b.kind == "heading":
             cleaned = _clean_line(b.text).lstrip("#*•- ").strip()
-            if len(cleaned) >= 2:
+            if (
+                len(cleaned) >= 2
+                and not _TOC_EXACT_TITLE_RE.match(cleaned)
+                and not _TOC_PREFIX_RE.match(cleaned)
+            ):
                 return cleaned[:80]
 
     # Extract top salient keywords
@@ -457,6 +734,28 @@ def _strip_repeated_headers_footers(blocks: Sequence[DocumentBlock]) -> List[Doc
     return cleaned_blocks
 
 
+def _extract_noun_candidates(text: str) -> List[str]:
+    raw_tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-]{2,18}|[가-힣]{2,12}", text or "")
+    cleaned: List[str] = []
+    for tok in raw_tokens:
+        tl = tok.lower()
+        if tl in _STOPWORDS:
+            continue
+        if re.match(r"^[가-힣]+$", tok):
+            stem = re.sub(
+                r"(?:이란|란|에서는|에서|으로|에게|부터|까지|처럼|보다|라고|하고|이며|이고|이나| 또는|의|은|는|이|가|을|를|에|로|과|와|도|만)$",
+                "",
+                tok,
+            )
+            if len(stem) >= 2 and stem in text and stem.lower() not in _STOPWORDS:
+                tok = stem
+        if tok.lower() in _STOPWORDS or is_generic_section_label(tok):
+            continue
+        if tok not in cleaned:
+            cleaned.append(tok)
+    return cleaned
+
+
 def _select_semantic_hinge_token(
     candidates: Sequence[str],
     text: str,
@@ -472,23 +771,136 @@ def _select_semantic_hinge_token(
         in_any_dom = 1 if any(kw in tl or tl in kw for kw in all_domain_kw) else 0
         is_tech_or_num = 1 if (any(ch.isdigit() for ch in tok) or any("A" <= ch <= "Z" for ch in tok)) else 0
         # Penalize generic verbal/modifier endings in Korean
-        generic_penalty = -3 if tok.endswith(("하는", "되는", "있는", "없는", "통한", "대한", "의한")) else 0
+        generic_penalty = (
+            -4
+            if tok.endswith(
+                (
+                    "하는",
+                    "되는",
+                    "있는",
+                    "없는",
+                    "통한",
+                    "대한",
+                    "의한",
+                    "되었다",
+                    "하였다",
+                    "이다",
+                    "한다",
+                    "된다",
+                    "있다",
+                    "없다",
+                    "빠르고",
+                    "적다",
+                    "많다",
+                )
+            )
+            else 0
+        )
         return (in_cat * 3 + in_any_dom * 2 + is_tech_or_num * 2 + generic_penalty, is_tech_or_num, in_any_dom, len(tok))
 
     return max(candidates, key=_score)
+
+
+def _synthesize_content_keyword_cards(
+    content_text: str,
+    page: int,
+    excerpt: str,
+    category: str,
+    base_tags: Tuple[str, ...],
+    difficulty_level: str,
+    context_prefix: str = "",
+) -> List[SourcedCard]:
+    """Synthesize a content-first card from a proposition sentence by masking its pivotal domain keyword."""
+    filtered = _extract_noun_candidates(content_text)
+    if not filtered or len(content_text) < 10:
+        return []
+    target = _select_semantic_hinge_token(filtered, content_text, category)
+    diff = (difficulty_level or "standard").strip().lower()
+    prefix = f"{context_prefix} " if context_prefix else ""
+    masked = content_text.replace(target, "[ ___ ]", 1)
+    cloze_sentence = content_text.replace(target, f"{{{{c1::{target}::핵심 키워드}}}}", 1)
+    concise_back = f"{target}\n\n💡 해설: {prefix}{content_text}".strip()
+
+    if diff == "lv1":
+        return [
+            SourcedCard(
+                spec=GeneratedCardSpec(
+                    note_type="basic",
+                    front_text=f"🌱 [Lv.1 기초 개념] {prefix}{masked} — 빈칸에 들어갈 핵심 용어는?",
+                    back_text=concise_back,
+                    tags=base_tags + ("lv1",),
+                    rationale=f"p.{page} Lv.1 내용 기반 핵심어 인출",
+                ),
+                pattern="definition",
+                source_page=page,
+                source_excerpt=excerpt,
+            )
+        ]
+    if diff == "lv3":
+        return [
+            SourcedCard(
+                spec=GeneratedCardSpec(
+                    note_type="basic",
+                    front_text=f"🔥 [Lv.3 심화 인출] 다음 내용의 빈칸에 들어갈 핵심 개념어를 쓰시오.\n\"{prefix}{masked}\"",
+                    back_text=concise_back,
+                    tags=base_tags + ("lv3",),
+                    rationale=f"p.{page} Lv.3 내용 기반 핵심어 서술 인출",
+                ),
+                pattern="definition",
+                source_page=page,
+                source_excerpt=excerpt,
+            )
+        ]
+    cards = [
+        SourcedCard(
+            spec=GeneratedCardSpec(
+                note_type="cloze",
+                front_text=f"{prefix}{cloze_sentence}",
+                back_text=concise_back,
+                tags=base_tags,
+                rationale=f"p.{page} 핵심 키워드 Cloze",
+            ),
+            pattern="definition",
+            source_page=page,
+            source_excerpt=excerpt,
+        )
+    ]
+    if diff in ("mixed", "all"):
+        cards.append(
+            SourcedCard(
+                spec=GeneratedCardSpec(
+                    note_type="basic",
+                    front_text=f"🔥 [Lv.3 심화 인출] 다음 내용의 빈칸에 들어갈 핵심 개념어를 쓰시오.\n\"{prefix}{masked}\"",
+                    back_text=concise_back,
+                    tags=base_tags + ("lv3",),
+                    rationale=f"p.{page} Lv.3 내용 기반 핵심어 인출",
+                ),
+                pattern="definition",
+                source_page=page,
+                source_excerpt=excerpt,
+            )
+        )
+    return cards
 
 
 def _synthesize_cards_from_block(
     block: DocumentBlock,
     category: str,
     difficulty_level: str = "standard",
+    heading_context: Optional[str] = None,
 ) -> List[SourcedCard]:
     """Deterministically generate grounded SourcedCards from a single DocumentBlock.
 
     Supports difficulty stratification (`standard`, `lv1`, `lv2`, `lv3`, `mixed`).
+    Enforces:
+    1) Top-level TOC / structural heading rejection (`is_toc_or_structural_heading`).
+    2) Generic section label unwrapping (`특징:`, `1. 배경:`, `의의:` -> content becomes question).
+    3) Content-as-question inversion for Basic cards (`safe_desc` on front, concise `term` on back).
     """
     text = _clean_line(block.text)
     if len(text) < 8:
+        return []
+    if is_toc_or_structural_heading(text, block.kind):
         return []
 
     diff = (difficulty_level or "standard").strip().lower()
@@ -507,7 +919,7 @@ def _synthesize_cards_from_block(
                     SourcedCard(
                         spec=GeneratedCardSpec(
                             note_type="basic",
-                            front_text=f"🌱 [Lv.1 표현 의미 인지] 다음 표현의 뜻·의미는?\n{dst_phrase}",
+                            front_text=f"🌱 [Lv.1 표현 의미] {dst_phrase}",
                             back_text=src_phrase,
                             tags=base_tags + ("lv1",),
                             rationale=f"p.{block.page} Lv.1 어학 표현 의미 인지",
@@ -523,7 +935,7 @@ def _synthesize_cards_from_block(
                     SourcedCard(
                         spec=GeneratedCardSpec(
                             note_type="speaking",
-                            front_text=f"🔥 [Lv.3 실전 역방향 발화·작문] '{src_phrase}'을(를) 목표 표현으로 정확히 쓰시오. (첫 글자 '{first_ch}', 총 {len(dst_phrase)}자)",
+                            front_text=f"🔥 [Lv.3 역방향 발화·작문] '{src_phrase}' (첫 글자 '{first_ch}', 총 {len(dst_phrase)}자)",
                             back_text=dst_phrase,
                             tags=base_tags + ("lv3",),
                             rationale=f"p.{block.page} Lv.3 어학 역방향 완전 인출",
@@ -538,7 +950,7 @@ def _synthesize_cards_from_block(
                     SourcedCard(
                         spec=GeneratedCardSpec(
                             note_type="speaking",
-                            front_text=f"🗣️ [어학·표현 인출] {src_phrase}",
+                            front_text=f"🗣️ [어학·표현] {src_phrase}",
                             back_text=dst_phrase,
                             tags=base_tags,
                             rationale=f"p.{block.page} 어학 표현 쌍 자동 추출",
@@ -553,7 +965,7 @@ def _synthesize_cards_from_block(
                         SourcedCard(
                             spec=GeneratedCardSpec(
                                 note_type="basic",
-                                front_text=f"🌱 [Lv.1 역방향 확인] '{dst_phrase}'의 정확한 우리말 의미는?",
+                                front_text=f"🌱 [Lv.1 역방향 확인] {dst_phrase}",
                                 back_text=src_phrase,
                                 tags=base_tags + ("lv1",),
                                 rationale=f"p.{block.page} 어학 표현 양방향 교차 카드",
@@ -577,13 +989,20 @@ def _synthesize_cards_from_block(
                 else:
                     cloze_parts.append(f"({idx + 1}) {item}")
             header_prefix = text.split("1")[0].split("①")[0].split("(1)")[0].strip(" :：-")
-            title_prefix = f"[{header_prefix}] " if len(header_prefix) >= 2 else "[핵심 항목 열거] "
+            if is_generic_section_label(header_prefix) and heading_context:
+                title_prefix = f"[{heading_context} · {_normalize_label_core(header_prefix)}] "
+            elif len(header_prefix) >= 2:
+                title_prefix = f"[{header_prefix}] "
+            elif heading_context:
+                title_prefix = f"[{heading_context}] "
+            else:
+                title_prefix = "[핵심 항목] "
             results.append(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="cloze",
                         front_text=f"{title_prefix}" + " / ".join(cloze_parts),
-                        back_text=f"전체 항목 ({len(items)}개): " + " · ".join(items),
+                        back_text=" · ".join(items),
                         tags=base_tags,
                         rationale=f"p.{block.page} 번호 목록 {len(items)}개 항목 열거 Cloze",
                     ),
@@ -600,22 +1019,26 @@ def _synthesize_cards_from_block(
         num_m = _NUMERIC_UNIT_RE.search(text)
         cloze_text = text
         ordinal = 1
+        extracted_targets: List[str] = []
         if stat_m:
             target = stat_m.group(1)
             cloze_text = cloze_text.replace(target, f"{{{{c{ordinal}::{target}::조문}}}}", 1)
+            extracted_targets.append(target)
             ordinal += 1
         if num_m:
             num_target = num_m.group(1)
             if num_target in cloze_text:
                 cloze_text = cloze_text.replace(num_target, f"{{{{c{ordinal}::{num_target}::수치·단위}}}}", 1)
+                extracted_targets.append(num_target)
                 ordinal += 1
         if ordinal > 1:
+            ans_head = " · ".join(extracted_targets)
             results.append(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="cloze",
                         front_text=cloze_text,
-                        back_text=f"출처 원문 (p.{block.page}): {excerpt}",
+                        back_text=f"{ans_head}\n\n💡 해설: {excerpt}",
                         tags=base_tags,
                         rationale=f"p.{block.page} 조문·핵심 수치/단위 빈칸 Cloze",
                     ),
@@ -630,80 +1053,92 @@ def _synthesize_cards_from_block(
     col_m = _COLON_DEF_RE.match(text)
     if col_m:
         term, desc = col_m.group(1).strip(), col_m.group(2).strip()
+        if is_generic_section_label(term):
+            label_core = _normalize_label_core(term)
+            ctx_badge = f"[{heading_context} · {label_core}]" if heading_context else f"[{label_core}]"
+            return _synthesize_content_keyword_cards(
+                content_text=desc,
+                page=block.page,
+                excerpt=excerpt,
+                category=category,
+                base_tags=base_tags,
+                difficulty_level=diff,
+                context_prefix=ctx_badge,
+            )
+        safe_desc = _mask_term_in_desc(desc, term)
+        concise_back = f"{term}\n\n💡 해설: {desc}"
+        c_lv1 = SourcedCard(
+            spec=GeneratedCardSpec(
+                note_type="basic",
+                front_text=f"🌱 [Lv.1 개념 확인] {safe_desc}",
+                back_text=concise_back,
+                tags=base_tags + ("lv1", "diff_lv1"),
+                rationale=f"p.{block.page} Lv.1 내용 → 핵심 용어 인출",
+            ),
+            pattern="definition",
+            source_page=block.page,
+            source_excerpt=excerpt,
+        )
+        c_lv2 = SourcedCard(
+            spec=GeneratedCardSpec(
+                note_type="cloze",
+                front_text=f"{{{{c1::{term}::핵심 개념}}}}: {safe_desc}",
+                back_text=concise_back,
+                tags=base_tags + ("lv2", "diff_lv2") if diff in ("lv2", "mixed", "all") else base_tags,
+                rationale=f"p.{block.page} 용어 정의 Cloze",
+            ),
+            pattern="definition",
+            source_page=block.page,
+            source_excerpt=excerpt,
+        )
+        c_lv3 = SourcedCard(
+            spec=GeneratedCardSpec(
+                note_type="basic",
+                front_text=f"🔥 [Lv.3 용어 인출] {safe_desc}",
+                back_text=concise_back,
+                tags=base_tags + ("lv3", "diff_lv3"),
+                rationale=f"p.{block.page} Lv.3 정의 → 용어 역방향 인출",
+            ),
+            pattern="definition",
+            source_page=block.page,
+            source_excerpt=excerpt,
+        )
         if diff == "lv1":
-            results.append(
-                SourcedCard(
-                    spec=GeneratedCardSpec(
-                        note_type="basic",
-                        front_text=f"🌱 [Lv.1 기초 개념 확인] '{term}'의 핵심 정의는 무엇인가요?",
-                        back_text=f"{desc}\n\n💡 해설: {term} — {desc}",
-                        tags=base_tags + ("lv1",),
-                        rationale=f"p.{block.page} Lv.1 용어 정의 기본 Q&A",
-                    ),
-                    pattern="definition",
-                    source_page=block.page,
-                    source_excerpt=excerpt,
-                )
-            )
+            results.append(c_lv1)
         elif diff == "lv3":
-            results.append(
-                SourcedCard(
-                    spec=GeneratedCardSpec(
-                        note_type="basic",
-                        front_text=f"🔥 [Lv.3 심화 역방향 인출] 다음 설명이 가리키는 정확한 핵심 용어를 쓰시오.\n\"{desc}\"",
-                        back_text=f"{term}\n\n💡 해설: {term} — {desc}",
-                        tags=base_tags + ("lv3",),
-                        rationale=f"p.{block.page} Lv.3 정의 → 용어 역방향 인출",
-                    ),
-                    pattern="definition",
-                    source_page=block.page,
-                    source_excerpt=excerpt,
-                )
-            )
+            results.append(c_lv3)
+        elif diff in ("mixed", "all"):
+            results.extend([c_lv1, c_lv2, c_lv3])
         else:
-            results.append(
-                SourcedCard(
-                    spec=GeneratedCardSpec(
-                        note_type="cloze",
-                        front_text=f"{{{{c1::{term}::핵심 개념}}}}: {desc}",
-                        back_text=f"{term} — {desc}",
-                        tags=base_tags,
-                        rationale=f"p.{block.page} 용어 정의 Cloze",
-                    ),
-                    pattern="definition",
-                    source_page=block.page,
-                    source_excerpt=excerpt,
-                )
-            )
-            if diff in ("mixed", "all"):
-                results.append(
-                    SourcedCard(
-                        spec=GeneratedCardSpec(
-                            note_type="basic",
-                            front_text=f"🔥 [Lv.3 심화 개념 설명] '{term}'의 핵심 정의와 의미를 서술하시오.",
-                            back_text=f"{desc}",
-                            tags=base_tags + ("lv3",),
-                            rationale=f"p.{block.page} Lv.3 용어 → 정의 서술형 인출",
-                        ),
-                        pattern="definition",
-                        source_page=block.page,
-                        source_excerpt=excerpt,
-                    )
-                )
+            results.append(c_lv2)
         return results
 
     kor_m = _KOREAN_DEF_RE.match(text)
     if kor_m:
         term, desc = kor_m.group(1).strip(), kor_m.group(2).strip()
+        if is_generic_section_label(term):
+            label_core = _normalize_label_core(term)
+            ctx_badge = f"[{heading_context} · {label_core}]" if heading_context else f"[{label_core}]"
+            return _synthesize_content_keyword_cards(
+                content_text=desc,
+                page=block.page,
+                excerpt=excerpt,
+                category=category,
+                base_tags=base_tags,
+                difficulty_level=diff,
+                context_prefix=ctx_badge,
+            )
+        safe_desc = _mask_term_in_desc(desc, term)
+        concise_back = f"{term}\n\n💡 해설: {desc}"
         if diff == "lv1":
             results.append(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="basic",
-                        front_text=f"🌱 [Lv.1 기초 개념] '{term}'은(는) 무엇을 뜻하나요?",
-                        back_text=desc,
-                        tags=base_tags + ("lv1",),
-                        rationale=f"p.{block.page} Lv.1 국문 개념 기초 Q&A",
+                        front_text=f"🌱 [Lv.1 개념 확인] {safe_desc}",
+                        back_text=concise_back,
+                        tags=base_tags + ("lv1", "diff_lv1"),
+                        rationale=f"p.{block.page} Lv.1 국문 내용 → 개념 인출",
                     ),
                     pattern="definition",
                     source_page=block.page,
@@ -715,9 +1150,9 @@ def _synthesize_cards_from_block(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="basic",
-                        front_text=f"🔥 [Lv.3 심화 역방향 인출] 다음 정의에 해당하는 핵심 개념을 쓰시오.\n\"{desc}\"",
-                        back_text=f"{term}: {desc}",
-                        tags=base_tags + ("lv3",),
+                        front_text=f"🔥 [Lv.3 용어 인출] {safe_desc}",
+                        back_text=concise_back,
+                        tags=base_tags + ("lv3", "diff_lv3"),
                         rationale=f"p.{block.page} Lv.3 국문 개념 역방향 인출",
                     ),
                     pattern="definition",
@@ -730,8 +1165,8 @@ def _synthesize_cards_from_block(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="cloze",
-                        front_text=f"{{{{c1::{term}::핵심 개념}}}}은(는) {desc}",
-                        back_text=f"{term}: {desc}",
+                        front_text=f"{{{{c1::{term}::핵심 개념}}}}은(는) {safe_desc}",
+                        back_text=concise_back,
                         tags=base_tags,
                         rationale=f"p.{block.page} 국문 개념 정의 Cloze",
                     ),
@@ -745,12 +1180,23 @@ def _synthesize_cards_from_block(
     eng_m = _ENGLISH_DEF_RE.match(text)
     if eng_m:
         term, desc = eng_m.group(1).strip(), eng_m.group(2).strip()
+        if is_generic_section_label(term):
+            return _synthesize_content_keyword_cards(
+                content_text=desc,
+                page=block.page,
+                excerpt=excerpt,
+                category=category,
+                base_tags=base_tags,
+                difficulty_level=diff,
+                context_prefix=f"[{_normalize_label_core(term)}]",
+            )
+        safe_desc = _mask_term_in_desc(desc, term)
         results.append(
             SourcedCard(
                 spec=GeneratedCardSpec(
                     note_type="cloze",
-                    front_text=f"{{{{c1::{term}::Concept}}}} is defined as {desc}",
-                    back_text=f"{term}: {desc}",
+                    front_text=f"{{{{c1::{term}::Concept}}}} is defined as {safe_desc}",
+                    back_text=f"{term}\n\n💡 해설: {desc}",
                     tags=base_tags,
                     rationale=f"p.{block.page} 영문 개념 정의 Cloze",
                 ),
@@ -770,7 +1216,7 @@ def _synthesize_cards_from_block(
                 SourcedCard(
                     spec=GeneratedCardSpec(
                         note_type="basic",
-                        front_text=f"🔥 [Lv.3 심화 역인과 추론] '{rhs}' 결과가 나타나거나 대조되는 선행 조건·원인({connector} 앞 내용)은 무엇인가?",
+                        front_text=f"🔥 [Lv.3 심화 역인과 추론] '{rhs}' 결과가 나타나거나 대조되는 선행 조건·원인({connector} 앞 내용)은?",
                         back_text=lhs,
                         tags=base_tags + ("lv3",),
                         rationale=f"p.{block.page} Lv.3 역방향 인과·비교 추론",
@@ -798,26 +1244,16 @@ def _synthesize_cards_from_block(
         return results
 
     # Fallback for general informative sentence: mask the semantically pivotal domain noun/keyword
-    if block.kind == "heading":
-        return []
-    candidates = re.findall(r"[A-Za-z][A-Za-z0-9\-]{3,18}|[가-힣]{2,10}", text)
-    filtered = [c for c in candidates if c.lower() not in _STOPWORDS]
-    if filtered and len(text) >= 18:
-        target = _select_semantic_hinge_token(filtered, text, category)
-        cloze_sentence = text.replace(target, f"{{{{c1::{target}::핵심 키워드}}}}", 1)
-        results.append(
-            SourcedCard(
-                spec=GeneratedCardSpec(
-                    note_type="cloze",
-                    front_text=cloze_sentence,
-                    back_text=f"정답: {target} (p.{block.page})",
-                    tags=base_tags,
-                    rationale=f"p.{block.page} 핵심 키워드 Cloze",
-                ),
-                pattern="definition",
-                source_page=block.page,
-                source_excerpt=excerpt,
-            )
+    if len(text) >= 18:
+        ctx_prefix = f"[{heading_context}]" if heading_context else ""
+        return _synthesize_content_keyword_cards(
+            content_text=text,
+            page=block.page,
+            excerpt=excerpt,
+            category=category,
+            base_tags=base_tags,
+            difficulty_level=diff,
+            context_prefix=ctx_prefix,
         )
     return results
 
@@ -905,25 +1341,61 @@ def build_deck_plan(
         )
 
     raw_candidates: List[SourcedCard] = []
+    active_heading_topic: str = ""
+
+    def _update_heading_topic(candidate_line: str) -> None:
+        nonlocal active_heading_topic
+        cleaned_h = _clean_line(candidate_line).lstrip("#*•- ").strip()
+        if not cleaned_h:
+            return
+        if (
+            _TOC_EXACT_TITLE_RE.match(cleaned_h)
+            or _TOC_PREFIX_RE.match(cleaned_h)
+            or _TOC_LEADER_PAGE_RE.search(cleaned_h)
+            or _TOC_NUMBERED_PAGE_END_RE.match(cleaned_h)
+        ):
+            return
+        topic = re.sub(r"^(?:#{1,6}\s*)", "", cleaned_h).strip(" []<>《》「」『』")
+        if 2 <= len(topic) <= 45 and not is_generic_section_label(topic):
+            active_heading_topic = topic
+
     for block in cleaned_blocks:
-        # Split multi-line paragraphs into logical lines if they contain separate definitions/pairs
+        if block.kind == "heading" or is_toc_or_structural_heading(block.text, block.kind):
+            _update_heading_topic(block.text)
+        # Split multi-line paragraphs into logical lines if they contain separate definitions/pairs or headings/TOC lines
         lines = [ln.strip() for ln in block.text.splitlines() if ln.strip()]
         if len(lines) > 1 and any(
-            _COLON_DEF_RE.match(ln) or _ARROW_PAIR_RE.match(ln) for ln in lines
+            _COLON_DEF_RE.match(ln)
+            or _ARROW_PAIR_RE.match(ln)
+            or is_toc_or_structural_heading(ln, "paragraph")
+            for ln in lines
         ):
             for ln in lines:
+                if is_toc_or_structural_heading(ln, "paragraph"):
+                    _update_heading_topic(ln)
+                    continue
                 sub_block = DocumentBlock(
-                    kind=block.kind,
+                    kind="paragraph" if block.kind == "heading" else block.kind,
                     text=ln,
                     page=block.page,
                     confidence=block.confidence,
                 )
                 raw_candidates.extend(
-                    _synthesize_cards_from_block(sub_block, category, difficulty_level=difficulty_level)
+                    _synthesize_cards_from_block(
+                        sub_block,
+                        category,
+                        difficulty_level=difficulty_level,
+                        heading_context=active_heading_topic,
+                    )
                 )
         else:
             raw_candidates.extend(
-                _synthesize_cards_from_block(block, category, difficulty_level=difficulty_level)
+                _synthesize_cards_from_block(
+                    block,
+                    category,
+                    difficulty_level=difficulty_level,
+                    heading_context=active_heading_topic,
+                )
             )
 
     if extra_llm_cards:

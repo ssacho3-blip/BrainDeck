@@ -447,6 +447,50 @@
           </div>
         </div>
 
+        <!-- Always-Visible D-Day Study Planner & Daily Quota Controller (v5.9 Upgrade) -->
+        <div id="bd-planner-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:10px 12px;border-radius:16px;background:#eef2ff;border:1px solid #c7d2fe;">
+          <span style="font-size:0.78rem;font-weight:800;color:#1d4ed8;">📅 D-Day 학습계획 · 일일 할당량:</span>
+          <select id="bd-plan-days" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="시험·완주 목표 기간 (D-Day)">
+            <option value="7">D-7 (단기 집중)</option>
+            <option value="14">D-14 (2주 내신)</option>
+            <option value="30" selected>D-30 (1개월 표준)</option>
+            <option value="60">D-60 (2개월 완주)</option>
+            <option value="90">D-90 (3개월 여유)</option>
+          </select>
+          <select id="bd-plan-daily-new" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="하루 새 카드 학습 할당량">
+            <option value="auto" selected>권장량 자동배분</option>
+            <option value="20">하루 20장씩</option>
+            <option value="30">하루 30장씩</option>
+            <option value="40">하루 40장씩</option>
+            <option value="50">하루 50장씩</option>
+          </select>
+          <select id="bd-plan-minutes" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="하루 가용 학습 시간 예산">
+            <option value="15">하루 15분</option>
+            <option value="30" selected>하루 30분 (추천)</option>
+            <option value="45">하루 45분</option>
+            <option value="60">하루 60분</option>
+          </select>
+          <button type="button" id="btn-compute-study-plan" style="padding:5px 10px;font-size:0.76rem;background:#ffffff;color:#1d4ed8;border-color:#93c5fd;">
+            📊 계획 산출
+          </button>
+          <button type="button" id="btn-apply-study-plan" class="btn-primary" style="padding:5px 12px;font-size:0.76rem;">
+            ✅ 이 계획으로 매일 학습 적용
+          </button>
+          <select id="bd-custom-study-preset" style="width:auto;padding:5px 8px;font-size:0.76rem;margin-left:auto;" title="맞춤 보충 학습 (Custom Study)">
+            <option value="increase_new_quota">➕ 오늘 새 카드 10장 더 학습</option>
+            <option value="forgotten_recent">🔥 최근 오답·망각 복습</option>
+            <option value="review_ahead">⏩ 시험 대비 3일 선행 복습</option>
+            <option value="preview_new">👀 새 카드 무오염 미리보기</option>
+            <option value="cram_flagged_or_leech">🚩 플래그·거머리 취약 특훈</option>
+          </select>
+          <button type="button" id="btn-run-custom-study" style="padding:5px 11px;font-size:0.76rem;background:#ffffff;color:#1d4ed8;border-color:#93c5fd;">
+            ⚡ 맞춤학습 시작
+          </button>
+        </div>
+        <div id="bd-study-plan-banner" class="ai-box" style="display:block;margin-top:0;margin-bottom:12px;background:#f8fafc;border:1px solid #c7d2fe;color:#1e293b;font-size:0.82rem;">
+          📅 덱을 선택하면 전체 카드 수와 목표일(D-Day)에 맞춰 오늘 학습할 할당량이 자동으로 계획·배분됩니다.
+        </div>
+
         <!-- Contract C1: Collapsible Study Tools & Filter Drawer (Default closed for Zen focus, Zero Feature Loss) -->
         <div id="study-tools-drawer" style="display:none;margin-bottom:12px;padding:12px;border-radius:16px;background:#f8fafc;border:1px solid var(--border);">
           <!-- Study Filter Chips (All / Wrong-Unknown Only / Marked Only + Smart Interleaved Shuffle Toggle) -->
@@ -501,37 +545,6 @@
             </button>
             <button id="btn-reset-card-arena" type="button" style="padding:6px 11px;font-size:0.76rem;color:#be123c;border-color:#fecdd3;background:#fff0f0;margin-left:auto;" title="현재 덱 처음부터 초기화">🔄 덱 진도 초기화</button>
           </div>
-
-          <!-- BrainDeck v3 Study Planner & Custom Study Suite -->
-          <div id="bd-planner-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px 10px;border-radius:14px;background:#eef2ff;border:1px solid #c7d2fe;">
-            <span style="font-size:0.76rem;font-weight:800;color:#1d4ed8;">📅 D-Day 학습계획 · 맞춤학습:</span>
-            <select id="bd-plan-days" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="시험·완주 목표 기간 (D-Day)">
-              <option value="7">D-7 (단기 집중)</option>
-              <option value="14">D-14 (2주 내신)</option>
-              <option value="30" selected>D-30 (1개월 표준)</option>
-              <option value="60">D-60 (2개월 완주)</option>
-            </select>
-            <select id="bd-plan-minutes" style="width:auto;padding:5px 8px;font-size:0.76rem;" title="하루 가용 학습 시간 예산">
-              <option value="15">하루 15분</option>
-              <option value="30" selected>하루 30분 (추천)</option>
-              <option value="45">하루 45분</option>
-              <option value="60">하루 60분</option>
-            </select>
-            <button type="button" id="btn-compute-study-plan" class="btn-primary" style="padding:5px 11px;font-size:0.76rem;">
-              📊 학습계획 산출
-            </button>
-            <select id="bd-custom-study-preset" style="width:auto;padding:5px 8px;font-size:0.76rem;margin-left:auto;" title="맞춤 보충 학습 (Custom Study)">
-              <option value="forgotten_recent">🔥 최근 오답·망각 복습</option>
-              <option value="review_ahead">⏩ 시험 대비 3일 선행 복습</option>
-              <option value="preview_new">👀 새 카드 무오염 미리보기</option>
-              <option value="cram_flagged_or_leech">🚩 플래그·거머리 취약 특훈</option>
-              <option value="increase_new_quota">➕ 오늘 새 카드 할당량 추가</option>
-            </select>
-            <button type="button" id="btn-run-custom-study" style="padding:5px 11px;font-size:0.76rem;background:#ffffff;color:#1d4ed8;border-color:#93c5fd;">
-              ⚡ 맞춤학습 시작
-            </button>
-          </div>
-          <div id="bd-study-plan-banner" class="ai-box" style="display:none;margin-top:8px;background:#ffffff;border:1px solid #c7d2fe;color:#1e293b;"></div>
         </div>
 
         <!-- Electronic Red-Cellophane Summary Sheet Panel (v5.6 RN-1) -->
@@ -905,8 +918,8 @@
           <a id="link-export-apkg" href="/api/export.apkg" style="text-decoration:none;">
             <button id="btn-export-apkg" type="button">📦 .apkg 내보내기</button>
           </a>
-          <a id="link-download-apk" href="https://github.com/ssacho3-blip/semiconductor-assets/releases/download/braindeck-v5.5/BrainDeck-v5.5.apk" style="text-decoration:none;">
-            <button id="btn-download-apk" type="button" class="btn-primary">🤖 안드로이드 앱 설치파일 (v5.5)</button>
+          <a id="link-download-apk" href="https://github.com/ssacho3-blip/semiconductor-assets/releases/download/braindeck-v5.9/BrainDeck-v5.9.apk" style="text-decoration:none;">
+            <button id="btn-download-apk" type="button" class="btn-primary">🤖 안드로이드 앱 설치파일 (v5.9)</button>
           </a>
         </div>
       </div>

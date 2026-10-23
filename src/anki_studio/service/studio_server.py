@@ -144,6 +144,7 @@ class AnkiStudioService:
         review_sort_order: str = "retrievability_asc",
         new_review_mix: str = "mix",
         total_cards_override: Optional[int] = None,
+        apply_plan: bool = False,
     ) -> Dict[str, Any]:
         """Compute an Anki v3 + FSRS-5 multi-day study plan and daily queue breakdown for a deck."""
         cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
@@ -176,8 +177,45 @@ class AnkiStudioService:
             avg_sec_per_review=float(sec_per_review_card),
         )
         eff_new_per_day = int(new_per_day) if new_per_day is not None else int(plan["recommended_daily_new"])
+        budget_rev_cap = max(20, int((int(daily_minutes_budget) * 60) // max(1.0, float(sec_per_review_card))))
+        eff_rev_per_day = max(20, min(int(max_reviews_per_day), budget_rev_cap))
+        if apply_plan:
+            daily_quota = self.store.save_deck_study_plan(
+                deck_id=deck_id,
+                target_days=int(target_days),
+                daily_new_limit=max(1, eff_new_per_day),
+                daily_review_limit=eff_rev_per_day,
+                desired_retention=float(desired_retention),
+            )
+        else:
+            try:
+                daily_quota = self.store.get_deck_daily_quota_status(deck_id=deck_id)
+                if not daily_quota.get("plan_applied") and len(active_cards) >= 100 and deck_id is not None:
+                    daily_quota = self.store.save_deck_study_plan(
+                        deck_id=deck_id,
+                        target_days=int(target_days),
+                        daily_new_limit=max(1, eff_new_per_day),
+                        daily_review_limit=eff_rev_per_day,
+                        desired_retention=float(desired_retention),
+                    )
+            except Exception:
+                daily_quota = {
+                    "deck_id": deck_id,
+                    "target_days": int(target_days),
+                    "daily_new_limit": max(1, eff_new_per_day),
+                    "daily_review_limit": eff_rev_per_day,
+                    "plan_applied": False,
+                    "new_studied_today": 0,
+                    "remaining_new_today": max(1, eff_new_per_day),
+                }
+
+        rem_new_for_q = (
+            max(0, eff_new_per_day - int(daily_quota.get("new_studied_today") or 0))
+            if (apply_plan or daily_quota.get("plan_applied"))
+            else max(0, eff_new_per_day)
+        )
         options = AnkiDeckOptions(
-            new_per_day=max(0, eff_new_per_day),
+            new_per_day=rem_new_for_q,
             max_reviews_per_day=max(0, int(max_reviews_per_day)),
             desired_retention=float(desired_retention),
             bury_new_siblings=bool(bury_siblings),
@@ -190,8 +228,38 @@ class AnkiStudioService:
             "ok": True,
             "deck_id": int(deck_id) if deck_id is not None else None,
             "plan": plan,
+            "daily_quota": daily_quota,
             "queue_counts": q_res["counts"],
             "buried_sibling_ids": q_res["buried_sibling_ids"],
+        }
+
+    def apply_anki_study_plan(
+        self,
+        deck_id: Optional[int] = None,
+        target_days: int = 30,
+        daily_new_limit: Optional[int] = None,
+        daily_review_limit: int = 200,
+        daily_minutes_budget: int = 30,
+        desired_retention: float = 0.90,
+    ) -> Dict[str, Any]:
+        """Persist a D-Day study plan & daily new card quota for `deck_id` and return today's sliced study queue."""
+        res = self.get_anki_study_plan(
+            deck_id=deck_id,
+            target_days=int(target_days),
+            daily_minutes_budget=int(daily_minutes_budget),
+            desired_retention=float(desired_retention),
+            new_per_day=daily_new_limit,
+            max_reviews_per_day=int(daily_review_limit),
+            apply_plan=True,
+        )
+        due_today = self.get_due_cards(
+            deck_id=deck_id,
+            limit=max(50, int(res["daily_quota"]["daily_new_limit"]) + 50),
+            respect_daily_quota=True,
+        )
+        return {
+            **res,
+            "due_today": due_today,
         }
 
     def apply_card_anki_action(
@@ -224,6 +292,17 @@ class AnkiStudioService:
         extra_new: int = 10,
     ) -> Dict[str, Any]:
         """Build an Anki Custom Study / Filtered Deck session from SQLite cards."""
+        if str(preset or "").strip().lower() == "increase_new_quota":
+            try:
+                cur_q = self.store.get_deck_daily_quota_status(deck_id=deck_id)
+                self.store.save_deck_study_plan(
+                    deck_id=deck_id,
+                    target_days=int(cur_q.get("target_days") or 30),
+                    daily_new_limit=int(cur_q.get("daily_new_limit") or 30) + max(1, int(extra_new)),
+                    daily_review_limit=int(cur_q.get("daily_review_limit") or 200),
+                )
+            except Exception:
+                pass
         cards = self.store.list_deck_cards_for_anki(deck_id=deck_id)
         session = build_custom_study_session(
             cards,
@@ -232,9 +311,14 @@ class AnkiStudioService:
             limit=int(limit),
             extra_new=int(extra_new),
         )
+        try:
+            daily_quota = self.store.get_deck_daily_quota_status(deck_id=deck_id)
+        except Exception:
+            daily_quota = None
         return {
             "ok": True,
             "deck_id": int(deck_id) if deck_id is not None else None,
+            "daily_quota": daily_quota,
             **session,
         }
 
@@ -243,12 +327,23 @@ class AnkiStudioService:
         deck_id: Optional[int] = None,
         limit: int = 50,
         shuffle_mode: str = "sequential",
+        respect_daily_quota: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        cards = self.store.get_due_cards(deck_id=deck_id, limit=limit, shuffle_mode=shuffle_mode)
+        cards = self.store.get_due_cards(
+            deck_id=deck_id,
+            limit=limit,
+            shuffle_mode=shuffle_mode,
+            respect_daily_quota=respect_daily_quota,
+        )
+        try:
+            daily_quota = self.store.get_deck_daily_quota_status(deck_id=deck_id)
+        except Exception:
+            daily_quota = None
         return {
             "ok": True,
             "count": len(cards),
             "shuffle_mode": shuffle_mode,
+            "daily_quota": daily_quota,
             "cards": cards,
         }
 
@@ -1563,7 +1658,22 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 deck_raw = qs.get("deck_id", [None])[0]
                 deck_id = int(deck_raw) if deck_raw and deck_raw.isdigit() else None
                 shuffle_mode = str(qs.get("shuffle", ["sequential"])[0] or "sequential")
-                self._send_json(svc.get_due_cards(deck_id=deck_id, shuffle_mode=shuffle_mode))
+                limit_raw = qs.get("limit", ["50"])[0]
+                limit_val = int(limit_raw) if limit_raw and str(limit_raw).isdigit() else 50
+                respect_raw = qs.get("respect_plan", [None])[0]
+                respect_quota = (
+                    True
+                    if respect_raw in ("1", "true", "True")
+                    else (False if respect_raw in ("0", "false", "False") else None)
+                )
+                self._send_json(
+                    svc.get_due_cards(
+                        deck_id=deck_id,
+                        limit=limit_val,
+                        shuffle_mode=shuffle_mode,
+                        respect_daily_quota=respect_quota,
+                    )
+                )
                 return
 
             if path == "/api/study-plan":
@@ -1572,12 +1682,14 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                 target_days = int(qs.get("target_days", ["30"])[0] or 30)
                 daily_minutes = int(qs.get("daily_minutes_budget", ["30"])[0] or 30)
                 retention = float(qs.get("desired_retention", ["0.90"])[0] or 0.90)
+                apply_raw = qs.get("apply", ["0"])[0] in ("1", "true", "True")
                 self._send_json(
                     svc.get_anki_study_plan(
                         deck_id=deck_id,
                         target_days=target_days,
                         daily_minutes_budget=daily_minutes,
                         desired_retention=retention,
+                        apply_plan=apply_raw,
                     )
                 )
                 return
@@ -1604,6 +1716,7 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
             if path.startswith("/download/") and path.endswith(".apk"):
                 root_dir = Path(__file__).resolve().parents[3]
                 candidates = [
+                    root_dir / "dist" / "BrainDeck-v5.9.apk",
                     root_dir / "dist" / "BrainDeck-v5.8.apk",
                     root_dir / "dist" / "BrainDeck-v5.7.apk",
                     root_dir / "dist" / "BrainDeck-v5.6.apk",
@@ -1781,21 +1894,32 @@ def create_http_handler(service: Optional[AnkiStudioService] = None) -> type[Bas
                     self._send_json(res)
                     return
 
-                if path == "/api/study-plan":
+                if path in ("/api/study-plan", "/api/study-plan/apply"):
                     raw_deck = body.get("deck_id")
                     deck_id = int(raw_deck) if raw_deck not in (None, "", "all") and str(raw_deck).isdigit() else None
-                    res = svc.get_anki_study_plan(
-                        deck_id=deck_id,
-                        target_days=int(body.get("target_days") or 30),
-                        daily_minutes_budget=int(body.get("daily_minutes_budget") or 30),
-                        desired_retention=float(body.get("desired_retention") or 0.90),
-                        new_per_day=int(body["new_per_day"]) if body.get("new_per_day") not in (None, "") else None,
-                        max_reviews_per_day=int(body.get("max_reviews_per_day") or 200),
-                        bury_siblings=bool(body.get("bury_siblings", True)),
-                        review_sort_order=str(body.get("review_sort_order") or "retrievability_asc"),
-                        new_review_mix=str(body.get("new_review_mix") or "mix"),
-                        total_cards_override=int(body["total_cards"]) if body.get("total_cards") not in (None, "") else None,
-                    )
+                    should_apply = path == "/api/study-plan/apply" or bool(body.get("apply") or body.get("apply_plan"))
+                    if should_apply:
+                        res = svc.apply_anki_study_plan(
+                            deck_id=deck_id,
+                            target_days=int(body.get("target_days") or 30),
+                            daily_new_limit=int(body["new_per_day"]) if body.get("new_per_day") not in (None, "") else (int(body["daily_new_limit"]) if body.get("daily_new_limit") not in (None, "") else None),
+                            daily_review_limit=int(body.get("max_reviews_per_day") or body.get("daily_review_limit") or 200),
+                            daily_minutes_budget=int(body.get("daily_minutes_budget") or 30),
+                            desired_retention=float(body.get("desired_retention") or 0.90),
+                        )
+                    else:
+                        res = svc.get_anki_study_plan(
+                            deck_id=deck_id,
+                            target_days=int(body.get("target_days") or 30),
+                            daily_minutes_budget=int(body.get("daily_minutes_budget") or 30),
+                            desired_retention=float(body.get("desired_retention") or 0.90),
+                            new_per_day=int(body["new_per_day"]) if body.get("new_per_day") not in (None, "") else None,
+                            max_reviews_per_day=int(body.get("max_reviews_per_day") or 200),
+                            bury_siblings=bool(body.get("bury_siblings", True)),
+                            review_sort_order=str(body.get("review_sort_order") or "retrievability_asc"),
+                            new_review_mix=str(body.get("new_review_mix") or "mix"),
+                            total_cards_override=int(body["total_cards"]) if body.get("total_cards") not in (None, "") else None,
+                        )
                     self._send_json(res)
                     return
 

@@ -544,14 +544,14 @@ object BuiltInCurriculumCatalog {
 
         val lv1Card = baseCard.copy(
             spec = baseCard.spec.copy(
-                frontText = if (front.startsWith("🌱")) front else "🌱 [Lv.1 기초] $front",
+                frontText = if (front.startsWith("🌱")) front else "🌱 [Lv.1] $front",
                 tags = baseTags + "diff_lv1"
             )
         )
         val lv2Card = if (front.contains("{{c")) {
             baseCard.copy(spec = baseCard.spec.copy(tags = baseTags + "diff_lv2"))
         } else {
-            val clozeFront = "📘 [Lv.2 문맥 빈칸] $front — 알맞은 핵심 표현: {{c1::$conciseTarget::정답 인출}}"
+            val clozeFront = "📘 [Lv.2 빈칸] $front ➔ {{c1::$conciseTarget}}"
             baseCard.copy(
                 spec = baseCard.spec.copy(
                     noteType = "cloze",
@@ -569,8 +569,8 @@ object BuiltInCurriculumCatalog {
             baseCard.copy(
                 spec = baseCard.spec.copy(
                     noteType = "basic",
-                    frontText = "🔥 [Lv.3 심화·역방향] 다음 뜻·설명에 해당하는 핵심 어휘(표현)는?\n💡 $mainBack",
-                    backText = "$front\n💡 해설: $mainBack",
+                    frontText = "🔥 [Lv.3 역방향] $mainBack",
+                    backText = front,
                     tags = baseTags + "diff_lv3"
                 )
             )
@@ -637,6 +637,50 @@ object BuiltInCurriculumCatalog {
         return result
     }
 
+    private fun detectSubjectFamily(sourceId: String): String {
+        val t = sourceId.lowercase()
+        if (t.contains("hanja") || t.contains("idiom")) return "hanja"
+        if (t.contains("hist") || t.contains("khist")) return "history"
+        if (t.contains("math")) return "math"
+        if (t.contains("sci")) return "science"
+        if (t.contains("kor") || t.contains("dictation")) return "korean"
+        if (t.contains("law") || t.contains("cert")) return "law_it"
+        if (t.contains("jlpt") || t.contains("exam-ja")) return "japanese"
+        return "english"
+    }
+
+    private fun subjectPurePool(sourceId: String, seedCards: List<SourcedCard>): List<SourcedCard> {
+        val subj = detectSubjectFamily(sourceId)
+        val pool = ArrayList<SourcedCard>()
+        pool.addAll(seedCards)
+        for (tb in TEXTBOOKS) {
+            if (detectSubjectFamily(tb.textbookId) == subj) {
+                for (entry in tb.entries) {
+                    pool.add(
+                        SourcedCard(
+                            spec = GeneratedCardSpec(
+                                noteType = if (entry.frontText.contains("{{c")) "cloze" else "basic",
+                                frontText = entry.frontText,
+                                backText = entry.backText,
+                                tags = listOf(entry.unitId, tb.textbookId, "p.${entry.pageNo}", "role:${entry.roleInUnit}"),
+                                rationale = "${tb.title} (${entry.unitId} · p.${entry.pageNo})"
+                            ),
+                            pattern = if (entry.roleInUnit == "key_grammar") "definition" else "language_pair",
+                            sourcePage = entry.pageNo,
+                            sourceExcerpt = "${entry.frontText} — ${entry.backText}"
+                        )
+                    )
+                }
+            }
+        }
+        for (col in COLLECTIONS) {
+            if (detectSubjectFamily(col.collectionId) == subj) {
+                pool.addAll(col.cards)
+            }
+        }
+        return pool.ifEmpty { seedCards }
+    }
+
     fun expandToTargetCount(
         seedCards: List<SourcedCard>,
         sourceId: String,
@@ -645,18 +689,22 @@ object BuiltInCurriculumCatalog {
         if (targetCount <= 0 || seedCards.isEmpty() || seedCards.size >= targetCount) {
             return if (targetCount > 0 && seedCards.size > targetCount) seedCards.take(targetCount) else seedCards
         }
-        val allPool = (seedCards + COLLECTIONS.flatMap { it.cards }).ifEmpty { seedCards }
+        val purePool = subjectPurePool(sourceId, seedCards)
         val result = ArrayList<SourcedCard>(targetCount)
-        result.addAll(seedCards)
-        val n = allPool.size
+        val seenFronts = HashSet<String>()
+        for (c in seedCards) {
+            if (seenFronts.add(c.spec.frontText)) {
+                result.add(c)
+            }
+        }
+        val n = purePool.size
         var step = 1
-        while (result.size < targetCount) {
-            val idxA = (step - 1) % n
-            var idxB = ((step - 1) / n + 1 + idxA) % n
-            if (idxA == idxB) idxB = (idxA + 1) % n
-            val baseA = allPool[idxA]
-            val baseB = allPool[idxB]
+        while (result.size < targetCount && step <= targetCount * 6) {
+            val baseA = purePool[(step - 1) % n]
             val itemNo = result.size + 1
+            val facetIdx = ((step - 1) / n) % 5
+            val cycleNo = ((step - 1) / (n * 5)) + 1
+            val stageSuffix = if (cycleNo > 1) " · 단계 $cycleNo" else ""
             val diffTag = when (itemNo % 3) {
                 1 -> "diff_lv1"
                 2 -> "diff_lv2"
@@ -664,17 +712,33 @@ object BuiltInCurriculumCatalog {
             }
             val cleanedTags = baseA.spec.tags.filterNot { it.startsWith("concept:") || it.startsWith("diff_") }
             val newConceptTag = "concept:${sourceId.replace(":", "_")}_fact_$itemNo"
-            val updatedFront = "📘 [심화 대조·변별] ${baseA.spec.frontText} (비교 개념: ${baseB.spec.frontText.take(28)})"
-            val updatedBack = "${baseA.spec.backText}\n(대조: ${baseB.spec.backText.lines().firstOrNull().orEmpty()})"
-            result.add(
-                baseA.copy(
-                    spec = baseA.spec.copy(
-                        frontText = updatedFront,
-                        backText = updatedBack,
-                        tags = cleanedTags + listOf(newConceptTag, diffTag, "full_scale_1000")
+            val baseFront = baseA.spec.frontText.trim()
+            val baseBack = baseA.spec.backText.trim()
+            val mainAns = baseBack.lineSequence().firstOrNull()?.trim().orEmpty().ifEmpty { baseBack }
+            val updatedFront = when (facetIdx) {
+                0 -> "🌱 [Lv.1$stageSuffix] $baseFront"
+                1 -> "📘 [Lv.2 빈칸$stageSuffix] $baseFront"
+                2 -> "🔥 [Lv.3 역방향$stageSuffix] $mainAns"
+                3 -> "🎯 [Lv.4 연어·적용$stageSuffix] $baseFront"
+                else -> "🛡️ [Lv.5 핵심 변별$stageSuffix] $baseFront"
+            }
+            val updatedBack = if (facetIdx == 2 && baseFront.length <= 36 && !baseFront.contains("{{c")) {
+                baseFront
+            } else {
+                baseBack
+            }
+            if (seenFronts.add(updatedFront)) {
+                result.add(
+                    baseA.copy(
+                        spec = baseA.spec.copy(
+                            noteType = if (updatedFront.contains("{{c")) "cloze" else "basic",
+                            frontText = updatedFront,
+                            backText = updatedBack,
+                            tags = cleanedTags + listOf(newConceptTag, diffTag, "full_scale_1000")
+                        )
                     )
                 )
-            )
+            }
             step += 1
         }
         return result

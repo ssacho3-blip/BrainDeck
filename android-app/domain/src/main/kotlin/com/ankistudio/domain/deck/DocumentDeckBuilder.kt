@@ -121,6 +121,162 @@ object DocumentDeckBuilder {
     private val TOKEN_RE = Regex("""[가-힣]{2,}|[a-z0-9]+(?:\.[0-9]+)?""")
     private val FALLBACK_NOUN_RE = Regex("""[A-Za-z][A-Za-z0-9\-]{3,18}|[가-힣]{2,10}""")
 
+    private val GENERIC_SECTION_LABELS = setOf(
+        "특징", "배경", "개요", "목적", "의의", "종류", "장점", "단점", "장단점",
+        "원인", "결과", "원인과 결과", "정의", "개념", "요약", "결론", "서론", "본론",
+        "구분", "내용", "핵심", "핵심 내용", "정리", "핵심 정리", "예시", "사례",
+        "비교", "차이", "차이점", "공통점", "효과", "기대 효과", "영향", "한계",
+        "문제점", "해결책", "대책", "방안", "절차", "과정", "순서", "방법", "원리",
+        "구조", "기능", "역할", "조건", "요건", "성립 요건", "주의", "참고", "비고",
+        "보충", "심화", "출처", "기타", "도입", "전개", "정착", "배경과 원인",
+        "주요 내용", "추진 배경", "발생 원인"
+    )
+
+    private val TOC_OUTLINE_SECTIONS = setOf(
+        "목차", "차례", "서론", "본론", "결론", "개요", "배경", "연구 배경",
+        "목적", "연구 목적", "의의", "필요성", "연구 방법", "결과", "고찰",
+        "결론 및 제언", "요약", "참고문헌", "참고 문헌", "부록", "머리말", "서문",
+        "맺음말", "문제 제기", "이론적 배경", "선행 연구", "기대 효과", "현황",
+        "과제", "전망", "찾아보기", "판권", "저작권",
+        "introduction", "background", "overview", "methodology", "methods",
+        "results", "discussion", "conclusion", "summary", "references",
+        "bibliography", "appendix", "table of contents", "contents", "index", "preface"
+    )
+
+    private val TOC_EXACT_TITLE_RE = Regex(
+        """^[\[<【《(]*\s*(?:목\s*차|차\s*례|table\s+of\s+contents|contents|index|찾아보기|참고\s*문헌|references|bibliography|부\s*록|appendix|머리말|서문|일러두기|판권|저작권|단원\s*요약|학습\s*목표|핵심\s*정리|생각해보기|연습\s*문제|확인\s*문제|출제\s*포인트)\s*[\]>】》)]*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val TOC_PREFIX_RE = Regex(
+        """^(?:목\s*차|차\s*례|table\s+of\s+contents|contents)\s*(?::|：|-|—|\d|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val TOC_LEADER_PAGE_RE = Regex(
+        """(?:\.{2,}|…+|·{2,}|•{2,}|-{2,}|─{2,}|_{2,}|\s{3,})\s*(?:p\.?\s*)?\d{1,4}\s*(?:쪽|페이지|p)?$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val TOC_NUMBERED_PAGE_END_RE = Regex(
+        """^(?:제\s*\d+\s*[장절편부관과단원]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+\.?|\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩])\s+[^\n]{1,55}?\s+(?:p\.?\s*\d{1,4}|\d{1,4}\s*(?:쪽|페이지|p))$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val STRUCTURAL_CHAPTER_HEADER_RE = Regex(
+        """^(?:제\s*\d+\s*(?:장|절|편|부|관|과|단원)|chapter\s+\d+|part\s+[0-9ivx]+|unit\s+\d+|lesson\s+\d+|section\s+\d+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)(?:\s|$|:)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val LIST_PREFIX_STRIP_RE = Regex(
+        """^(?:[\[<【《(]?\s*(?:제\s*\d+\s*[장절편부관과단원]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+|\d+(?:\.\d+)*|[가-하]|[A-Za-z])\s*[\]>】》).:：\-])\s*)+"""
+    )
+    private val FACTUAL_PREDICATE_RE = Regex(
+        """(?:이다|입니다|한다|된다|있다|없다|말한다|뜻한다|의미한다|가리킨다|정의된다|구성된다|분류된다|나뉜다|발생한다|일어난다|작용한다|억제한다|촉진한다|유발한다|소멸한다|규정한다|보장한다|제한한다|위반한다|합성하는|전환하는|교환하는|수행하는|is\s+defined\s+as|refers\s+to|means|leads\s+to|results\s+in|causes|consists\s+of|->|→)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun hasFactualPredicate(text: String): Boolean = FACTUAL_PREDICATE_RE.containsMatchIn(text)
+
+    private fun normalizeLabelCore(rawLabel: String): String {
+        val trimChars = charArrayOf(' ', ':', '：', '-', '–', '—', '[', ']', '<', '>', '【', '】', '《', '》', '(', ')', '"', '\'')
+        val cleaned = cleanLine(rawLabel).trim(*trimChars)
+        val stripped = LIST_PREFIX_STRIP_RE.replace(cleaned, "").trim(*trimChars)
+        return stripped.ifEmpty { cleaned }
+    }
+
+    fun isGenericSectionLabel(rawLabel: String): Boolean {
+        val rawClean = cleanLine(rawLabel)
+        if (rawClean.isEmpty() || rawClean.length > 28) return false
+        val core = normalizeLabelCore(rawClean).lowercase()
+        if (core.isEmpty()) return true
+        if (core in GENERIC_SECTION_LABELS || core in TOC_OUTLINE_SECTIONS) return true
+        if (Regex("""^(?:제?\s*\d+\s*[장절편부관과단원]|파트\s*\d+|단계\s*\d+|유형\s*\d+|특징\s*\d+|원인\s*\d+|목적\s*\d+|내용\s*\d+|배경\s*\d+|의의\s*\d+)$""").matches(core)) {
+            return true
+        }
+        return false
+    }
+
+    fun isTocOrStructuralHeading(text: String, kind: String = "paragraph"): Boolean {
+        val cleaned = cleanLine(text)
+        if (cleaned.length < 2) return true
+        val stripped = cleaned.trimStart('#', '*', '•', '-', ' ').trim()
+        if (stripped.isEmpty()) return true
+
+        if (TOC_EXACT_TITLE_RE.matches(stripped) || TOC_PREFIX_RE.containsMatchIn(stripped)) return true
+        if (TOC_LEADER_PAGE_RE.containsMatchIn(stripped) || TOC_NUMBERED_PAGE_END_RE.matches(stripped)) return true
+
+        if (":" !in stripped && "：" !in stripped && "->" !in stripped && "→" !in stripped) {
+            if (isGenericSectionLabel(stripped)) return true
+        }
+
+        if (STRUCTURAL_CHAPTER_HEADER_RE.containsMatchIn(stripped)) {
+            if (!hasFactualPredicate(stripped)) return true
+            if (":" in stripped || "：" in stripped) {
+                val rhs = stripped.split(Regex("[:：]"), limit = 2).last().trim()
+                if (rhs.length < 12 && !hasFactualPredicate(rhs)) return true
+            }
+        }
+
+        val numberedItems = NUMBERED_ITEM_RE.findAll(stripped)
+            .map { it.groupValues[1].trim(' ', ',', '.', ';', ':') }
+            .filter { it.length >= 2 }
+            .toList()
+        if (numberedItems.size >= 2) {
+            val tocHits = numberedItems.count { it ->
+                val core = normalizeLabelCore(it).lowercase()
+                core in TOC_OUTLINE_SECTIONS || core in GENERIC_SECTION_LABELS || TOC_LEADER_PAGE_RE.containsMatchIn(it)
+            }
+            if (tocHits >= 2 && tocHits * 2 >= numberedItems.size) return true
+        }
+
+        if (kind == "heading" && !hasFactualPredicate(stripped)) return true
+
+        if (!hasFactualPredicate(stripped) && ":" !in stripped && "：" !in stripped && "->" !in stripped && "→" !in stripped) {
+            if (stripped.length <= 28 && Regex("""^(?:\d+(?:\.\d+)*\.?|\(\d+\)|[①②③④⑤⑥⑦⑧⑨⑩]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?|[가-하]\.)\s+\S+""").containsMatchIn(stripped)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun maskTermInDesc(desc: String, term: String): String {
+        val d = desc.trim()
+        val t = term.trim()
+        if (d.isEmpty() || t.isEmpty()) return d
+        val candidates = mutableListOf(t)
+        val baseTerm = t.replace(Regex("""\s*\([^)]*\)\s*"""), "").trim()
+        if (baseTerm.length >= 2 && baseTerm !in candidates) {
+            candidates.add(baseTerm)
+        }
+        var masked = d
+        for (cand in candidates) {
+            if (cand.length >= 2) {
+                masked = masked.replace(Regex(Regex.escape(cand), RegexOption.IGNORE_CASE), "[ ___ ]")
+            }
+        }
+        return masked
+    }
+
+    private val VERB_ENDINGS_RE = Regex(
+        """(이다|입니다|한다|된다|있다|없다|말한다|뜻한다|의미한다|가리킨다|정의된다|하는|되는|있는|없는|하여|하고|하며|이고|이나|에서|으로|에게|까지|부터)$"""
+    )
+    private val PARTICLE_STRIP_RE = Regex(
+        """(에서는|으로서|으로써|으로부터|에게는|이란|란|에서|으로|에게|보다|처럼|까지|부터|은|는|이|가|을|를|의|에|로|와|과|도|만)$"""
+    )
+
+    private fun extractNounCandidates(text: String): List<String> {
+        val rawTokens = FALLBACK_NOUN_RE.findAll(text).map { it.value }.toList()
+        val cleanedList = mutableListOf<String>()
+        for (tok in rawTokens) {
+            if (VERB_ENDINGS_RE.containsMatchIn(tok)) continue
+            val stem = PARTICLE_STRIP_RE.replace(tok, "").trim()
+            if (stem.length < 2) continue
+            if (stem.lowercase() in STOPWORDS) continue
+            if (isGenericSectionLabel(stem)) continue
+            if (VERB_ENDINGS_RE.containsMatchIn(stem)) continue
+            if (stem !in cleanedList) {
+                cleanedList.add(stem)
+            }
+        }
+        return cleanedList
+    }
+
     private fun cleanLine(text: String): String {
         var norm = Normalizer.normalize(text, Normalizer.Form.NFKC)
         norm = norm.replace(Regex("""([A-Za-z])-\s*\n\s*([A-Za-z])"""), "$1$2")
@@ -172,7 +328,13 @@ object DocumentDeckBuilder {
         for (b in doc.blocks) {
             if (b.kind == "heading") {
                 val cleaned = cleanLine(b.text).trimStart('#', '*', '•', '-', ' ').trim()
-                if (cleaned.length >= 2) return cleaned.take(80)
+                if (cleaned.length >= 2 &&
+                    !TOC_EXACT_TITLE_RE.matches(cleaned) &&
+                    !TOC_PREFIX_RE.containsMatchIn(cleaned) &&
+                    !isGenericSectionLabel(cleaned)
+                ) {
+                    return cleaned.take(80)
+                }
             }
         }
 
@@ -183,7 +345,7 @@ object DocumentDeckBuilder {
             if (b.confidence != null && b.confidence < 0.60) continue
             for (m in wordRe.findAll(b.text)) {
                 val wClean = m.value.replace(suffixRe, "")
-                if (wClean.length >= 2 && wClean.lowercase() !in STOPWORDS) {
+                if (wClean.length >= 2 && wClean.lowercase() !in STOPWORDS && !isGenericSectionLabel(wClean)) {
                     counts[wClean] = (counts[wClean] ?: 0) + 1
                 }
             }
@@ -339,13 +501,79 @@ object DocumentDeckBuilder {
         return candidates.maxByOrNull { scoreCandidate(it) } ?: candidates.first()
     }
 
+    private fun synthesizeContentKeywordCards(
+        contentText: String,
+        block: DocumentBlock,
+        category: String,
+        difficultyLevel: String,
+        baseTags: List<String>,
+        excerpt: String,
+        headingContext: String = ""
+    ): List<SourcedCard> {
+        val candidates = extractNounCandidates(contentText)
+        if (candidates.isEmpty() || contentText.length < 10) return emptyList()
+        val target = selectSemanticHingeToken(candidates, contentText, category)
+        if (target.isEmpty() || target !in contentText) return emptyList()
+
+        val topicPrefix = if (headingContext.isNotBlank() && headingContext !in contentText) "[$headingContext] " else ""
+        val clozeSentence = topicPrefix + contentText.replaceFirst(target, "{{c1::$target::핵심 키워드}}")
+        val maskedDesc = topicPrefix + contentText.replace(target, "[ ___ ]")
+        val diff = difficultyLevel.trim().lowercase()
+
+        val lv1 = SourcedCard(
+            spec = GeneratedCardSpec(
+                noteType = "basic",
+                frontText = "🌱 [Lv.1 개념 확인] $maskedDesc",
+                backText = "$target\n\n💡 해설: $excerpt",
+                tags = baseTags + "diff_lv1",
+                rationale = "p.${block.page} 내용 기반 핵심 키워드 확인"
+            ),
+            pattern = "definition",
+            sourcePage = block.page,
+            sourceExcerpt = excerpt
+        )
+        val lv2 = SourcedCard(
+            spec = GeneratedCardSpec(
+                noteType = "cloze",
+                frontText = clozeSentence,
+                backText = "$target\n\n💡 해설: $excerpt",
+                tags = baseTags + "diff_lv2",
+                rationale = "p.${block.page} 문맥 빈칸 Cloze"
+            ),
+            pattern = "definition",
+            sourcePage = block.page,
+            sourceExcerpt = excerpt
+        )
+        val lv3 = SourcedCard(
+            spec = GeneratedCardSpec(
+                noteType = "basic",
+                frontText = "🔥 [Lv.3 용어 인출] $maskedDesc",
+                backText = "$target\n\n💡 해설: $excerpt",
+                tags = baseTags + "diff_lv3",
+                rationale = "p.${block.page} 내용 기반 핵심 용어 산출"
+            ),
+            pattern = "definition",
+            sourcePage = block.page,
+            sourceExcerpt = excerpt
+        )
+        return when (diff) {
+            "lv1" -> listOf(lv1)
+            "lv2" -> listOf(lv2)
+            "lv3" -> listOf(lv3)
+            "mixed", "all" -> listOf(lv1, lv2, lv3)
+            else -> listOf(lv2.copy(spec = lv2.spec.copy(tags = baseTags)))
+        }
+    }
+
     private fun synthesizeCardsFromBlock(
         block: DocumentBlock,
         category: String,
-        difficultyLevel: String = "standard"
+        difficultyLevel: String = "standard",
+        headingContext: String = ""
     ): List<SourcedCard> {
         val text = cleanLine(block.text)
         if (text.length < 8) return emptyList()
+        if (isTocOrStructuralHeading(text, block.kind)) return emptyList()
 
         val excerpt = text.take(140)
         val pattern = classifyBlockPattern(text)
@@ -354,13 +582,15 @@ object DocumentDeckBuilder {
         val baseTags = listOf("auto-deck", category, pattern, "p${block.page}", conceptTag)
 
         fun expandTermDefCards(term: String, desc: String, stdFront: String, stdBack: String, pat: String = "definition"): List<SourcedCard> {
+            val safeDesc = maskTermInDesc(desc, term)
+            val conciseBack = "$term\n\n💡 해설: $desc"
             val lv1 = SourcedCard(
                 spec = GeneratedCardSpec(
                     noteType = "basic",
-                    frontText = "🌱 [Lv.1 기초 개념] '$term'의 핵심 정의·의미는 무엇인가?",
-                    backText = desc,
+                    frontText = "🌱 [Lv.1 개념 확인] $safeDesc",
+                    backText = conciseBack,
                     tags = baseTags + "diff_lv1",
-                    rationale = "p.${block.page} Lv.1 기초 개념 인지"
+                    rationale = "p.${block.page} Lv.1 내용·정의 기반 핵심 개념 확인"
                 ),
                 pattern = pat,
                 sourcePage = block.page,
@@ -381,8 +611,8 @@ object DocumentDeckBuilder {
             val lv3 = SourcedCard(
                 spec = GeneratedCardSpec(
                     noteType = "basic",
-                    frontText = "🔥 [Lv.3 심화 역방향 인출] 다음 설명에 해당하는 정확한 핵심 개념(용어)을 쓰시오.\n\"$desc\"",
-                    backText = "$term\n💡 해설: $desc",
+                    frontText = "🔥 [Lv.3 용어 인출] $safeDesc",
+                    backText = conciseBack,
                     tags = baseTags + "diff_lv3",
                     rationale = "p.${block.page} Lv.3 역방향 능동 산출"
                 ),
@@ -408,7 +638,7 @@ object DocumentDeckBuilder {
                     SourcedCard(
                         spec = GeneratedCardSpec(
                             noteType = "speaking",
-                            frontText = "🗣️ [어학·표현 인출] $srcPhrase",
+                            frontText = "🗣️ [어학·표현] $srcPhrase",
                             backText = dstPhrase,
                             tags = baseTags,
                             rationale = "p.${block.page} 어학 표현 쌍 자동 추출"
@@ -427,17 +657,20 @@ object DocumentDeckBuilder {
                 .filter { it.length >= 2 }
                 .toList()
             if (items.size >= 2) {
+                val tocHits = items.count { isGenericSectionLabel(it) || TOC_LEADER_PAGE_RE.containsMatchIn(it) }
+                if (tocHits >= 2 && tocHits * 2 >= items.size) return emptyList()
                 val clozeParts = items.mapIndexed { idx, item ->
                     if (idx < 3) "(${idx + 1}) {{c${idx + 1}::$item}}" else "(${idx + 1}) $item"
                 }
-                val headerPrefix = text.split("1")[0].split("①")[0].split("(1)")[0].trim(' ', ':', '：', '-')
-                val titlePrefix = if (headerPrefix.length >= 2) "[$headerPrefix] " else "[핵심 항목 열거] "
+                val rawHeader = text.split("1")[0].split("①")[0].split("(1)")[0].trim(' ', ':', '：', '-')
+                val headerPrefix = if (isGenericSectionLabel(rawHeader)) headingContext else rawHeader
+                val titlePrefix = if (headerPrefix.length >= 2) "[$headerPrefix] " else "[핵심 항목] "
                 return listOf(
                     SourcedCard(
                         spec = GeneratedCardSpec(
                             noteType = "cloze",
                             frontText = titlePrefix + clozeParts.joinToString(" / "),
-                            backText = "전체 항목 (${items.size}개): " + items.joinToString(" · "),
+                            backText = items.joinToString(" · ") + "\n\n💡 해설: $excerpt",
                             tags = baseTags,
                             rationale = "p.${block.page} 번호 목록 ${items.size}개 항목 열거 Cloze"
                         ),
@@ -454,15 +687,18 @@ object DocumentDeckBuilder {
             val numM = NUMERIC_UNIT_RE.find(text)
             var clozeText = text
             var ordinal = 1
+            val targets = mutableListOf<String>()
             if (statM != null) {
                 val target = statM.groupValues[1]
                 clozeText = clozeText.replaceFirst(target, "{{c$ordinal::$target::조문}}")
+                targets.add(target)
                 ordinal += 1
             }
             if (numM != null) {
                 val numTarget = numM.groupValues[1]
                 if (clozeText.contains(numTarget)) {
                     clozeText = clozeText.replaceFirst(numTarget, "{{c$ordinal::$numTarget::수치·단위}}")
+                    targets.add(numTarget)
                     ordinal += 1
                 }
             }
@@ -472,7 +708,7 @@ object DocumentDeckBuilder {
                         spec = GeneratedCardSpec(
                             noteType = "cloze",
                             frontText = clozeText,
-                            backText = "출처 원문 (p.${block.page}): $excerpt",
+                            backText = targets.joinToString(" · ") + "\n\n💡 해설: $excerpt",
                             tags = baseTags,
                             rationale = "p.${block.page} 조문·핵심 수치/단위 빈칸 Cloze"
                         ),
@@ -487,19 +723,32 @@ object DocumentDeckBuilder {
         COLON_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}: $desc", "$term — $desc")
+            if (isTocOrStructuralHeading(desc, "paragraph")) return emptyList()
+            if (isGenericSectionLabel(term)) {
+                return synthesizeContentKeywordCards(desc, block, category, difficultyLevel, baseTags, excerpt, headingContext)
+            }
+            val safeDesc = maskTermInDesc(desc, term)
+            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}: $safeDesc", "$term\n\n💡 해설: $desc")
         }
 
         KOREAN_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}은(는) $desc", "$term: $desc")
+            if (isGenericSectionLabel(term)) {
+                return synthesizeContentKeywordCards(desc, block, category, difficultyLevel, baseTags, excerpt, headingContext)
+            }
+            val safeDesc = maskTermInDesc(desc, term)
+            return expandTermDefCards(term, desc, "{{c1::$term::핵심 개념}}은(는) $safeDesc", "$term\n\n💡 해설: $desc")
         }
 
         ENGLISH_DEF_RE.matchEntire(text)?.let { m ->
             val term = m.groupValues[1].trim()
             val desc = m.groupValues[2].trim()
-            return expandTermDefCards(term, desc, "{{c1::$term::Concept}} is defined as $desc", "$term: $desc")
+            if (isGenericSectionLabel(term)) {
+                return synthesizeContentKeywordCards(desc, block, category, difficultyLevel, baseTags, excerpt, headingContext)
+            }
+            val safeDesc = maskTermInDesc(desc, term)
+            return expandTermDefCards(term, desc, "{{c1::$term::Concept}} is defined as $safeDesc", "$term\n\n💡 해설: $desc")
         }
 
         CAUSAL_COMPARE_RE.find(text)?.let { m ->
@@ -510,8 +759,8 @@ object DocumentDeckBuilder {
                 SourcedCard(
                     spec = GeneratedCardSpec(
                         noteType = "basic",
-                        frontText = "❓ [인과·비교 핵심] $lhs ($conn) 뒤에 이어지는 핵심 결과·대조 내용은?",
-                        backText = rhs,
+                        frontText = "❓ [인과·비교] $lhs ($conn) ➔ ?",
+                        backText = "$rhs\n\n💡 해설: $excerpt",
                         tags = baseTags,
                         rationale = "p.${block.page} 인과·비교($conn) Q&A"
                     ),
@@ -524,16 +773,8 @@ object DocumentDeckBuilder {
 
         // Fallback for general informative sentence: mask the highest semantic-hinge domain noun/keyword
         if (block.kind == "heading") return emptyList()
-        val candidates = FALLBACK_NOUN_RE.findAll(text).map { it.value }.filter { it.lowercase() !in STOPWORDS }.toList()
-        if (candidates.isNotEmpty() && text.length >= 18) {
-            val target = selectSemanticHingeToken(candidates, text, category)
-            val clozeSentence = text.replaceFirst(target, "{{c1::$target::핵심 키워드}}")
-            return expandTermDefCards(
-                term = target,
-                desc = excerpt.replace(target, "[ ___ ]"),
-                stdFront = clozeSentence,
-                stdBack = "$target\n💡 해설: $excerpt (p.${block.page})"
-            )
+        if (text.length >= 16) {
+            return synthesizeContentKeywordCards(text, block, category, difficultyLevel, baseTags, excerpt, headingContext)
         }
 
         return emptyList()
@@ -612,15 +853,40 @@ object DocumentDeckBuilder {
         }
 
         val rawCandidates = mutableListOf<SourcedCard>()
+        var activeHeadingTopic = ""
+
+        fun updateHeadingTopic(candidateLine: String) {
+            val cleanedH = cleanLine(candidateLine).trimStart('#', '*', '•', '-', ' ').trim()
+            if (cleanedH.isEmpty()) return
+            if (TOC_EXACT_TITLE_RE.matches(cleanedH) ||
+                TOC_PREFIX_RE.containsMatchIn(cleanedH) ||
+                TOC_LEADER_PAGE_RE.containsMatchIn(cleanedH) ||
+                TOC_NUMBERED_PAGE_END_RE.matches(cleanedH)
+            ) {
+                return
+            }
+            val topic = cleanedH.trim(' ', '[', ']', '<', '>', '《', '》', '「', '」', '『', '』')
+            if (topic.length in 2..45 && !isGenericSectionLabel(topic)) {
+                activeHeadingTopic = topic
+            }
+        }
+
         for (block in cleanedBlocks) {
+            if (block.kind == "heading" || isTocOrStructuralHeading(block.text, block.kind)) {
+                updateHeadingTopic(block.text)
+            }
             val lines = block.text.lines().map { it.trim() }.filter { it.isNotEmpty() }
-            if (lines.size > 1 && lines.any { COLON_DEF_RE.matches(it) || ARROW_PAIR_RE.matches(it) }) {
+            if (lines.size > 1 && lines.any { COLON_DEF_RE.matches(it) || ARROW_PAIR_RE.matches(it) || isTocOrStructuralHeading(it, "paragraph") }) {
                 for (ln in lines) {
-                    val subBlock = block.copy(text = ln)
-                    rawCandidates.addAll(synthesizeCardsFromBlock(subBlock, category, difficultyLevel))
+                    if (isTocOrStructuralHeading(ln, "paragraph")) {
+                        updateHeadingTopic(ln)
+                        continue
+                    }
+                    val subBlock = block.copy(kind = if (block.kind == "heading") "paragraph" else block.kind, text = ln)
+                    rawCandidates.addAll(synthesizeCardsFromBlock(subBlock, category, difficultyLevel, activeHeadingTopic))
                 }
             } else {
-                rawCandidates.addAll(synthesizeCardsFromBlock(block, category, difficultyLevel))
+                rawCandidates.addAll(synthesizeCardsFromBlock(block, category, difficultyLevel, activeHeadingTopic))
             }
         }
 

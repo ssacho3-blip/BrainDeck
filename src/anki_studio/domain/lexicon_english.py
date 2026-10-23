@@ -288,17 +288,74 @@ leisure:여가, 자유 시간|lenient:관대한, 너그러운|lethal:치명적�
 """
 
 
+_CONTEXT_TEMPLATES_NOUN_ACADEMIC: Tuple[Tuple[str, str], ...] = (
+    ("Researchers analyzed the role of [ {w} ] in shaping modern society.", "학술·사회 문맥 핵심 명사"),
+    ("A clear understanding of [ {w} ] is essential for solving this problem.", "독해 지문 주제·핵심 개념어"),
+    ("The committee discussed the long-term impact of [ {w} ] on the community.", "정책·공동체 담론 빈출 명사"),
+    ("Recent studies highlight the importance of [ {w} ] in human development.", "실험·연구 요약문 핵심 명사"),
+    ("Without sufficient [ {w} ], the project could not achieve its goal.", "조건·인과 구문 핵심 명사"),
+    ("The author emphasizes that [ {w} ] is a key factor in critical thinking.", "논설문·비평 지문 핵심 어휘"),
+)
+
+_CONTEXT_TEMPLATES_NOUN_GENERAL: Tuple[Tuple[str, str], ...] = (
+    ("Every student should pay close attention to [ {w} ] during the lesson.", "학교·일상 생활 필수 명사"),
+    ("We learned practical facts about [ {w} ] in today's class.", "교과서 본문 핵심 소재 명사"),
+    ("Having a reliable [ {w} ] makes daily tasks much easier and safer.", "실용 회화·생활 밀착 명사"),
+    ("They shared interesting stories about [ {w} ] with their neighbors.", "스토리텔링·대화문 빈출 명사"),
+    ("Please check the details regarding [ {w} ] before making a decision.", "안내문·실용문 필수 명사"),
+    ("She found a creative way to use [ {w} ] for her science project.", "탐구·과제 수행 핵심 어휘"),
+)
+
+_CONTEXT_TEMPLATES_ADJ: Tuple[Tuple[str, str], ...] = (
+    ("The team proposed a very [ {w} ] approach to overcome the challenge.", "성격·태도·방법 수식 형용사"),
+    ("Scientists observed a [ {w} ] change in the experimental results.", "결과·변화 양상 묘사 형용사"),
+    ("It is [ {w} ] for learners to review core concepts regularly.", "필수·중요성 판단 서술 형용사"),
+    ("She remained [ {w} ] and focused even under tight deadlines.", "인물의 심리·상태 묘사 형용사"),
+    ("Living in a [ {w} ] environment helps people stay healthy and active.", "환경·조건 특성 수식 형용사"),
+    ("The speaker presented a [ {w} ] argument supported by clear data.", "논증·주장의 타당성 수식 형용사"),
+)
+
+_CONTEXT_TEMPLATES_ADV: Tuple[Tuple[str, str], ...] = (
+    ("The system responds [ {w} ] whenever new data is entered.", "동작·반응 양태 수식 부사"),
+    ("She explained the complex formula [ {w} ] so everyone could understand.", "설명·표현 방식 수식 부사"),
+    ("Technology has [ {w} ] transformed the way we communicate today.", "변화의 정도·범위 강조 부사"),
+    ("Please read the safety instructions [ {w} ] before starting the experiment.", "주의·당부문 핵심 부사"),
+)
+
+_CONTEXT_TEMPLATES_VERB_PHRASE: Tuple[Tuple[str, str], ...] = (
+    ("Successful learners know how to [ {w} ] when facing unfamiliar problems.", "문제 해결·실천 핵심 숙어/표현"),
+    ("We need to [ {w} ] in order to achieve sustainable progress.", "목표 달성·협력 필수 연어(Collocation)"),
+    ("In daily conversation, people often use '[ {w} ]' to express this idea clearly.", "회화·독해 빈출 핵심 구문"),
+    ("The guidelines advise all participants to [ {w} ] throughout the session.", "규칙·절차 안내 필수 표현"),
+)
+
+_CONTEXT_TEMPLATES_CORE_VERB_OR_WORD: Tuple[Tuple[str, str], ...] = (
+    ("Students are encouraged to [ {w} ] new ideas through active discussion.", "능동적 사고·행동 핵심 어휘"),
+    ("How we [ {w} ] this issue will determine our future success.", "의사결정·주제문 핵심 어휘"),
+    ("Experts often [ {w} ] multiple sources of evidence before drawing conclusions.", "분석·검증 과정 필수 어휘"),
+    ("Good habits help you [ {w} ] your goals step by step every day.", "자기관리·성장 문맥 핵심 어휘"),
+    ("The passage explains why people [ {w} ] differently in various cultures.", "문화·행동 비교 지문 필수 어휘"),
+    ("To [ {w} ] effectively, you should focus on the main context first.", "학습·전략 지문 핵심 동사/표제어"),
+)
+
+
 @lru_cache(maxsize=1)
 def get_authentic_english_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
-    """Return 1,280+ distinct (word, meaning_ko, context_cloze, tip) English entries."""
+    """Return 1,280+ distinct (word, meaning_ko, context_sentence_no_spoiler, tip) English entries.
+
+    Quality Invariants:
+    - Front context (`ctx`) NEVER contains the Korean target meaning `m` (zero front spoiler).
+    - Front context (`ctx`) NEVER contains raw Anki `{{c1::...}}` syntax on basic cards.
+    - Every entry has a natural English sentence and a structured Korean POS/usage tip.
+    """
     items: List[Tuple[str, str, str, str]] = []
     seen = set()
 
     for tier_idx, raw_block in enumerate((_RAW_ELEM_WORDS, _RAW_MID_WORDS, _RAW_HIGH_CSAT_WORDS)):
         level_label = (
-            "초등 필수 핵심 어휘"
+            "초등 교육부 필수 어휘"
             if tier_idx == 0
-            else "중학 내신 필수 핵심 어휘"
+            else "중학 내신 핵심 어휘"
             if tier_idx == 1
             else "고교·수능·공인시험 필수 학술 어휘"
         )
@@ -313,17 +370,26 @@ def get_authentic_english_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
                 if not w or not m or w.startswith("404_") or w.lower() in seen:
                     continue
                 seen.add(w.lower())
-                if w.endswith(("tion", "sion", "ment", "ness", "ity", "ance", "ence", "ism", "ship", "ology")):
-                    ctx = f"Understanding the concept of {{{{c1::{w}::{m}}}}} is essential in this passage."
-                    pos_tip = f"{level_label} · 명사형 파생·핵심 개념어 ({w}: {m})"
-                elif w.endswith(("ous", "ive", "al", "ful", "less", "able", "ible", "ic", "ant", "ent", "ary")):
-                    ctx = f"The researchers observed a very {{{{c1::{w}::{m}}}}} pattern in the study."
-                    pos_tip = f"{level_label} · 형용사 핵심 수식어 ({w}: {m})"
-                elif " " in w:
-                    ctx = f"Key expression: {{{{c1::{w}::{m}}}}} in daily and academic communication."
-                    pos_tip = f"{level_label} · 필수 숙어·핵심 표현 ({w}: {m})"
+                idx_seed = len(items)
+                w_low = w.lower()
+
+                if " " in w_low:
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_VERB_PHRASE[idx_seed % len(_CONTEXT_TEMPLATES_VERB_PHRASE)]
+                elif w_low.endswith("ly") and len(w_low) > 4 and not w_low.endswith(("family", "supply", "apply", "reply", "rely", "ally", "bully", "belly", "jelly", "holly", "lily", "rally", "tally", "folly", "monopoly", "assembly", "anomaly")):
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_ADV[idx_seed % len(_CONTEXT_TEMPLATES_ADV)]
+                elif w_low.endswith(("tion", "sion", "ment", "ness", "ity", "ance", "ence", "ism", "ship", "ology", "tude", "cy")):
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_NOUN_ACADEMIC[idx_seed % len(_CONTEXT_TEMPLATES_NOUN_ACADEMIC)]
+                elif w_low.endswith(("ous", "ive", "al", "ful", "less", "able", "ible", "ic", "ant", "ent", "ary", "ish", "y")) or m.endswith(("한", "적인", "있는", "없는", "로운", "스런", "운", "은", "른")):
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_ADJ[idx_seed % len(_CONTEXT_TEMPLATES_ADJ)]
+                elif m.endswith(("다", "하다", "되다", "시키다", "주다", "받다", "치다", "내다", "세우다")):
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_CORE_VERB_OR_WORD[idx_seed % len(_CONTEXT_TEMPLATES_CORE_VERB_OR_WORD)]
+                elif tier_idx >= 2:
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_NOUN_ACADEMIC[idx_seed % len(_CONTEXT_TEMPLATES_NOUN_ACADEMIC)]
                 else:
-                    ctx = f"Core vocabulary in context: {{{{c1::{w}::{m}}}}} — key meaning: '{m}'."
-                    pos_tip = f"{level_label} · 대표 표제어 ({w}: {m})"
+                    tpl, role_lbl = _CONTEXT_TEMPLATES_NOUN_GENERAL[idx_seed % len(_CONTEXT_TEMPLATES_NOUN_GENERAL)]
+
+                ctx_sentence = tpl.format(w=w)
+                ctx = f"\"{ctx_sentence}\""
+                pos_tip = f"{role_lbl} · {level_label}"
                 items.append((w, m, ctx, pos_tip))
     return tuple(items)

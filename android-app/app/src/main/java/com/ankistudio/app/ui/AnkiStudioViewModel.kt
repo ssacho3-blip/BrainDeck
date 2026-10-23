@@ -21,6 +21,8 @@ import com.ankistudio.domain.deck.DocumentDeckBuilder.SourcedCard
 import com.ankistudio.domain.fsrs.Fsrs5Engine
 import com.ankistudio.domain.fsrs.Fsrs5Engine.CardMemoryState
 import com.ankistudio.domain.fsrs.Fsrs5Engine.Rating
+import com.ankistudio.domain.planner.AnkiStudyPlan
+import com.ankistudio.domain.planner.AnkiStudyPlannerEngine
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedAnswerEvaluation
 import com.ankistudio.domain.quiz.AdaptiveQuizEngine.TypedUnderstandingVerdict
@@ -71,6 +73,10 @@ data class AnkiStudioUiState(
     val selectedStoreCategory: String = "all",
     val previewPlan: DeckPlan? = null,
     val previewFilename: String = "",
+    val targetDays: Int = 30,
+    val dailyNewLimit: Int = 35,
+    val newStudiedToday: Int = 0,
+    val studyPlan: AnkiStudyPlan? = null,
     val statusBannerMessage: String? = null,
     val isErrorBanner: Boolean = false
 )
@@ -199,7 +205,7 @@ class AnkiStudioViewModel(
         } else {
             baseFiltered
         }
-        return if (filterMode != "wrong_only" && interleaved.size > 1) {
+        val deduped = if (filterMode != "wrong_only" && interleaved.size > 1) {
             AdaptiveQuizEngine.deduplicateSessionSiblings(
                 items = interleaved,
                 tagsSelector = { row ->
@@ -211,6 +217,58 @@ class AnkiStudioViewModel(
         } else {
             interleaved
         }
+        if (filterMode != "all") return deduped
+        val st = _uiState.value
+        val remainingNew = max(0, st.dailyNewLimit - st.newStudiedToday)
+        var newTaken = 0
+        return deduped.filter { row ->
+            if (row.state.equals("new", ignoreCase = true)) {
+                if (newTaken < remainingNew) {
+                    newTaken += 1
+                    true
+                } else {
+                    false
+                }
+            } else {
+                true
+            }
+        }
+    }
+
+    fun applyStudyPlan(targetDays: Int, customDailyNew: Int? = null) {
+        _uiState.update { st ->
+            val safeDays = targetDays.coerceIn(3, 365)
+            val totalCards = st.rawDueCards.size.coerceAtLeast(1000)
+            val newCount = st.rawDueCards.count { it.state.equals("new", ignoreCase = true) }.coerceAtLeast(1)
+            val plan = AnkiStudyPlannerEngine.computeStudyPlan(
+                totalCards = totalCards,
+                newCount = newCount,
+                targetDays = safeDays
+            )
+            val nextDailyNew = (customDailyNew ?: plan.recommendedDailyNew).coerceIn(5, 300)
+            val nextSt = st.copy(
+                targetDays = safeDays,
+                dailyNewLimit = nextDailyNew,
+                studyPlan = plan,
+                statusBannerMessage = "📅 D-$safeDays 학습 계획 적용 완료! 하루 새 카드 ${nextDailyNew}장씩(평균 ${plan.avgDailyMinutes}분/일) 맞춤 출제됩니다.",
+                isErrorBanner = false
+            )
+            nextSt
+        }
+        refreshWorkspace(deckId = _uiState.value.selectedDeckId)
+    }
+
+    fun increaseDailyNewQuota(extraNew: Int = 15) {
+        val boost = extraNew.coerceIn(5, 100)
+        _uiState.update { st ->
+            val nextLimit = st.dailyNewLimit + boost
+            st.copy(
+                dailyNewLimit = nextLimit,
+                statusBannerMessage = "➕ 오늘의 새 카드 할당량이 +${boost}장 추가되었습니다! (일일 목표 ${nextLimit}장)",
+                isErrorBanner = false
+            )
+        }
+        refreshWorkspace(deckId = _uiState.value.selectedDeckId)
     }
 
     fun toggleInterleavedShuffle() {
@@ -597,6 +655,17 @@ class AnkiStudioViewModel(
             }
             val rawDue = dao.getDueCards(nowEpochSec = nowSec, deckId = deckId)
             _uiState.update { st ->
+                val totalCards = rawDue.size.coerceAtLeast(1)
+                val newCount = rawDue.count { it.state.equals("new", ignoreCase = true) }
+                val learnCount = rawDue.count { it.state.equals("learning", ignoreCase = true) || it.state.equals("relearning", ignoreCase = true) }
+                val revCount = rawDue.count { it.state.equals("review", ignoreCase = true) }
+                val plan = AnkiStudyPlannerEngine.computeStudyPlan(
+                    totalCards = totalCards,
+                    newCount = newCount,
+                    learningCount = learnCount,
+                    reviewDueCount = revCount,
+                    targetDays = st.targetDays
+                )
                 val filtered = resolveEffectiveDueCards(
                     rawDue = rawDue,
                     filterMode = st.studyFilterMode,
@@ -611,6 +680,7 @@ class AnkiStudioViewModel(
                     decks = decks,
                     rawDueCards = rawDue,
                     dueCards = filtered,
+                    studyPlan = plan,
                     isAnswerRevealed = false,
                     typedAnswerInput = "",
                     typedEvaluation = null,
@@ -1280,8 +1350,10 @@ class AnkiStudioViewModel(
                     }
                     else -> st.sessionWrongCards
                 }
+                val incNewToday = if (currentCard.state.equals("new", ignoreCase = true)) 1 else 0
                 st.copy(
                     sessionWrongCards = updatedWrong,
+                    newStudiedToday = st.newStudiedToday + incNewToday,
                     statusBannerMessage = null,
                     isErrorBanner = false
                 )

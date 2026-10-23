@@ -442,3 +442,208 @@ def test_short_factual_statute_line_is_synthesized_not_skipped_as_heading() -> N
     assert len(plan.cards) == 2
     assert any("제12조" in c.spec.front_text and "30일 이내" in c.spec.front_text for c in plan.cards)
 
+
+@pytest.mark.parametrize(
+    ("line_text", "kind", "expected_is_toc_or_heading"),
+    [
+        ("목차", "heading", True),
+        ("차례", "paragraph", True),
+        ("Table of Contents", "heading", True),
+        ("[단원 요약]", "paragraph", True),
+        ("[학습 목표]", "paragraph", True),
+        ("1. 서론 ..... 3", "paragraph", True),
+        ("Ⅰ. 연구 배경 ─── 12쪽", "paragraph", True),
+        ("제1장 총칙 ····· p.5", "paragraph", True),
+        ("2. 이론적 배경     14p", "paragraph", True),
+        ("1. 서론 2. 본론 3. 결론", "paragraph", True),
+        ("① 배경 ② 목적 ③ 의의", "paragraph", True),
+        ("제1장 근로기준법 총칙", "paragraph", True),
+        ("제2절 소멸시효와 제척기간", "heading", True),
+        ("Chapter 1: Overview", "paragraph", True),
+        ("1. 연구의 필요성", "paragraph", True),
+        ("특징", "paragraph", True),
+        ("제12조 근로자는 30일 이내에 신고한다", "paragraph", False),
+        ("소멸시효: 권리자가 권리를 행사할 수 있음에도 일정 기간 행사하지 않는 경우 권리가 소멸하는 제도이다.", "paragraph", False),
+        ("광합성이란 엽록체에서 빛에너지를 이용해 포도당을 합성하는 과정이다.", "paragraph", False),
+    ],
+)
+def test_ddt_toc_and_structural_heading_filter_parity(
+    line_text: str,
+    kind: str,
+    expected_is_toc_or_heading: bool,
+) -> None:
+    """DDT: Verify TOC lines, dotted leader lines, and non-propositional headings are rejected in Python & JS."""
+    import subprocess
+    from anki_studio.domain.document_deck_builder import is_toc_or_structural_heading
+
+    assert is_toc_or_structural_heading(line_text, kind) is expected_is_toc_or_heading
+
+    vm_path = Path(__file__).resolve().parent.parent / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    js_code = (
+        f"const vm = require({json.dumps(str(vm_path))});"
+        f"console.log(JSON.stringify(vm.isTocOrStructuralHeading({json.dumps(line_text)}, {json.dumps(kind)})));"
+    )
+    out = subprocess.check_output(["node", "-e", js_code], text=True).strip()
+    assert json.loads(out) is expected_is_toc_or_heading
+
+
+def test_bdd_auto_deck_excludes_toc_and_unwraps_generic_labels_into_content_questions() -> None:
+    """BDD: Given a document with TOC, chapter headings, generic section labels ('특징:', '1. 배경:'), and definitions,
+    When auto-deck synthesis runs across Python and JS,
+    Then TOC/headings are excluded, generic labels are never asked as questions/answers, and content is the question.
+    """
+    import subprocess
+    from anki_studio.domain.ai_learning import extract_smart_cards_deterministic
+    from anki_studio.domain.document_deck_builder import is_generic_section_label
+
+    for lbl in ("특징", "1. 배경", "(2) 의의", "목적", "원인", "결과", "개요", "목차"):
+        assert is_generic_section_label(lbl) is True
+    for real_term in ("광합성", "소멸시효", "미토콘드리아", "강화도 조약"):
+        assert is_generic_section_label(real_term) is False
+
+    doc = ExtractedDocument(
+        title_hint=None,
+        source_kind="pdf",
+        page_count=1,
+        blocks=(
+            DocumentBlock(kind="heading", text="목차", page=1, confidence=0.99),
+            DocumentBlock(
+                kind="paragraph",
+                text="1. 서론 ..... 3\n2. 본론 ..... 12\n3. 결론 ..... 25",
+                page=1,
+                confidence=0.99,
+            ),
+            DocumentBlock(kind="heading", text="제1장 광합성과 세포 호흡", page=1, confidence=0.99),
+            DocumentBlock(
+                kind="paragraph",
+                text="특징: 엽록체에서 빛에너지를 화학에너지로 전환하여 포도당을 합성한다.",
+                page=1,
+                confidence=0.98,
+            ),
+            DocumentBlock(
+                kind="paragraph",
+                text="소멸시효: 권리자가 권리를 행사할 수 있음에도 일정 기간 행사하지 않는 경우 그 권리가 소멸하는 제도이다.",
+                page=1,
+                confidence=0.98,
+            ),
+        ),
+    )
+
+    # 1. Checklv1 / lv3 / mixed in build_deck_plan
+    plan_mixed = build_deck_plan(doc, difficulty_level="mixed")
+    assert plan_mixed.status == "OK"
+    # Deck name must not be "목차"
+    assert plan_mixed.deck_name != "목차"
+    assert "광합성" in plan_mixed.deck_name
+
+    forbidden_targets = {"목차", "차례", "서론", "본론", "결론", "특징", "제1장 광합성과 세포 호흡"}
+    for card in plan_mixed.cards:
+        front = card.spec.front_text
+        back_primary = card.spec.back_text.split("💡 해설:")[0].strip()
+        assert back_primary not in forbidden_targets, f"Forbidden generic/TOC target in back: {card.spec}"
+        assert "....." not in front
+        assert "특징'의 핵심" not in front
+        assert "{{c1::특징" not in front
+
+    # Basic lv1 card for "소멸시효: ..." must have the content/definition on front_text and "소멸시효" on back_text
+    somyeol_lv1 = [
+        c for c in plan_mixed.cards if "diff_lv1" in c.spec.tags and "권리자가" in c.spec.front_text
+    ]
+    assert len(somyeol_lv1) == 1
+    assert somyeol_lv1[0].spec.back_text.startswith("소멸시효")
+    assert "소멸시효" not in somyeol_lv1[0].spec.front_text
+
+    # Unwrapped generic label ("특징: 엽록체에서...") must attach heading context and ask about content
+    unwrapped_cards = [c for c in plan_mixed.cards if "빛에너지" in c.spec.front_text or "포도당" in c.spec.front_text]
+    assert len(unwrapped_cards) >= 1
+    assert any("제1장 광합성과 세포 호흡" in c.spec.front_text for c in unwrapped_cards)
+
+    # 2. Check extract_smart_cards_deterministic
+    raw_notes = (
+        "목차\n"
+        "1. 서론 ..... 3\n"
+        "제1장 광합성과 에너지\n"
+        "특징: 엽록체에서 빛에너지를 이용해 포도당을 합성하는 과정이다.\n"
+        "미토콘드리아: 세포 호흡을 통해 ATP를 합성하는 세포 소기관이다."
+    )
+    det_cards = extract_smart_cards_deterministic(raw_notes, difficulty_level="lv1")
+    assert len(det_cards) == 2
+    assert all("목차" not in c.front_text and "서론" not in c.front_text for c in det_cards)
+    assert all(not c.back_text.startswith("특징") for c in det_cards)
+    assert any("세포 호흡을 통해 ATP를 합성하는" in c.front_text and c.back_text.startswith("미토콘드리아") for c in det_cards)
+
+    # 3. Check JS ViewModel buildSmartTextDeck parity
+    vm_path = Path(__file__).resolve().parent.parent / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    js_code = (
+        f"const vm = require({json.dumps(str(vm_path))});"
+        f"const eng = vm.createStandaloneEngine();"
+        f"const res = eng.buildSmartTextDeck({{text: {json.dumps(raw_notes)}, difficulty_level: 'lv1', auto_save: false}});"
+        f"console.log(JSON.stringify(res));"
+    )
+    js_res = json.loads(subprocess.check_output(["node", "-e", js_code], text=True).strip())
+    assert js_res["ok"] is True
+    assert js_res["generated_count"] == 2
+    for c in js_res["cards"]:
+        assert "목차" not in c["front_text"]
+        assert "서론" not in c["front_text"]
+        assert not c["back_text"].startswith("특징")
+    assert any("세포 호흡을 통해 ATP를 합성하는" in c["front_text"] and c["back_text"].startswith("미토콘드리아") for c in js_res["cards"])
+
+
+def test_bdd_concise_card_front_back_minimum_information_principle() -> None:
+    """BDD: Verify front/back redundant chatter and duplicate explanations are eliminated across Python & JS 1,000-card decks."""
+    import subprocess
+    from anki_studio.domain.full_scale_corpus import build_full_scale_deck_cards
+
+    banned_front_boilerplates = (
+        "다음 어휘·표현의 문맥 속 정확한 뜻은?",
+        "(출제 포인트 점검)",
+        "(빈칸에 들어갈 핵심 표현은?)",
+        "위 설명에 해당하는 역사적 사건·인물·제도·유산은?",
+    )
+    banned_back_boilerplates = (
+        "표제어 '",
+        "— 훈음:",
+    )
+
+    sample_ref_ids = (
+        "moe-eng:elementary-800",
+        "hanja-grade:8geup",
+        "khist:essential",
+        "sci-element-formula:core",
+        "moe-math:core",
+        "moe-kor:orthography",
+        "cert-it:core",
+    )
+
+    for ref_id in sample_ref_ids:
+        cards = build_full_scale_deck_cards(ref_id=ref_id, target_count=1000)
+        assert len(cards) >= 1000
+        for c in cards:
+            front = str(c["front_text"])
+            back = str(c["back_text"])
+            for phrase in banned_front_boilerplates:
+                assert phrase not in front, f"Verbose front boilerplate '{phrase}' found in {ref_id}: {front}"
+            for phrase in banned_back_boilerplates:
+                assert phrase not in back, f"Redundant back boilerplate '{phrase}' found in {ref_id}: {back}"
+            if "💡 해설:" in back:
+                ans_part, exp_part = [p.strip() for p in back.split("💡 해설:", 1)]
+                assert ans_part != exp_part, f"Duplicate answer == explanation in {ref_id}: {back}"
+
+    vm_path = Path(__file__).resolve().parent.parent / "src" / "anki_studio" / "ui" / "static" / "viewmodel.js"
+    js_code = (
+        f"const vm = require({json.dumps(str(vm_path))});"
+        f"const eng = vm.createStandaloneEngine();"
+        f"const d = eng.buildCollectionDeck({{collection_id: 'hanja-grade:8geup', limit: 1000}});"
+        f"console.log(JSON.stringify(d.cards.slice(0, 60)));"
+    )
+    sample_js_cards = json.loads(subprocess.check_output(["node", "-e", js_code], text=True).strip())
+    assert len(sample_js_cards) == 60
+    for c in sample_js_cards:
+        for phrase in banned_front_boilerplates:
+            assert phrase not in c["front_text"]
+        if "💡 해설:" in c["back_text"]:
+            ans_part, exp_part = [p.strip() for p in c["back_text"].split("💡 해설:", 1)]
+            assert ans_part != exp_part
+
+

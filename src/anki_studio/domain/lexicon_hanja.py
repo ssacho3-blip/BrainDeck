@@ -96,7 +96,7 @@ _RAW_HANJA_IDIOMS_AND_WORDS = """
 轉禍爲福(전화위복):구를 전·재앙 화·할 위·복 복 — 재앙과 불행이 오히려 바뀌어 복과 다행이 됨
 朝三暮四(조삼모사):아침 조·석 삼·저녁 모·넉 사 — 눈앞의 차이만 알고 결과가 같은 것을 모르는 어리석음
 烏飛梨落(오비이락):까마귀 오·날 비·배나무 리·떨어질 락 — 까마귀 날자 배 떨어지듯 우연히 겹쳐 의심을 받게 됨
-見물生心(견물생심):볼 견·물건 물·날 생·마음 심 — 좋은 물건을 보면 가지고 싶은 욕심이 생김
+見物生心(견물생심):볼 견·물건 물·날 생·마음 심 — 좋은 물건을 보면 가지고 싶은 욕심이 생김
 同病相憐(동병상련):한가지 동·병 병·서로 상·불쌍히 여길 련 — 같은 처지의 어려운 사람들끼리 서로 가엾게 여겨 돕고 위로함
 臥薪嘗膽(와신상담):누울 와·섶 신·맛볼 상·쓸개 담 — 목표를 이루기 위해 온갖 고난과 어려움을 참고 견딤
 四面楚歌(사면초가):넉 사·낯 면·초나라 초·노래 가 — 사방이 적에게 둘러싸여 누구의 도움도 받을 수 없는 고립된 처지
@@ -119,7 +119,7 @@ _RAW_HANJA_IDIOMS_AND_WORDS = """
 走馬加鞭(주마가편):달릴 주·말 마·더할 가·채찍 편 — 달리는 말에 채찍질을 하듯 잘하는 사람을 더욱 격려하여 발전하게 함
 他山之石(타산지석):다를 타·뫼 산·갈 지·돌 석 — 남의 허물이나 부족한 언행도 자신의 수양과 발전에 본보기로 삼음
 登高自卑(등고자비):오를 등·높을 고·스스로 자·낮을 비 — 높은 곳에 오르려면 낮은 곳부터 시작하듯 모든 일은 순서대로 밟아야 함
-積토成山(적토성산):쌓을 적·흙 토·이룰 성·뫼 산 — 작은 흙이 쌓여 큰 산을 이루듯 작은 노력이 모여 큰 업적을 이룸
+積土成山(적토성산):쌓을 적·흙 토·이룰 성·뫼 산 — 작은 흙이 쌓여 큰 산을 이루듯 작은 노력이 모여 큰 업적을 이룸
 桑田碧海(상전벽해):뽕나무 상·밭 전·푸를 벽·바다 해 — 뽕나무 밭이 푸른 바다가 되듯 세상이 몰라보게 크게 변함
 隔世之感(격세지감):사이 뜰 격·세대 세·갈 지·느낄 감 — 다른 세대를 만난 듯이 그동안의 변화가 매우 크게 느껴짐
 不偏不黨(불편부당):아닐 불·치우칠 편·아닐 불·무리 당 — 어느 한쪽으로 치우치지 않고 공정하고 중립적인 태도를 지킴
@@ -178,11 +178,17 @@ _RAW_HANJA_IDIOMS_AND_WORDS = """
 
 @lru_cache(maxsize=1)
 def get_authentic_hanja_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
-    """Return 1,400+ distinct, real Hanja characters, idioms, and Sino-Korean vocabulary words."""
+    """Return 1,400+ distinct, real Hanja characters, idioms, and Sino-Korean vocabulary words.
+
+    Quality Invariants:
+    - Front prompt (`ctx`) NEVER leaks the Korean reading (`음`) or meaning (`훈`) of the target Hanja/idiom/word.
+    - Compound examples shown on the front of single-character cards use Hanja-only notation (e.g., `天地, 天下`).
+    """
+    import re
+
     items: List[Tuple[str, str, str, str]] = []
     seen_terms = set()
 
-    char_nodes: List[Tuple[str, str, str, str]] = []
     for line in _RAW_HANJA_CHARS.strip().splitlines():
         for tok in line.split("|"):
             tok = tok.strip()
@@ -192,16 +198,14 @@ def get_authentic_hanja_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
             ch = ch.strip()
             huneum = huneum.strip()
             ex = ex.strip()
-            term = f"{huneum}({ch})"
+            term = ch if ch not in seen_terms else f"{ch} ({huneum.split()[-1]})"
             if term not in seen_terms:
                 seen_terms.add(term)
-                ctx = f"교육부 기초한자 '{ch}'의 올바른 훈음(뜻과 음)은? (대표 활용어: {ex})"
-                tip = f"한자 '{ch}' — 훈음: {huneum} | 활용 한자어: {ex}"
+                hj_compounds = re.findall(r"[\u4e00-\u9fff]{2,4}", ex)
+                hanja_only_ex = ", ".join(hj_compounds) if hj_compounds else ch
+                ctx = f"【 {term} 】 (활용: {hanja_only_ex})"
+                tip = f"활용 한자어: {ex}"
                 items.append((term, huneum, ctx, tip))
-                parts = huneum.split()
-                eum = parts[-1].split("(")[0] if parts else huneum
-                hun = " ".join(parts[:-1]) if len(parts) > 1 else huneum
-                char_nodes.append((ch, huneum, hun, eum))
 
     for line in _RAW_HANJA_IDIOMS_AND_WORDS.strip().splitlines():
         line = line.strip()
@@ -214,27 +218,35 @@ def get_authentic_hanja_lexicon() -> Tuple[Tuple[str, str, str, str], ...]:
             breakdown, meaning = desc.split(" — ", 1)
         else:
             breakdown, meaning = desc, desc
-        if head not in seen_terms:
-            seen_terms.add(head)
-            ctx = f"사자성어 '{head}'의 한자 훈음 구성({breakdown})이 뜻하는 바는?"
-            tip = f"{head}: {breakdown} — {meaning}"
-            items.append((head, meaning, ctx, tip))
+        m_head = re.match(r"^([\u4e00-\u9fff]+)\(([^)]+)\)$", head)
+        if m_head:
+            idiom_hj, idiom_ko = m_head.group(1).strip(), m_head.group(2).strip()
+        else:
+            idiom_hj, idiom_ko = head, head
+        term = idiom_hj if idiom_hj not in seen_terms else head
+        if term not in seen_terms:
+            seen_terms.add(term)
+            ans = f"{idiom_ko} ({idiom_hj}) — {meaning}"
+            ctx = f"사자성어 【 {idiom_hj} 】의 독음과 뜻은?"
+            tip = f"한자 구성: {breakdown}"
+            items.append((term, ans, ctx, tip))
 
-    # Extract all standard 2+ character Sino-Korean words from the curated examples (학교(學校), 교육(敎育), etc.)
-    import re
+    # Extract all standard 2+ character Sino-Korean words from the curated examples (學校, 敎育, etc.)
     for line in _RAW_HANJA_CHARS.strip().splitlines():
         for tok in line.split("|"):
             if tok.count(":") < 2:
                 continue
             ch, huneum, ex = tok.split(":", 2)
+            ch = ch.strip()
+            huneum = huneum.strip()
             for m in re.finditer(r"([가-힣]{2,4})\(([\u4e00-\u9fff]{2,4})\)", ex):
                 ko_word, hj_word = m.group(1), m.group(2)
-                w_term = f"{ko_word}({hj_word})"
+                w_term = hj_word if hj_word not in seen_terms else f"{hj_word}[{ch}]"
                 if w_term not in seen_terms:
                     seen_terms.add(w_term)
-                    w_ans = f"{ko_word} (핵심 한자: {ch} = {huneum})"
-                    w_ctx = f"필수 한자어 '{hj_word}'의 독음과 핵심 구성 한자 '{ch}'의 훈음은?"
-                    w_tip = f"{ko_word}({hj_word}) — '{ch}'({huneum})가 포함된 표준 한자어"
+                    w_ans = f"{ko_word} ({hj_word})"
+                    w_ctx = f"한자어 【 {hj_word} 】의 독음과 '{ch}'의 훈음은?"
+                    w_tip = f"핵심 한자: {ch} ({huneum})"
                     items.append((w_term, w_ans, w_ctx, w_tip))
 
     return tuple(items)
